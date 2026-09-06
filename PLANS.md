@@ -39,6 +39,21 @@ v0.2已发布，原干净产品回归438项；CLI MISSION-R5-FINAL-CLI-20260905-
 
 新的 A01—A12 缺陷不被上述历史 PASS 清零；功能卡尚未实施。DOC-00 本次核对为 `DOC00_BASELINE_PASS`：预期 7 项规划文件已入库，106 个产品 blob 与 builder／manifest 未变，当前 17 个 Markdown 本地链接有效。目录迁移的本轮离线验收另行记录。
 
+## M0 开发验证环境
+
+目录：仓库根的 `clao/`；CPython 3.12.7，`bootstrap.ps1` 创建本地 `.venv`，安装既有锁定依赖 PyYAML 6.0.3 / pytest 9.1.1，无新增依赖。
+
+```powershell
+cd clao
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\bootstrap.ps1
+$env:PATH = "$(Resolve-Path '.\.venv\Scripts');$env:PATH"
+$env:PYTHONPATH = (Resolve-Path '.\src').Path
+.\.venv\Scripts\python.exe -m pytest .\tests -q
+.\.venv\Scripts\python.exe -m compileall -q src panel run_mission.py
+```
+
+从仓库根在 clean committed HEAD 上运行 `packaging/build-release.ps1 -OutputDirectory <仓库外的新目录>`；release 映射只读 tracked blobs，顶层仍为 `clao/`。当前事实与路径审计见 [M0 证据](docs/V03_M0_EVIDENCE.md)。
+
 ## 更新规则
 
 本文件只维护当前指针、阶段、最近关键证据、阻塞和下一步；详细测试记录放BACKLOG对应卡。Codex不能把实现中、待审计、mock通过或外部blocked写成DONE。
@@ -47,4 +62,4 @@ v0.2已发布，原干净产品回归438项；CLI MISSION-R5-FINAL-CLI-20260905-
 
 ## 冻结历史入口
 
-R0—R5完整历史仍在[v0.2固定提交的PLANS](https://github.com/zhaoshiyi4246/agent-orchestrator-AI-worker/blob/4d3e8e6b5e70bab868b2eef0d28c7742dea044ba/PLANS.md)；旧PROJECT和AGENTS同样可按固定提交查询。新执行计划不复制几百行旧日志，不修改旧tag，也不把旧时间线重新标注为当前任务。
+R0—R5完整历史仍在[v0.2固定提交的PLANS](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/blob/4d3e8e6b5e70bab868b2eef0d28c7742dea044ba/PLANS.md)；旧PROJECT和AGENTS同样可按固定提交查询。新执行计划不复制几百行旧日志，不修改旧tag，也不把旧时间线重新标注为当前任务。

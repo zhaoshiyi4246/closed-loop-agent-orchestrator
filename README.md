@@ -8,7 +8,7 @@ CLAO 是构建在 Agent Orchestrator（AO）上的本地闭环软件开发控制
 
 ## 使用已发布产品
 
-前往 [v0.2 Release](https://github.com/zhaoshiyi4246/agent-orchestrator-AI-worker/releases/tag/v0.2)，下载附件 `clao-v0.2-4d3e8e6b5e70.zip`，不要把自动生成的Source code ZIP当作净化产品包。解压后进入 `clao/`，按其中README操作。
+前往 [v0.2 Release](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/releases/tag/v0.2)，下载附件 `clao-v0.2-4d3e8e6b5e70.zip`，不要把自动生成的Source code ZIP当作净化产品包。解压后进入 `clao/`，按其中README操作。
 
 当前验证环境为Windows、CPython3.12、Git、AO Desktop0.12.9和Codex CLI0.150.1/ChatGPT登录。bootstrap只管理Python venv，不替用户安装外部工具。Git-backed AO Project需要origin与有效remote-backed base；origin可为本地bare repo。
 
@@ -27,6 +27,24 @@ CLAO 是构建在 Agent Orchestrator（AO）上的本地闭环软件开发控制
 - [原审计报告](docs/reference/CLAO_v0.2_audit_20260905.pdf)
 - [Codex实施规则](AGENTS.md)
 
-当前产品源码仍位于 `交付/closed-loop-v2/`；这是开发路径，release通过映射生成干净 `clao/`。不要复制一份新的v0.3源码，也不把历史来源目录打进产品。
+当前唯一正式产品源码为 `clao/`；发布工具位于 `packaging/`，历史来源归档在 `legacy/`。内部 `loopcore` 包与已发布 v0.2 的运行行为保持不变。
+
+```text
+closed-loop-agent-orchestrator/
+├─ clao/          当前产品、测试、bootstrap
+├─ packaging/     release builder 与 manifest
+├─ legacy/        历史 v0.1、sidecar、demo 和开发资料
+├─ docs/          当前事实、v0.3 规划与 reference
+├─ AGENTS.md
+├─ PLANS.md
+├─ README.md
+└─ .gitignore
+```
+
+开发验证：进入 `clao/`，运行 `bootstrap.ps1`，按 [产品自检说明](clao/README.md#本地自检) 运行 pytest 和 compileall。
+
+发布彩排：在 clean committed branch HEAD 上运行 `packaging/build-release.ps1 -OutputDirectory <仓库外的新目录>`。builder 只读取 HEAD 中 manifest 指定的 tracked blobs，产品 ZIP 唯一顶层仍是 `clao/`；不包含 `legacy/`、治理文档、runtime 或 `.venv`。这是本地构建，不自动创建 GitHub Release。
+
+[M0 迁移证据与边界](docs/V03_M0_EVIDENCE.md) 记录路径、内容 allowlist 和验证结果。
 
 本仓库为统一的发布与评审主线。队友补丁须按范围评审、验证并保留归属；不以Sync fork或整目录覆盖替代集成。

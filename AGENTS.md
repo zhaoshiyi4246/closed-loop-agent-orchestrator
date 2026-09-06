@@ -1,6 +1,6 @@
 # CLAO 项目实施规则
 
-适用整个仓库。长期规则在本文件；当前任务在 PLANS.md；目标设计在 docs/V03_PLAN.md。更深层 AGENTS 只能补充局部规则，不得放松项目安全边界。
+适用整个仓库。长期规则在本文件；当前任务在 PLANS.md；目标设计在 docs/V03_PLAN.md。更深层 AGENTS 只能补充局部规则，不得放松项目安全边界。`legacy/**` 中的 nested AGENTS 仅属于历史 snapshot，不是当前 `clao/` 或 `packaging/` 的实施规则。
 
 ## 开始任务
 
@@ -17,6 +17,8 @@
 - docs/V03_PLAN.md 的范围与决策变更需负责人批准；PLANS、BACKLOG、PROJECT可依据已验证事实最小更新。
 
 ## 固定架构与安全边界
+
+以下是实施约束，包含 v0.3 待补齐的安全要求；当前实现和已知差距以 docs/PROJECT.md 为准，不以规则文字宣称功能已实现。
 
 - 保留 MissionController + per-task ClosedLoop；StateStore 为逻辑运行状态权威；AO公开接口是Session/Worker/workspace外部事实源。
 - Bus、Markdown、JSONL、前端缓存是投影，不变成第二控制面。恢复材料含Git和相关证据，不宣称state.db单文件足够。
@@ -38,9 +40,10 @@
 
 ## 源码、发布与依赖
 
-- 当前实现仍在 交付/closed-loop-v2；该名字是开发路径，不另复制一份v0.3源码。产品包为clao/。
-- 历史clao-src和sidecar不进入产品。内部loopcore包不为品牌重命名。
-- 发布边界唯一来源为release-manifest；新runtime资源/依赖必须相应纳入、验证；开发工具不能混入runtime。
+- 正式仓库：`zhaoshiyi4246/closed-loop-agent-orchestrator`。`clao/` 是唯一正式产品源码；不另复制一份 v0.3 源码。产品包顶层仍为 `clao/`。
+- `packaging/build-release.ps1` 与 `packaging/release-manifest.txt` 是唯一发布工具和映射入口，从 clean HEAD tracked blobs 构建，输出目录必须在仓库外。
+- `legacy/` 保存 v0.1、sidecar、demo 和旧开发资料，不进入产品；内部 `clao/src/loopcore/` 包不改名。`docs/` 保存当前事实与规划，`docs/reference/` 审计附件冻结。
+- 发布边界唯一来源为 manifest；新 runtime 资源／依赖必须相应纳入、验证；开发工具不能混入 runtime。
 - 已发布v0.2 tag、附件和checksum不可覆盖。不得自动Sync fork／覆盖队友整目录。
 - 允许引入有明确必要性的jsonschema、HTTP或凭据薄依赖；禁止为方便建设新Agent、数据库、队列、网关或框架。
 - UI默认沿用现有Web栈；Apple风格是层级与留白，不分发Apple字体/素材，不开公网。
@@ -55,7 +58,7 @@
 - 不能将Linux测试、mock、源码推断、旧release live混称本次Windows产品验收。
 - 438仅为v0.2历史测试计数；以后报告实际命令结果，禁止凑数量、删失败用例或弱化断言。
 
-Windows已验证基线：进入产品目录，将 .venv\Scripts 前置PATH、src设为PYTHONPATH，再用本目录venv Python运行pytest/compileall。不得用无pytest的系统Python替代后改测试迁就。
+Windows已验证基线：从仓库根进入 `clao/` 产品目录，将 .venv\Scripts 前置PATH、src设为PYTHONPATH，再用本目录venv Python运行pytest/compileall。不得用无pytest的系统Python替代后改测试迁就。
 
 ## Git纪律
 
