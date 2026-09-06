@@ -1,6 +1,6 @@
 # CLAO v0.3 任务与验收台账
 
-版本：0.3-plan-r1 · 2026-09-06。状态：已批准 / IN EFFECT。DOC-00、F01 / F02 已完成；下一任务 F03 为 `TODO`；其余功能卡状态见下表，原报告的发现不等于已复现或已修复。
+版本：0.3-plan-r1 · 2026-09-06。状态：已批准 / IN EFFECT。DOC-00、F01 / F02 已完成；当前任务 F03 为 `IN_PROGRESS`；其余功能卡状态见下表，原报告的发现不等于已复现或已修复。
 
 设计以 [V03_PLAN.md](V03_PLAN.md) 为准。当前唯一任务由根目录 [PLANS.md](../PLANS.md) 指定。本文件保存每张卡的详细状态和证据，PLANS 不重复整张台账。
 
@@ -35,7 +35,7 @@
 | V03-M0-LAYOUT | M0 | Repository layout consolidation 与本机副本整理 | DOC-00 | DONE |
 | V03-F01 | M1 | 完整契约与终局一致性 | DOC-00 | DONE（PR #32 审计 PASS / merged） |
 | V03-F02 | M1 | 审批命令与路径包含性 | DOC-00 | DONE（PR #33 审计 PASS / merged） |
-| V03-F03 | M1 | Git路径、产物规则与只读取证 | DOC-00 | TODO |
+| V03-F03 | M1 | Git路径、产物规则与只读取证 | DOC-00 | IN_PROGRESS |
 | V03-F04 | M1 | Gate查询、本地API与安全渲染 | F01的结果字段约定 | TODO |
 | V03-F05 | M1 | 停止确认与未知外部动作保护 | DOC-00 | TODO |
 | V03-R01 | M2 | 有效配置与阶段诊断 | F01/F04 | TODO |
@@ -115,13 +115,20 @@ G1=F01—F05；G2=R01—R02；G3=U01—U03；G4=P01—P02及P03有记录的支�
 
 ## V03-F03｜Git路径、产物规则与只读取证
 
-- 状态：TODO；F02 完成后的下一任务，等待独立实施指令，本轮未开始实现。
+- 状态：IN_PROGRESS；2026-09-07；base `3af98d46e3495aa0154f8701152a11274b42a7c2`，分支 `codex/v03-f03-git-evidence`；F01/F02 保持 DONE，完成后提交独立 PR 等待审计，不开始 F04。
 - 对应：A03，关联A09/A12。落点：worktree、mission_gate、mission及调用者。
 - 工作：无歧义路径解析；rename old/new；精确artifact规则；不改index取untracked diff；统一baseline采证完整性；Final确定性scope。
 - 必测：rename/copy/delete/untracked/staged；空格中文控制字符；data.pyconfig/.coverage_policy.py不能误过滤；cache允许；采证异常也不得破坏index。
 - 完成：Git before/after内容和index校验；非允许路径不能被模型PASS覆盖；正向materialization不加入cache。
 - 不做：改变用户ignore、强制add、自动reset/checkout、重写Git历史。
-- 证据：待填。
+- Git 依据：本机 Git 2.55.0.windows.3 随附 git-diff / diff-format、git-ls-files、git-commit 文档及隔离仓库实测；不根据面向人的 quoting 推断路径。
+- 改动事实：严格 NUL name-status / index 解析；committed（冻结 base 与 HEAD 两端点）、staged、unstaged / untracked 分层取并集，rename/copy 同时保留来源与目标，删除保留原路径。JSON 路径列表补充 diff 展示；空 allow 不授权。Final scope 与 Verifier 使用同一完整路径集合，ClosedLoop 沿用同一 helper。
+- 只读与 artifact：临时 index / objects 均位于仓库外，保留原 index 的 staged 事实；add -N 只作用于临时 index，异常不 reset/restore 真实仓库。禁用自动 index refresh、fsmonitor、取证 hook、外部 diff/textconv 与 clean/process 程序；不修改 ignore/exclude。artifact 只按目录段、明确后缀或 coverage 数据文件格式匹配；复制到 cache 不把未变来源算作修改，移入 cache 的源码删除仍可见。
+- baseline / materialization：基线复用 IntegrationGate 的 require_clean、before/after 完整性和既有 Gate 记录；旧/损坏/不匹配的基线不提供红测豁免，采证完整性失败进入 HUMAN。main HEAD 无法确认时不回退 Worker HEAD。materialization 仅 add 实际可暂存用户路径，commit --only 精确提交用户净改动；已暂存 cache 保留在 index，但不随提交进入交付，不重写既有 Worker 历史。
+- Windows 检查：CPython 3.12.7；产品 .venv/Scripts 前置 PATH、src 为 PYTHONPATH，均在 clao/ 使用 .venv/Scripts/python.exe。主集合 `-m pytest tests/test_f03_git_evidence.py tests/sidecar_port/test_worktree_multi.py tests/test_mission_gate.py tests/test_final_gate_baseline.py tests/test_cluster7_audit.py tests/sidecar_port/test_mission.py tests/test_gate_first_completion.py tests/test_f01_contract_boundary.py -q -rs --tb=short`：**188 passed / 323.88s**。
+- 最终加固复查：隐藏 index 标志加固后，前述前 4 模块同参数 **110 passed / 162.69s**；统一 Git 环境隔离后，`-m pytest tests/test_f03_git_evidence.py::test_git_environment_cannot_redirect_reads_or_materialization tests/sidecar_port/test_worktree_multi.py -q -rs --tb=short` **21 passed / 23.22s**。均 0 failed / 0 skipped，集合有重叠不累计；`-m compileall -q src/loopcore/worktree.py src/loopcore/mission.py` 通过。
+- 证据边界：隔离临时 Git 仓库验证真实 HEAD、index 字节、staged 条目、用户文件内容，异常还比对 .git 文件集/内容；覆盖 split index、取证 hook/filter 不执行。Windows 禁止检出的控制字符文件名用真实 Git tree/commit 对象验证，未冒充本机可检出路径。Git copy 相似度用于端点事实，不宣称追踪任意历史复制意图；隐藏 index 标志、未合并条目、当前 submodule index、无法解析/读取的状态返回未知。多次 Git 采样不承诺跨并发 Worker 写入的原子快照；F05 停止确认、R02 生命周期仍在原卡范围。
+- NOT_RUN：完整全量回归、干净安装、打包、smoke、真实 AO Mission / 模型、GUI，按授权留到 v0.3 收尾；本轮未合并、未创建 tag/Release、未开始 F04。
 
 ## V03-F04｜Gate查询、本地API与安全渲染
 

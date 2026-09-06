@@ -124,8 +124,9 @@ def test_final_gate_tolerates_legacy_baseline_failures(tmp_path):
     # baseline captured a legacy red test on the pristine tree
     sidecar = Path(str(store.path) + ".baseline-%s.json"
                    % mc.mission.mission_id)
-    sidecar.write_text(json.dumps({"failures": ["test_legacy"]}),
-                       encoding="utf-8")
+    baseline = json.loads(sidecar.read_text(encoding="utf-8"))
+    baseline["failures"] = ["test_legacy"]
+    sidecar.write_text(json.dumps(baseline), encoding="utf-8")
     gate_red_legacy = MagicMock(ok=False, results=[{
         "command": "pytest", "stdout": "..F..\n_____ test_legacy _____\n",
         "stderr": ""}])
@@ -142,8 +143,9 @@ def test_final_gate_new_failure_is_fatal(tmp_path):
     mc, store, data_dir = _seed_done_mission(tmp_path)
     sidecar = Path(str(store.path) + ".baseline-%s.json"
                    % mc.mission.mission_id)
-    sidecar.write_text(json.dumps({"failures": ["test_legacy"]}),
-                       encoding="utf-8")
+    baseline = json.loads(sidecar.read_text(encoding="utf-8"))
+    baseline["failures"] = ["test_legacy"]
+    sidecar.write_text(json.dumps(baseline), encoding="utf-8")
     gate_red_new = MagicMock(ok=False, results=[{
         "command": "pytest",
         "stdout": "..FF..\n_____ test_legacy _____\n_____ test_new_break _____\n",

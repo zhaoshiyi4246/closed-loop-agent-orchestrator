@@ -15,7 +15,7 @@ from loopcore.action_executor import ActionExecutor, ActionResult
 from loopcore.auditor import FakeAuditorProvider
 from loopcore.mission_contracts import (MissionSpec, PlannerAction, PlannerActionType,
                            ProjectState)
-from loopcore.mission_gate import IntegrationGate
+from loopcore.mission_gate import GateRun, IntegrationGate
 from loopcore.mission import MissionController
 from loopcore.event_observer import Observer
 from loopcore.planner_adapter import FakePlannerProvider
@@ -496,10 +496,8 @@ def test_full_mission_to_done_with_merge(tmp_path):
         mc.step()    # dispatch S1 only (S2 dep)
     s1 = [s for s in mc.plan.subtasks if not s.dependencies][0].subtask_id
     s2 = [s for s in mc.plan.subtasks if s.dependencies][0].subtask_id
-    gate_ok = MagicMock(ok=True, results=[
-        {"command": "pytest", "stdout": "4 passed", "stderr": ""}],
-        evidence=lambda: [{"type": "integration_gate", "summary": "pass",
-                           "reference": "exit=0"}])
+    gate_ok = GateRun(ok=True, results=[
+        {"command": "pytest", "stdout": "4 passed", "stderr": "", "exit_code": 0}])
     with patch.object(IntegrationGate, "run", return_value=gate_ok):
         mc.loops[s1].step(injected_events=[ev(
             "2026-09-02T00:00:00Z", project=mc.mission.project_id,
