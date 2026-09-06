@@ -1,0 +1,196 @@
+# CLAO v0.3 任务与验收台账
+
+版本：0.3-plan-r1 · 2026-09-06。状态：负责人审核稿。所有实施卡初始为 `TODO`；原报告的发现不等于本轮已复现，更不等于已修复。
+
+设计以 [V03_PLAN.md](V03_PLAN.md) 为准。当前唯一任务由根目录 [PLANS.md](../PLANS.md) 指定。本文件保存每张卡的详细状态和证据，PLANS 不重复整张台账。
+
+## 状态与记录格式
+
+`TODO → IN_PROGRESS → IN_REVIEW → DONE`；外部前提阻塞为 `BLOCKED`。DONE 需要代码／测试／范围审计符合该卡完成定义；仅生成 PR 不等于 DONE。需要 live 的卡可先写 `IN_REVIEW，offline PASS / live PENDING`，不能先写全部通过。
+
+每卡更新只追加：日期、执行基线、分支、commit/PR、测试环境与命令、red/green结果、live/GUI证据等级、风险、下一步。不得复制大日志、用户Prompt、凭据或真实机器路径。调整范围／依赖由负责人批准，在 V03_PLAN 决策记录说明。
+
+## A01—A12 映射
+
+| 原编号 | 原报告性质 | 本版落点 |
+|---|---|---|
+| A01 审批／包含性 | 源码＋隔离负例 | F02；安全规则不能被GUI绕开 |
+| A02 终局一致性 | 源码＋判定条件复演 | F01；P01/P02沿用 |
+| A03 Git路径／取证 | 源码＋临时Git复演 | F03 |
+| A04 Gate查询／错误显示 | 源码＋SQLite复演 | F04；U02 |
+| A05 本地API／HTML | 源码＋字符串复演，浏览器可达性待测 | F04 |
+| A06 指令消费 | 源码／异常窗口 | R02 |
+| A07 外部动作／kill | 源码推断，需故障注入验证 | F05 |
+| A08 Stop/Resume | 源码语义不一致 | R02；U02 |
+| A09 双任务／基线 | 静态调用顺序风险，需验证 | R02；不能支持的依赖计划明确拒绝 |
+| A10 配置／性能 | 源码消费者差异 | R01 |
+| A11 多模型／证据 | 现状差距与设计任务 | F01；P01/P02/P03 |
+| A12 交付／维护 | 现状差距与设计任务 | U03；Q01 |
+
+## 总表
+
+| ID | 阶段 | 标题 | 依赖 | 状态 |
+|---|---|---|---|---|
+| V03-DOC-00 | M0 | 规划入库与基线核对 | 负责人批准 | TODO |
+| V03-F01 | M1 | 完整契约与终局一致性 | DOC-00 | TODO |
+| V03-F02 | M1 | 审批命令与路径包含性 | DOC-00 | TODO |
+| V03-F03 | M1 | Git路径、产物规则与只读取证 | DOC-00 | TODO |
+| V03-F04 | M1 | Gate查询、本地API与安全渲染 | F01的结果字段约定 | TODO |
+| V03-F05 | M1 | 停止确认与未知外部动作保护 | DOC-00 | TODO |
+| V03-R01 | M2 | 有效配置与阶段诊断 | F01/F04 | TODO |
+| V03-R02 | M2 | 指令回执、取消恢复、固定基线 | F03/F05/R01 | TODO |
+| V03-U01 | M3 | iPhone风格界面骨架与状态夹具 | G1；R01/R02字段设计 | TODO |
+| V03-U02 | M3 | 完整任务GUI与数据接线 | U01/R02/F04 | TODO |
+| V03-U03 | M3 | 结果中心与独立导出 | U02/F03 | TODO |
+| V03-P01 | M4 | 模型配置／凭据与GLM语义后端 | F01/R01/F04 | TODO |
+| V03-P02 | M4 | Kimi语义后端与切换评测 | P01 | TODO |
+| V03-P03 | M4 | 第二Worker能力准入决策 | P01/P02；AO官方契约 | TODO |
+| V03-Q01 | M5 | 新Windows产品验收与发布候选 | G1—G4 | TODO |
+
+G1=F01—F05；G2=R01—R02；G3=U01—U03；G4=P01—P02及P03有记录的支持/拒绝决策；G5=Q01。
+
+## V03-DOC-00｜规划入库与基线核对
+
+- 目标：把负责人批准的规划变成唯一可查询上下文，先不实施产品。
+- 范围：AGENTS、PROJECT、PLANS、V03_PLAN、V03_BACKLOG、根README、原审计PDF引用。不得改产品、manifest或builder。
+- 检查：main最新SHA；已发布tag不变；7个预期文件；链接有效；不存在另一份开发project.md；旧治理历史可由固定提交访问。
+- 完成：文档PR入库，产品blob变更=0；将下一任务指向F01。文档稿生成和用户下载不等于入库完成。
+- 证据：待填。
+
+## V03-F01｜完整契约与终局一致性
+
+- 对应：A02、A11。落点：mission_contracts.py、verifier.py、mission.py、必要Provider/schema/requirements/bootstrap与直接测试；以实际调用链为准。
+- 工作：先复现顶层PASS但AC FAIL等负例；移植或重做必要的完整validator，评审队友补丁，不整目录覆盖。取消弱fallback；强制关联、覆盖、有限数值、结果一致性和证据截断语义。
+- 必测：错误verify/task/mission ID；AC缺失/重复/未知/UNVERIFIABLE；anti-gaming FAIL；畸形列表；NaN/Infinity；证据缺口。正常合法PASS仍可到MISSION_DONE。
+- 完成：负例全部不能成功；本地protocol failure与语义FAIL区分；同一规范供新供应商复用；Windows离线和受控Codex角色smoke按变更影响执行。
+- 不做：更换默认模型、动态高风险Verifier、放宽Gate。
+- 证据：待填。
+
+## V03-F02｜审批命令与路径包含性
+
+- 对应：A01。落点：ClosedLoop生产审批路径、approvals和相关测试。
+- 工作：先查真实AO请求结构，再规范原始输入与路径；解析不明不授权；exact module/argv、不用双向前缀和先折叠换行。
+- 必测：报告所有predicate负例；允许**仍不能越根；symlink/junction；中文空格路径；不存在文件；restore/checkout等危险动作不自动允许。
+- 完成：隔离产品级负例先红后绿；允许的Edit和精确Gate可完成；拒绝原因和人工审批均可追踪。
+- 不做：执行危险命令验证“是否真的删除”；自造沙箱框架；用户重要仓库测试。
+- 证据：待填。
+
+## V03-F03｜Git路径、产物规则与只读取证
+
+- 对应：A03，关联A09/A12。落点：worktree、mission_gate、mission及调用者。
+- 工作：无歧义路径解析；rename old/new；精确artifact规则；不改index取untracked diff；统一baseline采证完整性；Final确定性scope。
+- 必测：rename/copy/delete/untracked/staged；空格中文控制字符；data.pyconfig/.coverage_policy.py不能误过滤；cache允许；采证异常也不得破坏index。
+- 完成：Git before/after内容和index校验；非允许路径不能被模型PASS覆盖；正向materialization不加入cache。
+- 不做：改变用户ignore、强制add、自动reset/checkout、重写Git历史。
+- 证据：待填。
+
+## V03-F04｜Gate查询、本地API与安全渲染
+
+- 对应：A04、A05。落点：StateStore查询、Panel server/index及新直接测试。
+- 工作：专用Gate DTO；command/integrity/scope/overall分别表达；数据库异常保留read_error；完整错误字段。Host/Origin/JSON/nonce；id与文件路径包含性；安全DOM渲染。
+- 必测：真实SQLite Gate row到/api/state到页面；exit0+integrity失败显示失败；无记录与读失败不同；跨源请求、非法Host、缺token、穿越、引号、双击写请求。
+- 完成：离线API/浏览器合同全绿；loopback不变；不会因错误toast消失而丢失根因。
+- 不做：美化大重构、公网访问、让客户端自行裁决PASS。
+- 证据：待填。
+
+## V03-F05｜停止确认与未知外部动作保护
+
+- 对应：A07。落点：Executor、Mission、Store，必要AO官方只读查询。
+- 工作：同Store intent/operation_id/result；spawn/send超时先对账；无法确认则UNKNOWN+人工处理。materialization须已停止事实；不忽略kill失败继续提交。
+- 必测：spawn成功但客户端ack丢失；send后进程中断；kill false/timeout；多次重试同操作；不唯一外部结果不得造第二Worker。
+- 完成：在支持的AO契约下防盲重发，未知状态可解释；副作用数量受控；一次受控故障恢复验收。报告at-most-once/对账边界，不承诺分布式exactly-once。
+- 不做：改AO内部DB；新增队列服务；提升预算隐藏未知。
+- 证据：待填。
+
+## V03-R01｜有效配置与阶段诊断
+
+- 对应：A10，支持A06/A11。落点：runtime/config、Gate、Adapter、Provider、Panel。
+- 工作：唯一effective config解析；model重复键迁移；Gate时间/输出真正接线；配置来源与revision；phase/attempt/error metrics；敏感项不落库。
+- 必测：保存值等于消费者值；非法范围拒绝；旧配置迁移/提示；运行中默认值改变不改当前Mission；unknown费用不填0；角色请求与实际确认模型分开。
+- 完成：Panel可解释在等什么；已有SSE沿用，稳定cursor/序列与断连状态；本地ACK和事件延迟可测，不假承诺模型速度。
+- 不做：新监控平台、全部配置热更新、同一事实复制多处。
+- 证据：待填。
+
+## V03-R02｜指令回执、取消恢复、固定基线
+
+- 对应：A06、A08、A09。落点：directives、Controller、Store、Panel和Git基线。
+- 工作：received/applied/rejected/unknown回执；final verifier notes真实消费；Worker prompt范围完整；取消中与已取消区分；崩溃恢复只读检查材料；终态新attempt关联；Mission固定source commit。
+- 必测：指令无消费者；入队与落盘失败；取消发生在Worker/语义角色/Gate；旧HUMAN不重新变running；旧记录字段缺失；source main/remote分歧；S2缺依赖代码。
+- 完成：取消/恢复文案与实现一致；不支持的dependent plan preflight明确拒绝，或有真实dependency commit交付测试；独立双任务保留有界支持。
+- 不做：新建完整暂停调度器；未经验证扩大并发。
+- 证据：待填。
+
+## V03-U01｜iPhone风格界面骨架与状态夹具
+
+- 对应：GUI新设计，A12。依赖：G1已通过；G2字段约定确定。
+- 工作：四入口、浅/深主题、响应式、分组卡片、渐进表单、键盘焦点；拓扑降为高级诊断。先用状态夹具展示完整/失败/取消/断连/审批/空记录。
+- 完成：负责人审核1440/1366/768/390宽截图与键盘流程；不把mock原型写成真实功能；无字体/图标许可遗漏。
+- 不做：iPhone外框、网页远程手机接入、大面积模糊/发光、换框架。
+- 证据：待填。
+
+## V03-U02｜完整任务GUI与数据接线
+
+- 对应：A04/A05/A06/A08。依赖：U01+G2。
+- 工作：真实就绪卡；显式Project与base确认；目标/范围/Gate/模型摘要；运行阶段、审批、取消、历史与重试；大错误常驻；真实角色调用与证据scope。
+- 必测：从新建到结果；断连重连不双发；停止请求不假完成；Gate read_error；引用/中文/超长文本；200%缩放；旧Mission只读。
+- 完成：Playwright或等价浏览器测试在开发环境通过；用户实际GUI确认；不把API200当视觉PASS。
+- 不做：未经授权后台创建Mission验证界面；浏览器依赖打入产品。
+- 证据：待填。
+
+## V03-U03｜结果中心与独立导出
+
+- 对应：A12、A03。工作：AC/Gate/Verifier/diff/commit；open/copy/export；完整patch和manifest；无效linked worktree的可读说明。
+- 必测：新增/删除/rename/二进制（支持或明确拒绝）；隔离clone应用；export后临时worktree不可用仍能读取；无密钥/Prompt/.git导出。
+- 完成：用户能在60秒内找到结果并知道main未改（建议体验目标）；补丁应用后内容/验收匹配；动作API不接受任意外部路径。
+- 不做：自动主分支写回、自动GitHub PR或push；这些可后续单独设计。
+- 证据：待填。
+
+## V03-P01｜模型配置／凭据与GLM语义后端
+
+- 对应：A11/A10。工作：profile/角色绑定/credential_ref；一种安全凭据存储；Codex保留；GLM明确服务域、认证、model/effort、JSON协议。语义角色无工具执行。
+- 必测：密钥不进入响应/log/Store/export；跨域发送须授权；非法/截断/拒绝/401/429/timeout；Schema+ID+coherence；运行中不热切；有模型调用与无模型检查分开。
+- 完成：一个已验证GLM profile覆盖所声明Planner/Auditor/Verifier角色；UI显示真实范围、价格unknown等；正向与真实失败反馈受控live。
+- 不做：改全局~/.codex或AO daemon环境；仅换model字符串；静默跨供应商fallback。
+- 证据：待填。
+
+## V03-P02｜Kimi语义后端与切换评测
+
+- 对应：A11。依赖：P01的薄transport/本地校验契约。
+- 工作：核对官方Kimi当前API和具体model；实现供应商参数差异，不复制整套角色/Controller；设置页明确数据发送、凭据和支持角色。
+- 必测：与P01相同的协议/错误/安全矩阵；固定任务profile切换；Codex/GLM/Kimi回归；不支持参数保存前拒绝；requested/confirmed模型区分。
+- 完成：一个已验证Kimi profile；与GLM均不是只列在UI；完成批准预算下的质量/延迟评测，已知负例假PASS=0。
+- 不做：猜测ChatGPT订阅覆盖API；以一次OK响应宣称全角色可用。
+- 证据：待填。
+
+## V03-P03｜第二Worker能力准入决策
+
+- 性质：有条件扩展；决策记录为必须，非Codex Worker上线不是无条件承诺。
+- 工作：查固定AO版本官方harness、tool/edit/approval/kill/model设置与隔离；选GLM或Kimi的一个可行组合做专项。
+- 两种完成结果：SUPPORTED（完整Worker E2E与隔离通过）或DEFERRED（明确限制，UI禁用且说明；负责人批准）。均不能写“全部模型完全切换”。
+- 必测（选择上线时）：两个配置互不污染、实际工具编辑、审批、取消、重启、Session实际model、同任务Gate/交付；禁止继承未验证全局别名。
+- 不做：为支持下拉框patch AO、自造coding agent、把API JSON调用称为Worker。
+- 证据：待填。
+
+## V03-Q01｜新Windows产品验收与发布候选
+
+- 依赖：G1—G4；无未处置高等级正确性／权限缺陷。
+- 工作：单一manifest包；依赖锁定、来源许可、代码/脚本边界；从新ZIP开始bootstrap；两套干净Windows环境；普通用户首次任务；真实CLI/GUI与失败恢复；各已支持模型profile live。
+- 完成：固定source SHA、最终artifact hash、任务/Gate/Verifier/SCM证据、浏览器记录、明确模型支持矩阵、已知限制和回滚说明。所有查询/字段错误不能被空成功吞掉。
+- 发布纪律：旧v0.2不可覆盖；产品文件若变，重新验证受影响路径；仅开发文档变可用manifest blob等价性，不重跑昂贵live。
+- 证据：待填。
+
+## 通用证据模板
+
+```text
+任务ID / 状态：
+日期 / 源码基线 / 分支 / PR：
+设计依据：V03_PLAN节号；原报告A编号/页码
+修改范围：
+原负例：命令、环境、失败输出（有界脱敏）
+修复后：相关测试、全量/编译、API/浏览器/live实际结果
+未执行：明确NOT_RUN；原因
+产品行为/配置/Schema变化：
+Windows/AO/model/SDK实际版本：
+残余风险 / 停止条件触发：
+下一步：由PLANS唯一指针决定
+```
