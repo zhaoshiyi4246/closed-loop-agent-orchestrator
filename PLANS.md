@@ -7,9 +7,9 @@
 ## 当前唯一执行指针
 
 - 当前阶段：**M0 COMPLETE** — Repository Baseline & Layout Consolidation。
-- 当前任务：V03-M0-LAYOUT 已完成，PR #31 保持 OPEN 等待人工审计；无功能任务执行中。
-- 当前状态：V03-DOC-00 = DONE；repository layout consolidation = DONE；本机副本已分类整理，AO 引用与空目录保留项见 M0 证据。
-- 当前允许：审计本次 PR 与证据；任何后续功能实施须有独立任务指令。
+- 当前任务：V03-M0-LAYOUT = DONE；PR #31 人工审计 PASS；无功能任务执行中。
+- 当前状态：V03-DOC-00 = DONE；V03-M0-LAYOUT = DONE；本机副本已分类整理，AO 引用与空目录保留项见 M0 证据。
+- 当前允许：以已审计的 M0 为基线准备下一任务；任何后续功能实施须有独立任务指令。
 - 当前禁止：runtime 行为／依赖／Provider 变更；真实模型调用、AO Worker、Mission、CLAO GUI、tag 和 Release 发布；不实施 F01。
 - 下一任务：**V03-F01 — 完整契约与终局一致性**，TODO。本项实施需要收到相应任务指令，不能因为列在“下一步”就自动开工。
 
@@ -24,7 +24,7 @@
 
 | 阶段 | 状态 | 退出条件 |
 |---|---|---|
-| M0 基线与目录整理 | COMPLETE（DOC-00 / LAYOUT DONE） | 规划已批准入库；纯路径迁移验证；副本分类整理含保留项；PR #31 OPEN |
+| M0 基线与目录整理 | COMPLETE（DOC-00 / LAYOUT DONE） | 规划已批准入库；纯路径迁移验证；副本分类整理含保留项；人工审计 PASS |
 | M1 修复冻结 | TODO | F01—F05负例与正常路径通过 |
 | M2 使用契约 | TODO | 配置、回执、取消恢复、基线可追溯 |
 | M3 GUI与交付体验 | TODO | 四入口＋任务旅程＋结果导出＋浏览器验收 |
@@ -37,7 +37,7 @@ v0.2已发布，原干净产品回归438项；CLI MISSION-R5-FINAL-CLI-20260905-
 
 `73397cb066f6991681dc8404b1a85c10e80b1169a8a85b278b88ee7bdf035986`
 
-新的 A01—A12 缺陷不被上述历史 PASS 清零；功能卡尚未实施。DOC-00 本次核对为 `DOC00_BASELINE_PASS`：预期 7 项规划文件已入库，106 个产品 blob 与 builder／manifest 未变，当前 17 个 Markdown 本地链接有效。本轮目录迁移：定向 88 passed；全量 438 passed in 105.61s；compileall／diff-check／本地链接 PASS；clean HEAD builder exit 0，92 个产品文件 + checksum，顶层 clao/，产品文件集变化 0。
+新的 A01—A12 缺陷不被上述历史 PASS 清零；功能卡尚未实施。DOC-00 本次核对为 `DOC00_BASELINE_PASS`：预期 7 项规划文件已入库，106 个产品 blob 与 builder／manifest 未变，DOC-00 核对时的 17 个 Markdown 本地链接有效。本轮目录迁移：定向 88 passed；全量 438 passed in 105.61s；compileall／diff-check／本地链接 PASS；clean HEAD builder exit 0，92 个产品文件 + checksum，顶层 clao/，产品文件集变化 0。
 
 ## M0 开发验证环境
 
