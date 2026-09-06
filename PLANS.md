@@ -7,11 +7,12 @@
 ## 当前唯一执行指针
 
 - 当前阶段：**M1 IN_PROGRESS**；M0 COMPLETE。
-- 当前唯一任务：**V03-F01 — 完整契约与终局一致性**，IN_PROGRESS。
+- 当前唯一任务：**V03-F01 — 完整契约与终局一致性**，IN_REVIEW。
 - 授权：2026-09-06 独立 F01 指令；必要产品代码、直接测试、依赖／安装检查、Windows 离线回归、本地 clean HEAD 构建及面向 main 的 PR。
 - 实际 base：`26b02e9d3e1d72cde3b29143d96ed4e096391249`，fetch 后本地 main 与 origin/main 一致；分支 `task/v03-f01-contract-consistency`。
 - 边界：仅 F01；真实模型／AO Worker／Mission／GLM/Kimi／凭据与全局配置修改、merge、tag、Release 均未授权。
-- 交付状态：实施与离线验收后进入 IN_REVIEW；live NOT_RUN / pending authorization，不标 DONE；提交 PR 后等待外部审计。
+- 交付状态：实现与本轮 Windows 离线/干净安装/本地构建通过，IN_REVIEW；live NOT_RUN / pending authorization，不标 DONE；提交 PR 后等待外部审计。
+- 本轮证据：代码提交 `bf4601b`；定向 76 passed；开发全量 514 passed；干净包全量 514 passed；compileall/diff-check/96 文件构建与 checksum 通过。PR 链接待创建后回填；详见 F01 卡。
 
 ## 快速查询
 
@@ -37,7 +38,7 @@ v0.2已发布，原干净产品回归438项；CLI MISSION-R5-FINAL-CLI-20260905-
 
 `73397cb066f6991681dc8404b1a85c10e80b1169a8a85b278b88ee7bdf035986`
 
-新的 A01—A12 缺陷不被上述历史 PASS 清零；功能卡尚未实施。DOC-00 本次核对为 `DOC00_BASELINE_PASS`：预期 7 项规划文件已入库，106 个产品 blob 与 builder／manifest 未变，DOC-00 核对时的 17 个 Markdown 本地链接有效。本轮目录迁移：定向 88 passed；全量 438 passed in 105.61s；compileall／diff-check／本地链接 PASS；clean HEAD builder exit 0，92 个产品文件 + checksum，顶层 clao/，产品文件集变化 0。
+新的 A01—A12 缺陷不被上述历史 PASS 清零；F01 当前状态以顶部指针为准。DOC-00 本次核对为 `DOC00_BASELINE_PASS`：预期 7 项规划文件已入库，106 个产品 blob 与 builder／manifest 未变，DOC-00 核对时的 17 个 Markdown 本地链接有效。本轮目录迁移：定向 88 passed；全量 438 passed in 105.61s；compileall／diff-check／本地链接 PASS；clean HEAD builder exit 0，92 个产品文件 + checksum，顶层 clao/，产品文件集变化 0。
 
 ## M0 开发验证环境
 
