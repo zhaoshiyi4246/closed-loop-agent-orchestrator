@@ -7,13 +7,13 @@
 ## 当前唯一执行指针
 
 - 当前阶段：**M1 IN_PROGRESS**；M0 COMPLETE。
-- 当前唯一任务：**V03-F01 — 完整契约与终局一致性**，IN_REVIEW（实现/本地验收完成，[PR #32](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/32) 等待外部审计）。
-- 授权：2026-09-06 独立 F01 指令；必要产品代码、直接测试、依赖／安装检查、Windows 离线回归、本地 clean HEAD 构建及面向 main 的 PR。
-- 实际 base：`26b02e9d3e1d72cde3b29143d96ed4e096391249`，fetch 后本地 main 与 origin/main 一致；分支 `task/v03-f01-contract-consistency`。
-- 边界：仅 F01；真实模型／AO Worker／Mission／GLM/Kimi／凭据与全局配置修改、merge、tag、Release 均未授权。
-- 交付状态：实现与 Windows 离线/干净安装/本地构建通过；此前 20 轮网络失败后已按上限停止。2026-09-06 用户确认网络恢复并授权重新推送，本轮第 1 次成功，远端 SHA 与本地 `205eb3b` 一致；已创建面向 main 的 PR #32，转 IN_REVIEW。live NOT_RUN / pending authorization，不标 DONE。
-- 本轮证据：代码提交 `bf4601b`；定向 76 passed；开发全量 514 passed；干净包全量 514 passed；compileall/diff-check/96 文件构建与 checksum 通过。恢复交付仅更新治理文档，产品及发布工具 blob 未变；详见 F01 卡。
-- 下一步：等待 PR #32 外部审计；不开工其他卡，不合并、不发布。
+- 当前下一任务：**V03-F02 — 审批命令与路径包含性**，TODO（未开始实现）。
+- 最近完成：**V03-F01 — 完整契约与终局一致性**，DONE；[PR #32](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/32) 外部审计 PASS，2026-09-06 已 rebase merge 到 main。
+- 本轮授权：F01 合并、本地 main fast-forward 同步及动态状态文档收尾；负责人确认本阶段不要求额外 live smoke，既有 Windows 离线、干净包与构建证据有效。
+- 合入基线：`144c599a022659f6264762e47a54ca296622f751`；合并后本地 main 与 origin/main 一致，合入 tree 与审计通过的 PR head `ff47fc9` 相同。
+- 边界：本轮止于 F01 收尾；F02 仅为下一任务 / TODO，未开始代码修改；不创建 tag 或 Release，不改已发布 v0.2。
+- 已有证据：F01 定向 76 passed；开发全量 514 passed；干净包全量 514 passed；compileall/diff-check/96 文件构建与 checksum 通过。合并未修改审计后的产品代码，收尾仅更新治理文档，未重跑 pytest、构建或 live；详见 F01 卡。
+- 下一步：本轮停止；等待 V03-F02 的独立实施指令。
 
 ## 快速查询
 
@@ -27,7 +27,7 @@
 | 阶段 | 状态 | 退出条件 |
 |---|---|---|
 | M0 基线与目录整理 | COMPLETE（DOC-00 / LAYOUT DONE） | 规划已批准入库；纯路径迁移验证；副本分类整理含保留项；人工审计 PASS |
-| M1 修复冻结 | IN_PROGRESS（仅 F01） | F01—F05负例与正常路径通过 |
+| M1 修复冻结 | IN_PROGRESS（F01 DONE；下一任务 F02 TODO） | F01—F05负例与正常路径通过 |
 | M2 使用契约 | TODO | 配置、回执、取消恢复、基线可追溯 |
 | M3 GUI与交付体验 | TODO | 四入口＋任务旅程＋结果导出＋浏览器验收 |
 | M4 模型扩展 | TODO | GLM与Kimi语义profile；Worker明确支持/拒绝决策 |
