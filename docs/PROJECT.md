@@ -1,6 +1,6 @@
 # CLAO 当前项目事实
 
-更新稿：2026-09-06。本文件只记录已实现事实与已知限制；v0.3的设计见 [V03_PLAN.md](V03_PLAN.md)，不能把设计直接写成已完成能力。
+更新：2026-09-06（M0 基线与目录整理）。本文件只记录已实现事实与已知限制；v0.3的设计见 [V03_PLAN.md](V03_PLAN.md)，不能把设计直接写成已完成能力。
 
 ## 1. 版本与基线
 
@@ -10,11 +10,15 @@
 | 已发布版本 | v0.2，Windows本地比赛版 |
 | 已发布源码 | 4d3e8e6b5e70bab868b2eef0d28c7742dea044ba |
 | 开发目标 | v0.3：先修Bug，再优化GUI与模型切换；本稿阶段未实现 |
-| 主仓库 | zhaoshiyi4246/agent-orchestrator-AI-worker |
-| 产品源码路径 | 交付/closed-loop-v2/（继续复用，不复制第二套v0.3源码） |
+| 主仓库 | zhaoshiyi4246/closed-loop-agent-orchestrator |
+| 产品源码路径 | `clao/`，当前唯一正式产品，内部 Python 包为 `src/loopcore/` |
+| 发布工具 | `packaging/build-release.ps1` 与 `packaging/release-manifest.txt` |
+| 历史／reference | `legacy/` 保存原历史内容；`docs/reference/` 保存冻结审计 PDF |
 | 用户发布包 | clao/，由唯一映射manifest从clean Git tree构建 |
 
 v0.2完成过支持环境下的干净ZIP bootstrap、438项测试、指定CLI和人工GUI Mission验收。该历史证据只证明对应样例，不表示所有Bug已修完、安全已认证或多模型已实现。
+
+M0 只迁移仓库目录、修正当前引用和治理状态，不修 A01—A12、不改变 runtime 或已发布 v0.2；结构验收见 [M0 证据](V03_M0_EVIDENCE.md)。
 
 ## 2. 当前真实架构
 
@@ -75,8 +79,8 @@ AGENTS=规则；PROJECT=事实；PLANS=当前指针；V03_PLAN=目标设计；V0
 
 原R0—R5历史文档未从Git历史删除，完整冻结内容见：
 
-- [v0.2原PROJECT](https://github.com/zhaoshiyi4246/agent-orchestrator-AI-worker/blob/4d3e8e6b5e70bab868b2eef0d28c7742dea044ba/docs/PROJECT.md)
-- [v0.2原PLANS](https://github.com/zhaoshiyi4246/agent-orchestrator-AI-worker/blob/4d3e8e6b5e70bab868b2eef0d28c7742dea044ba/PLANS.md)
-- [v0.2Release](https://github.com/zhaoshiyi4246/agent-orchestrator-AI-worker/releases/tag/v0.2)
+- [v0.2原PROJECT](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/blob/4d3e8e6b5e70bab868b2eef0d28c7742dea044ba/docs/PROJECT.md)
+- [v0.2原PLANS](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/blob/4d3e8e6b5e70bab868b2eef0d28c7742dea044ba/PLANS.md)
+- [v0.2Release](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/releases/tag/v0.2)
 
 以后本文件仅按已合入代码与验收更新，不复制完整PR流水账；旧治理文件的目标性措辞不再凌驾于本文件和v0.3批准设计。

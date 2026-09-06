@@ -2,7 +2,7 @@
 PlannerAction, VerifierResult + the task state machine.
 
 Ported from ao-supervision-sidecar src/contracts.py (same team), with the
-schema root corrected for the closed-loop-v2 layout. Validation uses
+schema root corrected for the clao layout. Validation uses
 jsonschema when installed, else a hand-rolled minimum check.
 """
 from __future__ import annotations
@@ -12,7 +12,7 @@ from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-# src/loopcore/mission_contracts.py -> closed-loop-v2/ (holds schemas/)
+# src/loopcore/mission_contracts.py -> clao/ (holds schemas/)
 ROOT = Path(__file__).resolve().parent.parent.parent
 
 try:

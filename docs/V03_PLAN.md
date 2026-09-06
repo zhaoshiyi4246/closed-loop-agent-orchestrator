@@ -276,7 +276,7 @@ Structured transport 必须区分 JSON_PARSE、SCHEMA、CORRELATION、COHERENCE�
 
 | 里程碑 | 范围／任务组 | 退出门 |
 |---|---|---|
-| M0 规划落盘 | V03-DOC-00；背景文件与 ledger | 用户确认；无产品 blob 变化 |
+| M0 基线与目录整理 | V03-DOC-00、V03-M0-LAYOUT；背景与目录、桌面副本 | DOC-00 产品 blob 不变；目录迁移完整离线／构建验证；OPEN PR |
 | M1 修复冻结 | V03-F01—F05 | A01—A05、关键停止／未知动作负例通过；正常默认路径通过 |
 | M2 使用契约 | V03-R01—R02 | 有效配置、指令回执、取消／历史、固定基线；API契约可供GUI使用 |
 | M3 GUI 体验 | V03-U01—U03 | 四入口、完整任务旅程、结果导出、响应式／可访问性／浏览器测试 |
@@ -354,6 +354,8 @@ OpenAI 建议把长期规则放 AGENTS.md，单次任务明确目标、上下文
 
 V03-DOC-00 已核对 main `3a9ea27468915eb9571611bcca10962e7a732fb0` 的 7 项规划／治理文件与审计附件；产品 106 个 blob、manifest 和 builder 相对发布源码均未改变。`DOC00_BASELINE_PASS`；当前 Markdown 本地链接有效。规划由负责人明确批准，文档入库事实由 Git 历史证明，不虚构已合入的文档 PR。
 
+当前目录语义为：`clao/` 唯一产品；`packaging/` 发布工具；`legacy/` 历史 snapshot；`docs/` 当前事实和规划，`docs/reference/` 冻结审计附件。内部 `loopcore` 包保持原名。
+
 负责人追加授权同一 M0 中完成 repository layout consolidation 与本机历史副本整理，允许必要路径适配并要求完整离线测试和 clean HEAD release builder 验证；不改变 runtime、不改 v0.2 tag／Release。M0 结束后的下一任务仍是 **V03-F01 — 完整契约与终局一致性**，保持 TODO，须另行收到实施指令。
 
 ## 12. 决策记录与变更规则
@@ -377,8 +379,8 @@ V03-DOC-00 已核对 main `3a9ea27468915eb9571611bcca10962e7a732fb0` 的 7 项�
 以下外部资料只用于规划可行性与设计原则，不替代项目实测。检索日：2026-09-06。
 
 - **S01 原审计（主要依据）**：[CLAO v0.2 全面架构审计与 v0.3 产品规划，2026-09-05](reference/CLAO_v0.2_audit_20260905.pdf)。缺陷第9—15页；GUI第16、19页；模型第17—18页；排期/测试第20—24页；证据等级第2、25—26页。原文件随文档包原样保留。
-- **S02 发布与源码基线**：[v0.2 Release](https://github.com/zhaoshiyi4246/agent-orchestrator-AI-worker/releases/tag/v0.2)；[固定提交](https://github.com/zhaoshiyi4246/agent-orchestrator-AI-worker/commit/4d3e8e6b5e70bab868b2eef0d28c7742dea044ba)。本次只核对背景文件与main，不重新证明历史live。
-- **S03 旧治理文件**：[原 AGENTS](https://github.com/zhaoshiyi4246/agent-orchestrator-AI-worker/blob/4d3e8e6b5e70bab868b2eef0d28c7742dea044ba/AGENTS.md)、[原 PROJECT](https://github.com/zhaoshiyi4246/agent-orchestrator-AI-worker/blob/4d3e8e6b5e70bab868b2eef0d28c7742dea044ba/docs/PROJECT.md)、[原 PLANS](https://github.com/zhaoshiyi4246/agent-orchestrator-AI-worker/blob/4d3e8e6b5e70bab868b2eef0d28c7742dea044ba/PLANS.md)。历史完整保存在此，不覆盖发布tag。
+- **S02 发布与源码基线**：[v0.2 Release](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/releases/tag/v0.2)；[固定提交](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/commit/4d3e8e6b5e70bab868b2eef0d28c7742dea044ba)。本次只核对背景文件与main，不重新证明历史live。
+- **S03 旧治理文件**：[原 AGENTS](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/blob/4d3e8e6b5e70bab868b2eef0d28c7742dea044ba/AGENTS.md)、[原 PROJECT](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/blob/4d3e8e6b5e70bab868b2eef0d28c7742dea044ba/docs/PROJECT.md)、[原 PLANS](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/blob/4d3e8e6b5e70bab868b2eef0d28c7742dea044ba/PLANS.md)。历史完整保存在此，不覆盖发布tag。
 - **S04 Apple 基础设计原则**：[UI Design Dos and Don’ts](https://developer.apple.com/design/tips/)。清晰内容、对比和触达原则；本稿token和Web尺寸是自主设计。
 - **S05 Apple 导航原则**：[标签页栏](https://developer.apple.com/cn/design/human-interface-guidelines/tab-bars)。Tab用于顶层导航，不承载执行动作。
 - **S06 智谱官方结构化输出**：[结构化输出](https://docs.bigmodel.cn/cn/guide/capabilities/struct-output)。JSON模式、参数及应用侧Schema校验；不是本产品兼容验收。
