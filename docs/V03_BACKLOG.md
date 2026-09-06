@@ -1,6 +1,6 @@
 # CLAO v0.3 任务与验收台账
 
-版本：0.3-plan-r1 · 2026-09-06。状态：已批准 / IN EFFECT。DOC-00、F01 / F02 已完成；当前任务 F03 为 `IN_PROGRESS`；其余功能卡状态见下表，原报告的发现不等于已复现或已修复。
+版本：0.3-plan-r1 · 2026-09-06。状态：已批准 / IN EFFECT。DOC-00、F01 / F02 已完成；当前任务 F03 为 `IN_REVIEW`；其余功能卡状态见下表，原报告的发现不等于已复现或已修复。
 
 设计以 [V03_PLAN.md](V03_PLAN.md) 为准。当前唯一任务由根目录 [PLANS.md](../PLANS.md) 指定。本文件保存每张卡的详细状态和证据，PLANS 不重复整张台账。
 
@@ -35,7 +35,7 @@
 | V03-M0-LAYOUT | M0 | Repository layout consolidation 与本机副本整理 | DOC-00 | DONE |
 | V03-F01 | M1 | 完整契约与终局一致性 | DOC-00 | DONE（PR #32 审计 PASS / merged） |
 | V03-F02 | M1 | 审批命令与路径包含性 | DOC-00 | DONE（PR #33 审计 PASS / merged） |
-| V03-F03 | M1 | Git路径、产物规则与只读取证 | DOC-00 | IN_PROGRESS |
+| V03-F03 | M1 | Git路径、产物规则与只读取证 | DOC-00 | IN_REVIEW（PR #34） |
 | V03-F04 | M1 | Gate查询、本地API与安全渲染 | F01的结果字段约定 | TODO |
 | V03-F05 | M1 | 停止确认与未知外部动作保护 | DOC-00 | TODO |
 | V03-R01 | M2 | 有效配置与阶段诊断 | F01/F04 | TODO |
@@ -115,7 +115,7 @@ G1=F01—F05；G2=R01—R02；G3=U01—U03；G4=P01—P02及P03有记录的支�
 
 ## V03-F03｜Git路径、产物规则与只读取证
 
-- 状态：IN_PROGRESS；2026-09-07；base `3af98d46e3495aa0154f8701152a11274b42a7c2`，分支 `codex/v03-f03-git-evidence`；F01/F02 保持 DONE，完成后提交独立 PR 等待审计，不开始 F04。
+- 状态：IN_REVIEW；2026-09-07；[PR #34](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/34) 已提交，等待外部审计；base `3af98d46e3495aa0154f8701152a11274b42a7c2`，实现提交 `95b09b6dd308b84f18f7aa1c44e395fc7ac98c47`，分支 `codex/v03-f03-git-evidence`；F01/F02 保持 DONE，不合并、不开始 F04。
 - 对应：A03，关联A09/A12。落点：worktree、mission_gate、mission及调用者。
 - 工作：无歧义路径解析；rename old/new；精确artifact规则；不改index取untracked diff；统一baseline采证完整性；Final确定性scope。
 - 必测：rename/copy/delete/untracked/staged；空格中文控制字符；data.pyconfig/.coverage_policy.py不能误过滤；cache允许；采证异常也不得破坏index。

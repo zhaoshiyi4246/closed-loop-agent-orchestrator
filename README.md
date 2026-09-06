@@ -4,7 +4,7 @@ Closed-Loop Agent Orchestrator
 
 CLAO 是构建在 Agent Orchestrator（AO）上的本地闭环软件开发控制层。默认单Worker执行任务，通过确定性Gate、集成和Mission终局复核保存可检查结果。
 
-**已发布：v0.2（Windows本地比赛版）。v0.3 规划已批准，M0 COMPLETE；V03-F01 的 [PR #32](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/32) 与 V03-F02 的 [PR #33](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/33) 均已外部审计 PASS 并合入 main（DONE）。当前 V03-F03 — Git路径、产物规则与只读取证已完成实现与定向检查，准备提交 PR（IN_PROGRESS，尚未合入 main）；其余规划能力待实施。**
+**已发布：v0.2（Windows本地比赛版）。v0.3 规划已批准，M0 COMPLETE；V03-F01 的 [PR #32](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/32) 与 V03-F02 的 [PR #33](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/33) 均已外部审计 PASS 并合入 main（DONE）。当前 V03-F03 — Git路径、产物规则与只读取证已提交 [PR #34](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/34)，等待外部审计（IN_REVIEW，尚未合入 main）；其余规划能力待实施。**
 
 ## 使用已发布产品
 

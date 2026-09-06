@@ -9,7 +9,7 @@
 | 产品 | CLAO / Closed-Loop Agent Orchestrator |
 | 已发布版本 | v0.2，Windows本地比赛版 |
 | 已发布源码 | 4d3e8e6b5e70bab868b2eef0d28c7742dea044ba |
-| 开发目标 | v0.3：F01 / F02 已合入 main（DONE）；F03 实现分支已完成定向检查，待提交 PR、尚未合入 main；GUI与模型切换等后续目标待实现 |
+| 开发目标 | v0.3：F01 / F02 已合入 main（DONE）；F03 的 PR #34 为 IN_REVIEW、尚未合入 main；GUI与模型切换等后续目标待实现 |
 | 主仓库 | zhaoshiyi4246/closed-loop-agent-orchestrator |
 | 产品源码路径 | `clao/`，当前唯一正式产品，内部 Python 包为 `src/loopcore/` |
 | 发布工具 | `packaging/build-release.ps1` 与 `packaging/release-manifest.txt` |
@@ -66,7 +66,7 @@ AO executable通过CLAO_AO_BIN或PATH解析；runfile通过CLAO_AO_RUN_FILE或~/
 
 依据 [原审计](reference/CLAO_v0.2_audit_20260905.pdf)；F01 已补齐 A02 的完整契约与终局一致性及 A11 相关证据边界，F02 已修复 A01 的审批命令与路径包含性，支持边界见上文。其他卡继续保留：
 
-- A03：rename/artifact/index取证（F03 实现分支待审计，尚未合入 main）。
+- A03：rename/artifact/index取证（F03 的 [PR #34](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/34) 待外部审计，尚未合入 main）。
 - A04：Gate表专用查询与真实错误显示；A05：本地写API和安全渲染。
 - A06—A10：指令生效、外部动作未知、kill确认、停止恢复、基线/依赖和有效配置。
 - A11/A12 其余范围：多模型、后续 Git 取证边界、结果导出和普通用户使用体验；不因 F01 完成宣称所有证据路径或模型真实性已验收。
