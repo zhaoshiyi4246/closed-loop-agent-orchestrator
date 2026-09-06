@@ -1,10 +1,10 @@
 # V03 M0 基线与目录整理证据
 
-状态：M0 COMPLETE（含下列安全保留项）；[PR #31](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/31) OPEN，等待人工审计。
+状态：M0 COMPLETE（含下列安全保留项）；[PR #31](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/31) 人工审计 PASS；V03-DOC-00 / V03-M0-LAYOUT = DONE。
 
 日期：2026-09-06。基线 main：`3a9ea27468915eb9571611bcca10962e7a732fb0`；发布源码：`4d3e8e6b5e70bab868b2eef0d28c7742dea044ba`。
 
-范围：V03-DOC-00、仓库目录与当前引用、本机重复副本分类整理；不实施 V03-F01，不修 A01—A12。PR 审计前不合并 main，不修改 v0.2 tag／Release。
+范围：V03-DOC-00、仓库目录与当前引用、本机重复副本分类整理；不实施 V03-F01，不修 A01—A12。人工审计已通过；本次最终收尾仅修正文档状态，不修改 v0.2 tag／Release。
 
 ## DOC-00 与规则核对
 
@@ -62,7 +62,7 @@
 
 Windows 既有 `core.autocrlf=true` 使 Git archive 输出 CRLF。额外核对脚本首次直接比较 LF blob 与导出字节时失败，已定位为验证方法问题；后用 Git 自身 `hash-object --path --stdin` 转换再与 HEAD blob ID 比对通过，未修改 Git 配置、builder 或产品换行。发布前后 ZIP 的相同文件也逐字节比较通过，仅上述 allowlist 不同。
 
-收尾提交只更改治理状态／证据；最终 committed HEAD 再运行 builder，SOURCE_COMMIT、最终 ZIP hash 和链接检查数量在 PR 正文与本机报告中记录，避免在文件自身写不可固定的“本提交 SHA”。
+治理状态／证据提交 `06bfb67fbb614da06de9cbdad3b5c4789a141573` 已运行 builder，SOURCE_COMMIT、ZIP hash 和链接检查数量记录在 PR 正文与本机报告中。本次最终收尾复核 13 个当前 Markdown 的 23 个本地链接全部有效，diff-check PASS；相对该已审计提交，产品、发布工具与历史目录 blob 均不变，原 438 项测试、compileall 和 builder 验证结论仍成立，不重复运行产品验证。
 
 ## 本机资料边界
 
