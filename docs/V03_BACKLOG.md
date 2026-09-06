@@ -34,7 +34,7 @@
 | V03-DOC-00 | M0 | 规划入库与基线核对 | 负责人批准 | DONE |
 | V03-M0-LAYOUT | M0 | Repository layout consolidation 与本机副本整理 | DOC-00 | DONE |
 | V03-F01 | M1 | 完整契约与终局一致性 | DOC-00 | DONE（PR #32 审计 PASS / merged） |
-| V03-F02 | M1 | 审批命令与路径包含性 | DOC-00 | IN_PROGRESS |
+| V03-F02 | M1 | 审批命令与路径包含性 | DOC-00 | IN_REVIEW（PR #33） |
 | V03-F03 | M1 | Git路径、产物规则与只读取证 | DOC-00 | TODO |
 | V03-F04 | M1 | Gate查询、本地API与安全渲染 | F01的结果字段约定 | TODO |
 | V03-F05 | M1 | 停止确认与未知外部动作保护 | DOC-00 | TODO |
@@ -100,7 +100,7 @@ G1=F01—F05；G2=R01—R02；G3=U01—U03；G4=P01—P02及P03有记录的支�
 
 ## V03-F02｜审批命令与路径包含性
 
-- 状态：IN_PROGRESS；负责人独立授权 F02；base `409127d598d678dc98a2f6e6cb3087d9d950cd16`，分支 `codex/v03-f02-approval-boundaries`；F01 保持 DONE。
+- 状态：IN_REVIEW；[PR #33](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/33) 已提交，等待外部审计；base `409127d598d678dc98a2f6e6cb3087d9d950cd16`，实现提交 `6717c453e6aad8730b180295ae87241749110201`，分支 `codex/v03-f02-approval-boundaries`；F01 保持 DONE，F02 未标 DONE，本轮不合并或开工 F03。
 - 对应：A01。落点：ClosedLoop生产审批路径、approvals和相关测试。
 - 工作：先查真实AO请求结构，再规范原始输入与路径；解析不明不授权；exact module/argv、不用双向前缀和先折叠换行。
 - 必测：报告所有predicate负例；允许**仍不能越根；symlink/junction；中文空格路径；不存在文件；restore/checkout等危险动作不自动允许。

@@ -7,14 +7,15 @@
 ## 当前唯一执行指针
 
 - 当前阶段：**M1 IN_PROGRESS**；M0 COMPLETE。
-- 当前唯一任务：**V03-F02 — 审批命令与路径包含性**，IN_PROGRESS。
+- 当前唯一任务：**V03-F02 — 审批命令与路径包含性**，IN_REVIEW；[PR #33](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/33) 已提交，等待外部审计。
 - 最近完成：**V03-F01 — 完整契约与终局一致性**，DONE；[PR #32](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/32) 外部审计 PASS，2026-09-06 已 rebase merge 到 main。
 - 本轮授权：F02 审批范围与完整命令授权修复、直接相关 Windows 检查及一个面向 main 的 PR；实现→PR→外部审计→必要返修→获准合并并同步。
 - 实际 base：`409127d598d678dc98a2f6e6cb3087d9d950cd16`；GitHub API 核对远端 main 与本地一致；分支 `codex/v03-f02-approval-boundaries`。
 - 边界：仅 F02；不实施 F03/F05 等其他卡，不执行 smoke、真实模型或 AO Mission，不合并、不 tag/Release，不改已发布 v0.2。全面回归、干净安装与发布验证集中到 v0.3 收尾。
-- 已有证据：F01 定向 76 passed；开发全量 514 passed；干净包全量 514 passed；compileall/diff-check/96 文件构建与 checksum 通过。合并未修改审计后的产品代码，收尾仅更新治理文档，未重跑 pytest、构建或 live；详见 F01 卡。
+- F01 历史证据仍有效，详见 F01 卡；本轮不重验其全量回归和构建。
 - F02 实测：Windows 直接相关 6 个测试模块 **200 passed、1 skipped / 19.42s**；3 个变更源码的 compileall 通过。跳过原生 symlink 创建（Windows 权限不足），真实 junction 用例通过；本轮不运行全量/安装/打包/live。
-- 下一步：完成 F02 实现与定向检查，提交 PR 后转 IN_REVIEW 并停止，等待外部审计。
+- 交付：实现提交 `6717c453e6aad8730b180295ae87241749110201` 已推送，PR #33 面向 main；F02 不提前标 DONE。
+- 下一步：本轮停止，等待 PR #33 外部审计；不合并、不开工 F03。
 
 ## 快速查询
 
@@ -28,7 +29,7 @@
 | 阶段 | 状态 | 退出条件 |
 |---|---|---|
 | M0 基线与目录整理 | COMPLETE（DOC-00 / LAYOUT DONE） | 规划已批准入库；纯路径迁移验证；副本分类整理含保留项；人工审计 PASS |
-| M1 修复冻结 | IN_PROGRESS（F01 DONE；F02 IN_PROGRESS） | F01—F05负例与正常路径通过 |
+| M1 修复冻结 | IN_PROGRESS（F01 DONE；F02 IN_REVIEW） | F01—F05负例与正常路径通过 |
 | M2 使用契约 | TODO | 配置、回执、取消恢复、基线可追溯 |
 | M3 GUI与交付体验 | TODO | 四入口＋任务旅程＋结果导出＋浏览器验收 |
 | M4 模型扩展 | TODO | GLM与Kimi语义profile；Worker明确支持/拒绝决策 |
