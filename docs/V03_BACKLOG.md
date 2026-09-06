@@ -1,6 +1,6 @@
 # CLAO v0.3 任务与验收台账
 
-版本：0.3-plan-r1 · 2026-09-06。状态：负责人审核稿。所有实施卡初始为 `TODO`；原报告的发现不等于本轮已复现，更不等于已修复。
+版本：0.3-plan-r1 · 2026-09-06。状态：已批准 / IN EFFECT。DOC-00 已完成；功能实施卡仍为 `TODO`；原报告的发现不等于本轮已复现，更不等于已修复。
 
 设计以 [V03_PLAN.md](V03_PLAN.md) 为准。当前唯一任务由根目录 [PLANS.md](../PLANS.md) 指定。本文件保存每张卡的详细状态和证据，PLANS 不重复整张台账。
 
@@ -31,7 +31,8 @@
 
 | ID | 阶段 | 标题 | 依赖 | 状态 |
 |---|---|---|---|---|
-| V03-DOC-00 | M0 | 规划入库与基线核对 | 负责人批准 | TODO |
+| V03-DOC-00 | M0 | 规划入库与基线核对 | 负责人批准 | DONE |
+| V03-M0-LAYOUT | M0 | Repository layout consolidation 与本机副本整理 | DOC-00 | IN_PROGRESS |
 | V03-F01 | M1 | 完整契约与终局一致性 | DOC-00 | TODO |
 | V03-F02 | M1 | 审批命令与路径包含性 | DOC-00 | TODO |
 | V03-F03 | M1 | Git路径、产物规则与只读取证 | DOC-00 | TODO |
@@ -54,8 +55,19 @@ G1=F01—F05；G2=R01—R02；G3=U01—U03；G4=P01—P02及P03有记录的支�
 - 目标：把负责人批准的规划变成唯一可查询上下文，先不实施产品。
 - 范围：AGENTS、PROJECT、PLANS、V03_PLAN、V03_BACKLOG、根README、原审计PDF引用。不得改产品、manifest或builder。
 - 检查：main最新SHA；已发布tag不变；7个预期文件；链接有效；不存在另一份开发project.md；旧治理历史可由固定提交访问。
-- 完成：文档PR入库，产品blob变更=0；将下一任务指向F01。文档稿生成和用户下载不等于入库完成。
-- 证据：待填。
+- 完成：负责人批准的 7 项规划／治理文件及附件已进入 main，产品 blob 变更=0；功能下一任务为 F01。本次入库由用户直接提交，Git 历史为依据，不声称存在文档合并 PR。
+- 状态：DONE；2026-09-06，`DOC00_BASELINE_PASS`。
+- 证据：main `3a9ea27468915eb9571611bcca10962e7a732fb0` 相对发布源码 `4d3e8e6b5e70bab868b2eef0d28c7742dea044ba` 的差异恰为预期 7 项；106 个产品 blob、builder／manifest 均一致；12 个当前 Markdown 中 17 个本地链接有效。
+- 源码核对：Panel／CLI 共用 build_runtime；Controller／ClosedLoop、Store、AO、投影边界与 PROJECT 一致；Stop、attach、弱 Schema 与 best-effort kill 缺口仍存在，不将规划要求写成已实现。
+- 规则核对：根规则的安全和模型条款属于实施约束；PROJECT 记录当前缺口。历史 nested AGENTS 只适用历史目录；本次 M0 追加授权见 V03_PLAN D09，不启动 F01。
+
+## V03-M0-LAYOUT｜Repository layout consolidation
+
+- 状态：IN_PROGRESS；2026-09-06；分支 `task/v03-m0-repository-layout`，基于已核对 main。
+- 范围：Git rename、必要路径／名称适配、当前文档与 canonical URL、本机重复副本分类整理。
+- 验收：完整 pytest、compileall、当前 Markdown 本地链接、diff-check、clean committed HEAD builder、artifact file set／hash／hygiene；唯一 canonical development clone；OPEN PR。
+- 边界：不修 A01—A12，不改 runtime／依赖／loopcore 包名，不改变已发布 v0.2；F01 保持 TODO。
+- 证据：迁移和验证待完成。
 
 ## V03-F01｜完整契约与终局一致性
 
