@@ -32,7 +32,7 @@
 | ID | 阶段 | 标题 | 依赖 | 状态 |
 |---|---|---|---|---|
 | V03-DOC-00 | M0 | 规划入库与基线核对 | 负责人批准 | DONE |
-| V03-M0-LAYOUT | M0 | Repository layout consolidation 与本机副本整理 | DOC-00 | IN_PROGRESS |
+| V03-M0-LAYOUT | M0 | Repository layout consolidation 与本机副本整理 | DOC-00 | DONE |
 | V03-F01 | M1 | 完整契约与终局一致性 | DOC-00 | TODO |
 | V03-F02 | M1 | 审批命令与路径包含性 | DOC-00 | TODO |
 | V03-F03 | M1 | Git路径、产物规则与只读取证 | DOC-00 | TODO |
@@ -63,11 +63,13 @@ G1=F01—F05；G2=R01—R02；G3=U01—U03；G4=P01—P02及P03有记录的支�
 
 ## V03-M0-LAYOUT｜Repository layout consolidation
 
-- 状态：IN_PROGRESS；2026-09-06；分支 `task/v03-m0-repository-layout`，基于已核对 main。
+- 状态：DONE；2026-09-06；分支 `task/v03-m0-repository-layout`；[PR #31](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/31) OPEN 待审计，未合并。
 - 范围：Git rename、必要路径／名称适配、当前文档与 canonical URL、本机重复副本分类整理。
 - 验收：完整 pytest、compileall、当前 Markdown 本地链接、diff-check、clean committed HEAD builder、artifact file set／hash／hygiene；唯一 canonical development clone；OPEN PR。
 - 边界：不修 A01—A12，不改 runtime／依赖／loopcore 包名，不改变已发布 v0.2；F01 保持 TODO。
-- 证据：迁移和验证待完成。
+- 证据：`9344bff` 关闭 DOC-00；`68bf256` 迁移 308 文件且零内容增删；`667ce95` 适配 manifest／注释／治理路径。定向 88 passed；全量 438 passed in 105.61s；compileall、diff-check、13 个当前 Markdown 的 22 个本地链接通过。
+- 构建：clean HEAD `667ce95deb2b4baae2a22fcfa394c4c2b5e55d4d` builder exit 0；92 个产品文件 + checksum，唯一顶层 clao/；逐文件 SHA-256、HEAD blob、hygiene、secret/path scan PASS；产品文件集变化 0。后续收尾仅改治理文档，最终 HEAD 构建结果记录于 PR 与本机证据。
+- 整理：唯一指定开发 clone 已建立；旧源码 ZIP 全部 25 个 blob 与 legacy 相同；发布包与设计快照归档，旧测试 worktree 用 Git move 保留；历史 refs 和 runtime 完整保存。AO 仍引用的 v0.1 clone 原地保留，原工作区空目录因占用／清理审查拒绝保留，不虚报桌面完全清空。详见 [M0 证据](V03_M0_EVIDENCE.md)。
 
 ## V03-F01｜完整契约与终局一致性
 

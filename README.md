@@ -4,7 +4,7 @@ Closed-Loop Agent Orchestrator
 
 CLAO 是构建在 Agent Orchestrator（AO）上的本地闭环软件开发控制层。默认单Worker执行任务，通过确定性Gate、集成和Mission终局复核保存可检查结果。
 
-**已发布：v0.2（Windows本地比赛版）。v0.3 规划已批准，当前进行 M0 基线与目录整理；后续先修Bug，再优化用户体验和GLM/Kimi模型切换。规划中的能力尚未实现。**
+**已发布：v0.2（Windows本地比赛版）。v0.3 规划已批准，M0 基线与目录整理已完成并等待 PR 审计；后续先修Bug，再优化用户体验和GLM/Kimi模型切换。规划中的能力尚未实现。**
 
 ## 使用已发布产品
 
