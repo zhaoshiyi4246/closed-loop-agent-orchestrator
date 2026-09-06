@@ -26,7 +26,8 @@ from .structured import ProtocolError, ContractConfigurationError
 from .mission_contracts import check_role, check_planner, check_verifier
 from .action_executor import ActionExecutor, ActionResult
 from .ao_adapter import AOAdapter, AOError
-from .approvals import decide_approval
+from .approvals import (decide_approval, apply_approval, pending_approvals,
+                        is_safe_command)
 from .auditor import (AuditorProvider, ClaudeCliAuditorProvider,
                       EvidenceBundle, FakeAuditorProvider)
 from .mission_contracts import (AuditDecision, AuditResult, PlannerAction,
@@ -410,9 +411,7 @@ class ClosedLoop:
                 self.task.worker_session_id)
         except Exception:
             return []
-        return [a for a in (conv.get("activities") or [])
-                if (a.get("activityKind") or a.get("kind")) == "approval"
-                and (a.get("status") or "") == "pending"]
+        return pending_approvals(conv)
 
     def _blocked_too_long(self) -> bool:
         """True when the worker has sat on unresolved approvals longer than
@@ -431,163 +430,33 @@ class ClosedLoop:
         return (now - int(started)) > limit
 
     def _maybe_auto_approve(self) -> bool:
-        """Resolve pending approvals for edits inside allowed_paths.
-
-        An AO Codex Worker may request approval before Edit/Write operations;
-        in an unattended mission nobody answers and the worker stalls with a
-        turn in flight (real-run evidence: 30 min stall -> budget HUMAN).
-        Policy (user-approved): file edits whose target resolves inside the
-        task's allowed_paths are resolved as allow_once via the daemon REST
-        API. Forbidden/outside paths are left pending — the human touchpoint.
-        Idempotent: resolved requests disappear from the pending set; each
-        request id is additionally deduped in a store counter.
-        """
+        """Apply the shared request-scoped policy, leaving other requests pending."""
         if self.dry_run or not self.task.worker_session_id:
             return False
-        # TASK_READY included (簇八, real-run MISSION-QUICK-014 S1): a worker
-        # blocked on a permission prompt in its FIRST turn never emits the
-        # activity that would transition TASK_READY->WORKER_RUNNING — if the
-        # state gate excludes TASK_READY, the blocked-pause branch parks the
-        # loop while the resolvable approval sits untouched until HUMAN.
+        # A first-turn approval can block before the first activity transition.
         if self.state not in (ProjectState.TASK_READY,
                               ProjectState.WORKER_RUNNING,
                               ProjectState.WORKER_RETRYING):
             return False
         acted = False
         worktree = self._worktree_path() or ""
-        for act in self._pending_approvals():
-            req_id = act.get("providerItemId") or act.get("id")
-            if not req_id:
-                continue
-            key = "approved:" + self.task.task_id + ":" + req_id
-            if self.store.counter_get(key) != 0:
-                continue
-            detail = act.get("detail") or {}
-            if isinstance(detail, str):
-                try:
-                    detail = json.loads(detail)
-                except Exception:
-                    detail = {}
-            inp = detail.get("input") or {}
-            fpath = inp.get("file_path") or inp.get("path") or ""
-            if not fpath:
-                # command approval: the richer local policy stays (cd-prefix
-                # and subshell unwrapping, read-only whitelist need worktree
-                # context approvals.is_safe_command does not have).
-                cmd = str(inp.get("command") or "")
-                allow = bool(cmd) and self._is_gate_command(cmd)
-            else:
-                # file-edit approval: resolved by the pure, unit-tested
-                # policy in approvals.py (proper Path.resolve().relative_to()
-                # — no string-marker hacks, no basename fallback: a path that
-                # does not resolve inside the worktree is simply DENIED).
-                decision = decide_approval(
-                    act, allowed_paths=list(self.task.allowed_paths),
-                    forbidden_paths=list(self.task.forbidden_paths),
-                    gate_commands=[], worktree_root=worktree)
-                allow = bool(decision and decision.allow)
-            if allow:
-                ok = self.adapter.resolve_approval(
-                    self.task.worker_session_id, req_id, "allow")
-                self.store.counter_set(key, 1 if ok else -1)
+        for activity in self._pending_approvals():
+            decision = decide_approval(
+                activity, allowed_paths=self.task.allowed_paths,
+                forbidden_paths=self.task.forbidden_paths,
+                gate_commands=self.task.gate_commands, worktree_root=worktree)
+            if decision:
+                ok = apply_approval(
+                    activity, decision, task_id=self.task.task_id,
+                    session_id=self.task.worker_session_id, store=self.store,
+                    resolve=self.adapter.resolve_approval)
                 acted = acted or ok
-            else:
-                # out-of-scope request: record and leave pending for human
-                self.store.counter_set(key, -1)
         return acted
 
     def _is_gate_command(self, cmd: str) -> bool:
-        """True when a requested command may run unattended.
-
-        Allowed (bounded auto-approval policy, user-approved):
-          - the task's own gate commands, in any -q/-v verbosity variant
-          - pytest invocations (test execution never edits sources)
-          - read-only exploration inside the worktree (ls/dir/pwd/cat/type/
-            head/tail, command -v / where / which, python --version)
-          - read/add/commit git bookkeeping INSIDE the worker worktree
-          - `cd <inside-worktree> &&` prefixes around any of the above
-        Everything else (arbitrary shell, network, package installs, file
-        deletion, redirection/pipes that could smuggle writes) stays pending
-        for the human.
-        """
-        cmd = " ".join((cmd or "").split())
-        if not cmd:
-            return False
-        # Chained commands: EVERY segment must be independently safe, and no
-        # segment may contain redirection/pipe/semicolon smuggling. A single
-        # '&' is shell backgrounding/chaining (`git status & curl evil.com`)
-        # and must NOT survive the `&&` split — reject it per segment.
-        segments = [s.strip() for s in cmd.split("&&")]
-        if any(not s for s in segments):
-            return False
-        for seg in segments:
-            if any(tok in seg for tok in (">", "<", "|", ";", "`", "$(",
-                                          "&")):
-                return False
-            if not self._is_safe_segment(seg):
-                return False
-        return True
-
-    def _is_safe_segment(self, seg: str) -> bool:
-        """One `&&`-free command segment judged against the safe list."""
-        import re
-        # unwrap one layer of subshell parentheses: `(command -v python)`
-        m = re.match(r'^\((.*)\)$', seg)
-        if m:
-            seg = " ".join(m.group(1).split())
-            if not seg:
-                return False
-        m = re.match(r'^cd\s+(?:"([^"]+)"|\'([^\']+)\'|(\S+))\s*$', seg)
-        if m:
-            # a bare cd is only meaningful as a prefix; allow it only when
-            # it targets the worker's own worktree.
-            return self._cd_inside_worktree(
-                m.group(1) or m.group(2) or m.group(3) or "")
-        for g in self.task.gate_commands or []:
-            g = " ".join(str(g).split())
-            if not g:
-                continue
-            if seg == g or seg.startswith(g + " ") or g.startswith(seg + " ") \
-                    or seg.rstrip(" -v").rstrip(" -q") == g.rstrip(" -q"):
-                return True
-        head = seg.split(" ", 1)[0]
-        rest = seg[len(head):].strip()
-        if head == "pytest":
-            return True
-        if head in ("python", "python3", "py"):
-            if rest.startswith("-m pytest"):
-                return True
-            if rest in ("--version", "-V", "-c \"import sys\""):
-                return True
-            return False
-        if head in ("ls", "dir", "pwd", "cat", "type", "head", "tail",
-                    "more"):
-            return True
-        if head in ("command", "where", "which"):
-            # command -v python / where pytest: environment discovery
-            return True
-        if head == "git":
-            sub = seg.split(" ")[1:2]
-            if sub and sub[0] in ("add", "commit", "status", "diff", "log",
-                                  "restore", "checkout"):
-                # restore/checkout confined to the worker's own worktree;
-                # the path gate + frozen-base diff still bound any escape
-                return True
-        return False
-
-    def _cd_inside_worktree(self, target: str) -> bool:
-        """True when a `cd` target resolves to the worker's own worktree
-        (or a subdirectory of it)."""
-        import os
-        wt = self._worktree_path()
-        if not wt or not target:
-            return False
-        t = os.path.normcase(os.path.normpath(str(target)))
-        w = os.path.normcase(os.path.normpath(str(wt)))
-        try:
-            return os.path.commonpath([t, w]) == w
-        except ValueError:
-            return False
+        """Compatibility query; production and helpers use the identical policy."""
+        return is_safe_command(cmd, self.task.gate_commands,
+                               worktree_root=self._worktree_path() or "")
 
     # ----------------------------------------------------------- L0 fast path
     def _maybe_l0_nudge(self, fresh_errors: List) -> bool:
