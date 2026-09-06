@@ -38,10 +38,18 @@
 
 ## 输入
 
+你会收到请求的 `verify_id` 和 `task_id`，必须原样回传。Mission 终局沿用
+`task_id` 字段，调用方已将它显式映射为 Mission ID；不要自行生成或补齐 ID。
+每个必需 AC 必须恰好出现一次，不可遗漏、重复或新增未知 AC。
+
+证据位于 `evidence.<名称>`：`content` 是实际提供的文本（列表为 JSON 文本），
+`original_length`、`sha256`、`truncated`、`missing` 和 `omitted_chars` 描述原始材料与缺口。
+任何片段或摘要都不能当完整证据；关键证据缺失或截断时不得 PASS。
+
 你会收到：
 - `task_spec`：目标、allowed/forbidden paths、验收标准、gate_commands
 - `git_diff`：可信代码计算的 diff（相对冻结 base commit）
-- `gate_output`：Integration Gate 真实运行命令的完整输出
+- `gate_output`：Integration Gate 真实运行命令的输出，完整性以证据元数据为准
 - `changed_paths`：全部变更路径（含新增/删除/重命名）
 - `deterministic_findings`：可信代码预先算好的确定性事实（路径违规等）。
   **这些是事实，不是建议**——与模型推理冲突时以事实为准。

@@ -261,7 +261,7 @@ def test_active_repeated_error_waits_for_completion_evidence(tmp_path):
         captured.append(bundle)
         return AuditResult(
             audit_id=audit_id, task_id=task.task_id,
-            decision=AuditDecision.PASS, evidence=[], diagnosis="complete",
+            decision=AuditDecision.PASS, evidence=[AuditEvidence("gate", "completed workspace gate: PASS")], diagnosis="complete",
             confidence=1.0)
 
     loop.auditor.audit.side_effect = audit_completed
@@ -308,9 +308,9 @@ def test_active_repeated_error_preserves_mixed_no_progress_alert(tmp_path):
     loop._run_gate_capture = MagicMock(return_value=(None, ""))
     loop._git_diff = MagicMock(return_value="active workspace diff")
     loop.auditor = MagicMock()
-    loop.auditor.audit.return_value = AuditResult(
-        audit_id="AUDIT-NO-PROGRESS", task_id=task.task_id,
-        decision=AuditDecision.LOCAL_FIX, evidence=[],
+    loop.auditor.audit.side_effect = lambda bundle, audit_id: AuditResult(
+        audit_id=audit_id, task_id=task.task_id,
+        decision=AuditDecision.LOCAL_FIX, evidence=[AuditEvidence("alert", "no progress")],
         diagnosis="no progress", confidence=0.9,
         failed_criteria=["AC-01"])
     loop._to_planner = MagicMock()
@@ -392,8 +392,8 @@ def test_instruct_reaches_planner(tmp_path):
     loop._transition(ProjectState.WORKER_RUNNING, "test", "setup", {})
     loop._transition(ProjectState.AUDIT_PENDING, "test", "setup", {})
     loop.planner = MagicMock()
-    loop.planner.plan = MagicMock(return_value=PlannerAction(
-        "ACT1", task.task_id, PlannerActionType.CONTINUE, reason="r"))
+    loop.planner.plan = MagicMock(side_effect=lambda audit, task_spec, action_id, **kwargs: PlannerAction(
+        action_id, task.task_id, PlannerActionType.CONTINUE, reason="r"))
     loop._to_planner(AuditResult("A1", task.task_id, AuditDecision.LOCAL_FIX,
                                  [AuditEvidence("t", "s")], "d", 0.9, ["AC-01"]))
     assert loop.planner.plan.call_args.kwargs["instruct"] == "优先测试全绿，禁止改 tests"

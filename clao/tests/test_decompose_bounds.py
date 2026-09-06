@@ -78,7 +78,6 @@ def test_two_worker_candidate_rejects_planner_return_above_two(monkeypatch):
     }
     monkeypatch.setattr(
         planner, "_call_decompose", lambda *_args: _plan_with(3))
-    monkeypatch.setattr("loopcore.planner_adapter.time.sleep", lambda _s: None)
 
     with pytest.raises(RuntimeError, match="subtasks must be a list of 1..2"):
         planner.plan_decompose(mission, "DECOMP-M-TEST")

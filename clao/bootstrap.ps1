@@ -77,10 +77,11 @@ try {
         throw "pip failed to install requirements.txt (exit code $LASTEXITCODE). Review the pip error above and retry when package network access is available."
     }
 
-    $verify = "import platform,sys,yaml,pytest; assert platform.python_implementation() == 'CPython' and sys.version_info[:2] == (3, 12); print('Python=' + platform.python_version()); print('PyYAML=' + yaml.__version__); print('pytest=' + pytest.__version__)"
-    & $venvPython -c $verify
+    $verify = "import platform,sys,yaml,pytest; sys.path.insert(0, 'src'); import loopcore.mission_contracts; from importlib.metadata import version; assert platform.python_implementation() == 'CPython' and sys.version_info[:2] == (3, 12); print('Python=' + platform.python_version()); print('PyYAML=' + yaml.__version__); print('pytest=' + pytest.__version__); print('jsonschema=' + version('jsonschema'))"
+    Push-Location $projectRoot
+    try { & $venvPython -c $verify } finally { Pop-Location }
     if ($LASTEXITCODE -ne 0) {
-        throw "The virtual environment failed Python 3.12/PyYAML/pytest verification."
+        throw "The virtual environment failed Python 3.12/dependency/Schema verification."
     }
 
     Write-Host "Bootstrap complete. Start CLAO with 启动CLAO.bat."

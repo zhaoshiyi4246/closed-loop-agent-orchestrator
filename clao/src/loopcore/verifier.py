@@ -23,13 +23,15 @@ provider protocol error, never a semantic FAIL verdict.
 from __future__ import annotations
 
 import json
-import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from .codex_cli import CodexCliError, run_codex_json
-from .mission_contracts import AcCheck, VerifierResult, validate_verifier_result
+from .codex_cli import run_codex_json
+from .structured import role_result
+from .mission_contracts import AcCheck, VerifierResult, check_verifier
+from .structured import (correlate, evidence_part, evidence_metadata,
+                         require_complete, protocol_call)
 
 PROMPT_DIR = Path(__file__).resolve().parent.parent.parent / "prompts"
 SCHEMA_DIR = PROMPT_DIR.parent / "schemas"
@@ -49,15 +51,35 @@ class VerifierInput:
     # owner-ruled): shown to the verifier alongside the trusted evidence.
     user_notes: List[str] = field(default_factory=list)
 
+    def evidence_parts(self):
+        return {
+            "git_diff": evidence_part(self.diff, 6000, missing=bool(self.changed_paths) and not self.diff.strip()),
+            "gate_output": evidence_part(self.gate_output, 6000, missing=not self.gate_output.strip()),
+            "changed_paths": evidence_part(self.changed_paths, 6000),
+            "deterministic_findings": evidence_part(self.deterministic_findings, 6000),
+            "user_notes": evidence_part(self.user_notes, 6000),
+        }
+
+    def validate_evidence(self):
+        correlate(self.task_spec, task_id=self.task_spec.get("task_id"))
+        parts = self.evidence_parts()
+        require_complete(parts)
+        return evidence_metadata(parts)
+
     def to_prompt_text(self) -> str:
+        parts = self.evidence_parts()
         return json.dumps({
             "task_spec": self.task_spec,
-            "git_diff": self.diff[:6000],
-            "gate_output": self.gate_output[:6000],
-            "changed_paths": self.changed_paths,
-            "deterministic_findings": self.deterministic_findings,
-            "user_notes": self.user_notes[-10:],
-        }, ensure_ascii=False, indent=2)
+            "evidence": parts,
+        }, ensure_ascii=False, indent=2, allow_nan=False)
+
+    def validation_record(self, verify_id):
+        import hashlib
+        raw = self.to_prompt_text()
+        return dict(version=1, request_id=verify_id,
+                    target_id=self.task_spec["task_id"],
+                    input_sha256=hashlib.sha256(raw.encode("utf-8")).hexdigest(),
+                    evidence=self.validate_evidence())
 
 
 class VerifierProvider:
@@ -92,7 +114,7 @@ class FakeVerifierProvider(VerifierProvider):
                                 note="; ".join(red_flags)))
         return VerifierResult(
             verify_id=verify_id,
-            task_id=inp.task_spec.get("task_id", ""),
+            task_id=inp.task_spec["task_id"],
             verdict=verdict, ac_checks=ac_checks, anti_gaming=anti,
             summary="fake verifier: verdict=%s red_flags=%d gate_bad=%s"
                     % (verdict, len(red_flags), gate_bad))
@@ -116,7 +138,7 @@ class CodexCliVerifierProvider(VerifierProvider):
     def _call(self, inp: VerifierInput, verify_id: str) -> Dict:
         task_input = json.dumps({
             "verify_id": verify_id,
-            "task_id": inp.task_spec.get("task_id", ""),
+            "task_id": inp.task_spec["task_id"],
             "verifier_input": json.loads(inp.to_prompt_text()),
             "instruction": ("Output ONLY a VerifierResult JSON object "
                             "matching the schema with the supplied verify_id "
@@ -134,45 +156,10 @@ class CodexCliVerifierProvider(VerifierProvider):
         )
 
     def verify(self, inp: VerifierInput, verify_id: str) -> VerifierResult:
-        last_err = ""
-        for attempt in range(2):
-            # Transport/runtime failures escape immediately so the existing
-            # VERIFIER_PENDING step boundary can retry them on the next tick.
-            # Only a complete JSON object that fails local validation gets
-            # this one in-provider protocol retry.
-            obj = self._call(inp, verify_id)
-            obj.setdefault("verify_id", verify_id)
-            obj.setdefault("task_id", inp.task_spec.get("task_id", ""))
-            self._coerce(obj)
-            ok, msg = validate_verifier_result(obj)
-            if ok:
-                return VerifierResult.from_dict(obj)
-            last_err = "schema: %s" % msg
-            if attempt == 0:
-                time.sleep(0.1)
-        raise CodexCliError(
-            "verifier returned schema-invalid output twice: %s"
-            % (last_err or "unknown validation failure"))
-
-    @staticmethod
-    def _coerce(obj: Dict) -> None:
-        """Normalize real-model output quirks before schema validation
-        (None -> "" for strings, missing list fields -> [])."""
-        if not isinstance(obj.get("ac_checks"), list):
-            obj["ac_checks"] = []
-        if not isinstance(obj.get("anti_gaming"), list):
-            obj["anti_gaming"] = []
-        for k in ("verify_id", "task_id", "summary"):
-            if obj.get(k) is None:
-                obj[k] = ""
-        for lst in ("ac_checks", "anti_gaming"):
-            for c in obj[lst]:
-                if not isinstance(c, dict):
-                    continue
-                if c.get("note") is None:
-                    c["note"] = ""
-                if c.get("verdict") not in ("PASS", "FAIL", "UNVERIFIABLE"):
-                    c["verdict"] = "UNVERIFIABLE"
+        inp.validate_evidence()
+        obj = protocol_call(lambda: self._call(inp, verify_id),
+                            lambda obj: check_verifier(obj, verify_id, inp.task_spec))
+        return role_result(VerifierResult, obj)
 
 
 # Compatibility for legacy CLI modules outside this migration's edit scope.

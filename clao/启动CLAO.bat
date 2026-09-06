@@ -3,7 +3,7 @@ rem CLAO — 双击启动，自动准备 Python 环境并打开浏览器
 cd /d "%~dp0"
 
 if not exist ".venv\Scripts\python.exe" goto bootstrap
-".venv\Scripts\python.exe" -c "import platform,sys,yaml; raise SystemExit(0 if platform.python_implementation() == 'CPython' and sys.version_info[:2] == (3, 12) else 1)"
+".venv\Scripts\python.exe" -c "import platform,sys,yaml; sys.path.insert(0, 'src'); import loopcore.mission_contracts; raise SystemExit(0 if platform.python_implementation() == 'CPython' and sys.version_info[:2] == (3, 12) else 1)"
 if errorlevel 1 goto bootstrap
 goto start_panel
 

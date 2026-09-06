@@ -8,18 +8,19 @@ Providers:
 The Planner is a planning agent (no code editing): it maps an AuditResult to a
 PlannerAction (CONTINUE/SEND_LOCAL_FIX/REPLAN_SPAWN/CANDIDATE_DONE/HUMAN).
 
-On two invalid outputs -> HUMAN. Never substitutes FakePlanner for a real run.
+Two invalid outputs raise ProtocolError; only the Controller may halt to HUMAN.
 """
 from __future__ import annotations
 
 import json
-import time
 from pathlib import Path
 from typing import Optional
 
 from .codex_cli import run_codex_json
+from .structured import role_result
 from .mission_contracts import (AuditResult, PlannerAction, PlannerActionType,
-                        AuditDecision, validate_planner_action)
+                        AuditDecision, check_planner, check_role, _validate)
+from .structured import ProtocolError, protocol_call
 
 PROMPT_DIR = Path(__file__).resolve().parent.parent.parent / "prompts"
 SCHEMA_DIR = PROMPT_DIR.parent / "schemas"
@@ -60,7 +61,7 @@ class FakePlannerProvider(PlannerProvider):
             if remaining_replans > 0:
                 return PlannerAction(action_id=action_id, task_id=audit.task_id,
                     action=PlannerActionType.REPLAN_SPAWN,
-                    replacement_task_spec=task_spec_dict, reason="audit REPLAN")
+                    replacement_task_spec={"objective": task_spec_dict["objective"]}, reason="audit REPLAN")
             return PlannerAction(action_id=action_id, task_id=audit.task_id,
                 action=PlannerActionType.HUMAN, reason="replans exhausted")
         return PlannerAction(action_id=action_id, task_id=audit.task_id,
@@ -89,23 +90,6 @@ class FakePlannerProvider(PlannerProvider):
             dependencies=["%s-S1" % mission_id])
         return MissionPlan(mission_id=mission_id, subtasks=[sub1, sub2],
                            strategy="fake decompose")
-
-
-def _coerce_planner_strings(obj: dict) -> None:
-    """Normalize common real-model output quirks before schema validation.
-
-    Live planners can emit `"message": null` or
-    omit `plan` when the action needs no message; the schema declares those
-    as plain strings, so validation failed and a healthy PASS decision was
-    degraded to the HUMAN fallback. Coerce None -> "" (and drop non-scalar
-    junk) instead of rejecting the whole action.
-    """
-    for key in ("message", "reason", "plan", "action_id", "task_id"):
-        v = obj.get(key)
-        if v is None:
-            obj[key] = ""
-        elif not isinstance(v, str):
-            obj[key] = json.dumps(v, ensure_ascii=False)
 
 
 class CodexCliPlannerProvider(PlannerProvider):
@@ -166,70 +150,25 @@ class CodexCliPlannerProvider(PlannerProvider):
              remaining_replans: int = 0,
              instruct: str = "",
              board: Optional[dict] = None) -> PlannerAction:
-        last_err = ""
-        for attempt in range(2):
-            try:
-                obj = self._call(audit, task_spec_dict, action_id,
-                                 target_session_id=target_session_id,
-                                 remaining_replans=remaining_replans,
-                                 instruct=instruct,
-                                 board=board)
-                obj.setdefault("action_id", action_id)
-                obj.setdefault("task_id", audit.task_id)
-                _coerce_planner_strings(obj)
-                ok, msg = validate_planner_action(obj)
-                if obj.get("action") == PlannerActionType.REPLAN_SPAWN:
-                    replacement = obj.get("replacement_task_spec")
-                    objective = replacement.get("objective") \
-                        if isinstance(replacement, dict) else None
-                    if not isinstance(objective, str) or not objective.strip():
-                        ok = False
-                        msg = ("REPLAN_SPAWN requires replacement_task_spec."
-                               "objective to be a non-empty string")
-                    else:
-                        replacement["objective"] = objective.strip()
-                if ok:
-                    return PlannerAction.from_dict(obj)
-                last_err = "schema: %s" % msg
-            except Exception as e:  # noqa
-                last_err = "call: %s" % e
-            if attempt == 0:
-                time.sleep(0.2)
-        return PlannerAction(action_id=action_id, task_id=audit.task_id,
-            action=PlannerActionType.HUMAN,
-            reason="planner invalid output: %s" % last_err)
+        obj = protocol_call(
+            lambda: self._call(audit, task_spec_dict, action_id,
+                               target_session_id=target_session_id,
+                               remaining_replans=remaining_replans,
+                               instruct=instruct, board=board),
+            lambda obj: check_planner(obj, action_id, task_spec_dict.get("task_id"),
+                                      target_session_id))
+        return role_result(PlannerAction, obj)
 
-
-    # ---------------------------------------------------- decomposition
     def plan_decompose(self, mission: dict, plan_id: str) -> "MissionPlan":
-        """Leader capability: decompose ONE mission into parallel subtasks.
-
-        A separate call from per-cycle plan(): different output shape (a
-        MissionPlan with subtasks, not a single action). Schema-validated
-        against mission-plan; two attempts; both fail -> RuntimeError (the
-        controller's existing boundary halts to HUMAN).
-        """
         from .mission_contracts import MissionPlan
-        max_sub = int((mission.get("budgets") or {})
-                      .get("max_subtasks", 1))
-        if max_sub < 1:
-            raise ValueError("budgets.max_subtasks must be positive")
-        last_err = ""
-        for attempt in range(2):
-            try:
-                obj = self._call_decompose(mission, plan_id, max_sub)
-                ok, msg = self._validate_mission_plan(obj, max_sub)
-                if ok and obj.get("mission_id") != mission.get("mission_id"):
-                    ok = False
-                    msg = "mission_id does not match the input mission"
-                if ok:
-                    return MissionPlan.from_dict(obj)
-                last_err = "schema: %s" % msg
-            except Exception as e:  # noqa
-                last_err = "call: %s" % e
-            if attempt == 0:
-                time.sleep(0.2)
-        raise RuntimeError("planner decompose failed twice: %s" % last_err)
+        max_sub = int((mission.get("budgets") or {}).get("max_subtasks", 1))
+        def validate(obj):
+            check_role(obj, "mission-plan", mission_id=mission.get("mission_id"))
+            ok, msg = self._validate_mission_plan(obj, max_sub)
+            if not ok:
+                raise ProtocolError("SCHEMA", msg)
+        obj = protocol_call(lambda: self._call_decompose(mission, plan_id, max_sub), validate)
+        return role_result(MissionPlan, obj)
 
     @staticmethod
     def _decompose_instruction(max_sub: int) -> str:
@@ -269,6 +208,9 @@ class CodexCliPlannerProvider(PlannerProvider):
 
     @staticmethod
     def _validate_mission_plan(obj: dict, max_sub: int):
+        ok, msg = _validate(obj, "mission-plan")
+        if not ok:
+            return ok, msg
         from .mission_contracts import MissionPlan
         if not isinstance(obj, dict):
             return False, "not an object"
@@ -286,8 +228,6 @@ class CodexCliPlannerProvider(PlannerProvider):
                 return False, "subtask missing objective"
             if not s.get("allowed_paths"):
                 return False, "subtask missing allowed_paths"
-        obj.setdefault("mission_id", "")
-        obj.setdefault("strategy", "")
         try:
             MissionPlan.from_dict(obj)
         except Exception as e:  # noqa

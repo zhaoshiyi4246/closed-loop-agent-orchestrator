@@ -16,14 +16,16 @@ provider protocol error, never a semantic HUMAN decision.
 from __future__ import annotations
 
 import json
-import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from .codex_cli import CodexCliError, run_codex_json
+from .codex_cli import run_codex_json
+from .structured import role_result
 from .mission_contracts import (AuditResult, AuditEvidence, AuditDecision,
-                        validate_audit_result)
+                        check_role)
+from .structured import (evidence_part, evidence_metadata, require_complete,
+                         protocol_call)
 
 PROMPT_DIR = Path(__file__).resolve().parent.parent.parent / "prompts"
 SCHEMA_DIR = PROMPT_DIR.parent / "schemas"
@@ -46,22 +48,26 @@ class EvidenceBundle:
     worker_id: Optional[str] = None
     subtask_id: Optional[str] = None
 
+    def evidence_parts(self):
+        return {"git_diff": evidence_part(self.git_diff, 4000),
+                "test_output": evidence_part(self.test_output, 4000),
+                "events": evidence_part(self.events, 8000),
+                "alerts": evidence_part(self.alerts, 8000)}
+
+    def validate_evidence(self):
+        parts = self.evidence_parts()
+        require_complete(parts)
+        return evidence_metadata(parts)
+
     def to_prompt_text(self) -> str:
         return json.dumps({
-            "task_spec": self.task_spec,
-            "audit_type": self.audit_type,
-            "worker_id": self.worker_id,
-            "subtask_id": self.subtask_id,
-            "alert": self.alert,
-            "alerts": self.alerts[-20:],
-            "events": self.events[-10:],
-            "worker_status": self.worker_status,
-            "git_diff": self.git_diff[:4000],
-            "test_output": self.test_output[:4000],
+            "task_spec": self.task_spec, "audit_type": self.audit_type,
+            "worker_id": self.worker_id, "subtask_id": self.subtask_id,
+            "alert": self.alert, "worker_status": self.worker_status,
+            "evidence": self.evidence_parts(),
             "satisfied_criteria": self.satisfied_criteria,
-            "failed_criteria": self.failed_criteria,
-            "history": self.history,
-        }, ensure_ascii=False, indent=2)
+            "failed_criteria": self.failed_criteria, "history": self.history,
+        }, ensure_ascii=False, indent=2, allow_nan=False)
 
 
 class AuditorProvider:
@@ -134,24 +140,12 @@ class CodexCliAuditorProvider(AuditorProvider):
         )
 
     def audit(self, bundle: EvidenceBundle, audit_id: str) -> AuditResult:
-        last_err = ""
-        for attempt in range(2):
-            # CodexCliError (timeout, launch/non-zero, missing output, etc.)
-            # deliberately escapes immediately.  The Controller owns bounded
-            # retry across ticks; retrying here would hide a runtime failure
-            # behind a fabricated domain decision.
-            obj = self._call(bundle, audit_id)
-            obj.setdefault("audit_id", audit_id)
-            obj.setdefault("task_id", bundle.task_spec.get("task_id", ""))
-            ok, msg = validate_audit_result(obj)
-            if ok:
-                return AuditResult.from_dict(obj)
-            last_err = "schema: %s" % msg
-            if attempt == 0:
-                time.sleep(0.1)
-        raise CodexCliError(
-            "auditor returned schema-invalid output twice: %s"
-            % (last_err or "unknown validation failure"))
+        obj = protocol_call(lambda: self._call(bundle, audit_id),
+                            lambda obj: check_role(obj, "audit-result",
+                                audit_id=audit_id, task_id=bundle.task_spec.get("task_id")))
+        if obj["decision"] == "PASS":
+            bundle.validate_evidence()
+        return role_result(AuditResult, obj)
 
 
 # Compatibility for legacy CLI modules outside this migration's edit scope.

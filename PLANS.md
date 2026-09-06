@@ -6,12 +6,12 @@
 
 ## 当前唯一执行指针
 
-- 当前阶段：**M0 COMPLETE** — Repository Baseline & Layout Consolidation。
-- 当前任务：V03-M0-LAYOUT = DONE；PR #31 人工审计 PASS；无功能任务执行中。
-- 当前状态：V03-DOC-00 = DONE；V03-M0-LAYOUT = DONE；本机副本已分类整理，AO 引用与空目录保留项见 M0 证据。
-- 当前允许：以已审计的 M0 为基线准备下一任务；任何后续功能实施须有独立任务指令。
-- 当前禁止：runtime 行为／依赖／Provider 变更；真实模型调用、AO Worker、Mission、CLAO GUI、tag 和 Release 发布；不实施 F01。
-- 下一任务：**V03-F01 — 完整契约与终局一致性**，TODO。本项实施需要收到相应任务指令，不能因为列在“下一步”就自动开工。
+- 当前阶段：**M1 IN_PROGRESS**；M0 COMPLETE。
+- 当前唯一任务：**V03-F01 — 完整契约与终局一致性**，IN_PROGRESS。
+- 授权：2026-09-06 独立 F01 指令；必要产品代码、直接测试、依赖／安装检查、Windows 离线回归、本地 clean HEAD 构建及面向 main 的 PR。
+- 实际 base：`26b02e9d3e1d72cde3b29143d96ed4e096391249`，fetch 后本地 main 与 origin/main 一致；分支 `task/v03-f01-contract-consistency`。
+- 边界：仅 F01；真实模型／AO Worker／Mission／GLM/Kimi／凭据与全局配置修改、merge、tag、Release 均未授权。
+- 交付状态：实施与离线验收后进入 IN_REVIEW；live NOT_RUN / pending authorization，不标 DONE；提交 PR 后等待外部审计。
 
 ## 快速查询
 
@@ -25,7 +25,7 @@
 | 阶段 | 状态 | 退出条件 |
 |---|---|---|
 | M0 基线与目录整理 | COMPLETE（DOC-00 / LAYOUT DONE） | 规划已批准入库；纯路径迁移验证；副本分类整理含保留项；人工审计 PASS |
-| M1 修复冻结 | TODO | F01—F05负例与正常路径通过 |
+| M1 修复冻结 | IN_PROGRESS（仅 F01） | F01—F05负例与正常路径通过 |
 | M2 使用契约 | TODO | 配置、回执、取消恢复、基线可追溯 |
 | M3 GUI与交付体验 | TODO | 四入口＋任务旅程＋结果导出＋浏览器验收 |
 | M4 模型扩展 | TODO | GLM与Kimi语义profile；Worker明确支持/拒绝决策 |

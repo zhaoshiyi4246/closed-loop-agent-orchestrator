@@ -10,6 +10,7 @@ import pytest
 
 import run_mission
 from loopcore.auditor import CodexCliAuditorProvider
+from loopcore.structured import ProtocolError
 from loopcore.codex_cli import CodexCliError
 from loopcore.mission_contracts import (
     AuditDecision,
@@ -136,7 +137,7 @@ def test_plan_decompose_returns_valid_plan_and_uses_schema(monkeypatch,
 
 def test_plan_retries_once_then_succeeds(monkeypatch):
     planner = CodexCliPlannerProvider()
-    calls = iter([CodexCliError("first"), _action()])
+    calls = iter([{}, _action()])
 
     def fake_call(*args, **kwargs):
         value = next(calls)
@@ -145,7 +146,6 @@ def test_plan_retries_once_then_succeeds(monkeypatch):
         return value
 
     monkeypatch.setattr(planner, "_call", fake_call)
-    monkeypatch.setattr("loopcore.planner_adapter.time.sleep", lambda _: None)
     action = planner.plan(_audit(), {"task_id": "TASK-1"}, "ACT-1")
     assert action.action == PlannerActionType.CANDIDATE_DONE
 
@@ -164,7 +164,7 @@ def test_replan_with_nonempty_replacement_objective_is_valid(monkeypatch):
 
     assert action.action == PlannerActionType.REPLAN_SPAWN
     assert action.replacement_task_spec == {
-        "objective": "Use a corrected implementation route"}
+        "objective": "  Use a corrected implementation route  "}
     assert action.validate()[0]
 
 
@@ -187,7 +187,6 @@ def test_replan_invalid_replacement_retries_then_succeeds(
         return next(outputs)
 
     monkeypatch.setattr(planner, "_call", fake_call)
-    monkeypatch.setattr("loopcore.planner_adapter.time.sleep", lambda _: None)
 
     action = planner.plan(
         _replan_audit(), {"task_id": "TASK-1"}, "ACT-REPLAN",
@@ -206,54 +205,40 @@ def test_replan_two_invalid_replacements_fail_closed_to_human(monkeypatch):
         _replan_action({}),
     ])
     monkeypatch.setattr(planner, "_call", lambda *a, **k: next(outputs))
-    monkeypatch.setattr("loopcore.planner_adapter.time.sleep", lambda _: None)
 
-    action = planner.plan(
-        _replan_audit(), {"task_id": "TASK-1"}, "ACT-REPLAN",
-        target_session_id="worker-old", remaining_replans=1)
-
-    assert action.action == PlannerActionType.HUMAN
-    assert "replacement_task_spec.objective" in action.reason
+    with pytest.raises(ProtocolError, match="SCHEMA"):
+        planner.plan(_replan_audit(), {"task_id": "TASK-1"}, "ACT-REPLAN",
+                     target_session_id="worker-old", remaining_replans=1)
 
 
-def test_plan_fails_closed_to_human_after_two_failures(monkeypatch):
-    planner = CodexCliPlannerProvider()
-    monkeypatch.setattr(
-        planner, "_call", lambda *a, **k: (_ for _ in ()).throw(
-            CodexCliError("offline failure")))
-    monkeypatch.setattr("loopcore.planner_adapter.time.sleep", lambda _: None)
-    action = planner.plan(_audit(), {"task_id": "TASK-1"}, "ACT-1")
-    assert action.action == PlannerActionType.HUMAN
-    assert "offline failure" in action.reason
-
-
-def test_decompose_raises_after_two_failures(monkeypatch):
+def test_plan_transport_error_propagates_without_semantic_human(monkeypatch):
     planner = CodexCliPlannerProvider()
     calls = []
-
     def fail(*args, **kwargs):
         calls.append(1)
         raise CodexCliError("offline failure")
-
-    monkeypatch.setattr(planner, "_call_decompose", fail)
-    monkeypatch.setattr("loopcore.planner_adapter.time.sleep", lambda _: None)
-    with pytest.raises(RuntimeError, match="failed twice"):
-        planner.plan_decompose(MISSION, "DECOMP-M-CODEX")
-    assert len(calls) == 2
+    monkeypatch.setattr(planner, "_call", fail)
+    with pytest.raises(CodexCliError, match="offline failure"):
+        planner.plan(_audit(), {"task_id": "TASK-1"}, "ACT-1")
+    assert len(calls) == 1
 
 
-def test_decompose_retries_once_then_succeeds(monkeypatch):
+def test_decompose_transport_error_propagates_once(monkeypatch):
     planner = CodexCliPlannerProvider()
-    values = iter([CodexCliError("first"), _plan()])
+    calls = []
+    def fail(*args, **kwargs):
+        calls.append(1)
+        raise CodexCliError("offline failure")
+    monkeypatch.setattr(planner, "_call_decompose", fail)
+    with pytest.raises(CodexCliError, match="offline failure"):
+        planner.plan_decompose(MISSION, "DECOMP-M-CODEX")
+    assert len(calls) == 1
 
-    def fake_call(*args, **kwargs):
-        value = next(values)
-        if isinstance(value, Exception):
-            raise value
-        return value
 
-    monkeypatch.setattr(planner, "_call_decompose", fake_call)
-    monkeypatch.setattr("loopcore.planner_adapter.time.sleep", lambda _: None)
+def test_decompose_retries_invalid_protocol_once_then_succeeds(monkeypatch):
+    planner = CodexCliPlannerProvider()
+    values = iter([{}, _plan()])
+    monkeypatch.setattr(planner, "_call_decompose", lambda *a, **k: next(values))
     plan = planner.plan_decompose(MISSION, "DECOMP-M-CODEX")
     assert plan.mission_id == "M-CODEX"
 

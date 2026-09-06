@@ -1,5 +1,6 @@
 # Production runtime dependency.
 PyYAML==6.0.3
+jsonschema==4.25.1
 
 # Release self-verification dependency.
 pytest==9.1.1

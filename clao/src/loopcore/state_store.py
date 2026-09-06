@@ -200,10 +200,15 @@ class StateStore:
             r = cur.fetchone()
             if not r:
                 return None
-            try:
-                return json.loads(r[0])
-            except (ValueError, TypeError):
-                return None
+            return self._verification_payload(r[0])
+
+    @staticmethod
+    def _verification_payload(raw: str) -> Dict:
+        from .structured import parse_json, ProtocolError
+        payload = parse_json(raw)
+        if not isinstance(payload, dict):
+            raise ProtocolError("SCHEMA", "saved verification is not an object")
+        return payload
 
     def record_verification(self, verify_id: str, task_id: str,
                             payload: Dict) -> None:
@@ -214,6 +219,17 @@ class StateStore:
                 (verify_id, task_id, json.dumps(payload, ensure_ascii=False),
                  now_iso()))
             self._conn.commit()
+
+    def latest_verification(self, task_id: str) -> Optional[Dict]:
+        """Read final-review evidence for crash recovery; callers revalidate it."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT payload_json FROM verifications WHERE task_id=? "
+                "ORDER BY rowid DESC LIMIT 1", (task_id,)).fetchone()
+            if row is None:
+                return None
+            # Corrupt persisted JSON must not be interpreted as no prior result.
+            return self._verification_payload(row[0])
 
     # ---------------------------------------------------------- missions
     def record_mission(self, mission_id: str, payload: Dict) -> None:

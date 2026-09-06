@@ -136,8 +136,8 @@ class IntegrationGate:
                                           timeout=300, encoding="utf-8",
                                           errors="replace")
                     exit_code = proc.returncode
-                    stdout = (proc.stdout or "")[:8000]
-                    stderr = (proc.stderr or "")[:8000]
+                    stdout = (proc.stdout or "")
+                    stderr = (proc.stderr or "")
                 except Exception as e:
                     exit_code, stdout, stderr = -1, "", str(e)
             ended = now_iso()

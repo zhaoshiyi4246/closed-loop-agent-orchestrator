@@ -11,6 +11,7 @@ from loopcore.auditor import (
     EvidenceBundle,
     FakeAuditorProvider,
 )
+from loopcore.structured import ProtocolError
 from loopcore.codex_cli import CodexCliError
 from loopcore.mission_contracts import AuditDecision
 
@@ -108,7 +109,6 @@ def test_invalid_audit_result_is_retried(monkeypatch):
         return next(values)
 
     monkeypatch.setattr(provider, "_call", fake_call)
-    monkeypatch.setattr("loopcore.auditor.time.sleep", lambda _: None)
     assert provider.audit(_bundle(), "AUD-CODEX").decision == \
         AuditDecision.PASS
     assert len(calls) == 2
@@ -123,8 +123,7 @@ def test_two_schema_invalid_audit_results_raise_protocol_error(monkeypatch):
         return {"decision": "BOGUS", "evidence": []}
 
     monkeypatch.setattr(provider, "_call", invalid)
-    monkeypatch.setattr("loopcore.auditor.time.sleep", lambda _: None)
-    with pytest.raises(CodexCliError, match="schema-invalid output twice"):
+    with pytest.raises(ProtocolError, match="SCHEMA"):
         provider.audit(_bundle(["AC-1"]), "AUD-CODEX")
     assert len(calls) == 2
 

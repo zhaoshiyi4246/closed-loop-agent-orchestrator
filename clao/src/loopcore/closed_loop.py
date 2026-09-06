@@ -22,6 +22,8 @@ import json
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from .structured import ProtocolError, ContractConfigurationError
+from .mission_contracts import check_role, check_planner, check_verifier
 from .action_executor import ActionExecutor, ActionResult
 from .ao_adapter import AOAdapter, AOError
 from .approvals import decide_approval
@@ -133,6 +135,11 @@ class ClosedLoop:
             result = self._step_impl(injected_events)
             self._loop_error_streak = 0
             return result
+        except ProtocolError as exc:
+            self.store.record_alert(make_id("PROTOCOL-TASK"),
+                                    dict(exc.payload(), task_id=self.task.task_id))
+            self._halt_budget(str(exc))
+            return {"state": self.state, "acted": True, "error": str(exc)}
         except Exception as e:
             self._loop_error_streak = getattr(self, "_loop_error_streak", 0) + 1
             try:
@@ -140,6 +147,7 @@ class ClosedLoop:
                     "LOOPERR-%s-%d" % (self.task.task_id, _epoch_seconds()),
                     {"alert_type": "LOOP_ERROR", "task_id": self.task.task_id,
                      "state": str(self.state), "error": str(e)[:500],
+                     "protocol_errors": getattr(e, "protocol_errors", []),
                      "consecutive": self._loop_error_streak})
             except Exception:
                 pass
@@ -905,13 +913,25 @@ class ClosedLoop:
                              "%d alert(s) -> one aggregated audit" % len(fresh),
                              {"alert_ids": [a.alert_id for a in fresh]})
         bundle = self._build_bundle(primary, events or [], all_alerts=fresh)
-        audit = self.auditor.audit(bundle, self._audit_id_for(primary))
+        audit = self._checked_audit(bundle, self._audit_id_for(primary))
         # Record the incident result against EVERY fired alert so none of them
         # re-triggers a second audit (each row links to the same incident).
         for al in fresh:
             self.store.record_audit(self._audit_id_for(al), self.task.task_id,
                                     audit.to_dict())
         self._to_planner(audit)
+
+    def _checked_audit(self, bundle, audit_id):
+        result = self.auditor.audit(bundle, audit_id)
+        check_role(result.to_dict(), "audit-result", audit_id=audit_id,
+                   task_id=self.task.task_id)
+        if result.decision == "PASS":
+            bundle.validate_evidence()
+            if bundle.failed_criteria or result.failed_criteria:
+                raise ProtocolError("COHERENCE", "audit PASS contradicts known failed criteria")
+        from .structured import evidence_metadata
+        result._input_evidence = evidence_metadata(bundle.evidence_parts())
+        return result
 
     def _build_bundle(self, alert, events: Optional[List] = None,
                       all_alerts: Optional[List] = None) -> EvidenceBundle:
@@ -933,7 +953,7 @@ class ClosedLoop:
             alerts=[a.to_dict() if hasattr(a, "to_dict") else dict(a)
                     for a in all_alerts],
             events=[e.to_dict() if hasattr(e, "to_dict") else dict(e)
-                    for e in events[-10:]],
+                    for e in events],
             worker_status=self._worker_status(),
             git_diff=self._git_diff(),
             test_output=test_output,
@@ -977,7 +997,7 @@ class ClosedLoop:
             # not silently rendered as an empty (clean-looking) diff.
             return "[loopcore] diff unavailable: base commit unknown\n"
         try:
-            return wt.git_diff_text(worktree, base)
+            return wt.git_diff_text(worktree, base, limit=None)
         except Exception:
             return "[loopcore] diff unavailable (error)\n"
 
@@ -1042,6 +1062,7 @@ class ClosedLoop:
                                  "resume: no audit survived -> re-audit", {})
             self._completion_audit()
             return
+        check_role(payload, "audit-result", task_id=self.task.task_id)
         self._to_planner(AuditResult.from_dict(payload))
 
     def _resume_action(self) -> None:
@@ -1055,6 +1076,12 @@ class ClosedLoop:
             # Transition happened before record_action: rebuild via planner.
             self._resume_planner()
             return
+        audit = self.store.latest_audit(self.task.task_id)
+        if not audit:
+            raise ProtocolError("CORRELATION", "saved action has no associated audit")
+        check_role(audit, "audit-result", task_id=self.task.task_id)
+        action_id = stable_id("ACTION", audit["audit_id"], length=16)
+        check_planner(payload, action_id, self.task.task_id, self.task.worker_session_id)
         self._execute(PlannerAction.from_dict(payload), None)
 
     def _to_planner(self, audit: AuditResult) -> None:
@@ -1077,10 +1104,7 @@ class ClosedLoop:
             remaining_replans=max(0, self.task.budgets.get("max_replans", 1)
                                    - self.executor.replans),
             instruct=self.instruct, board=board)
-        ok, msg = pa.validate()
-        if not ok:
-            pa = PlannerAction(action_id=action_id, task_id=self.task.task_id,
-                action="HUMAN", reason="invalid planner action: %s" % msg)
+        check_planner(pa.to_dict(), action_id, self.task.task_id, self.task.worker_session_id)
         self.store.record_action(action_id, self.task.task_id, pa.to_dict())
         self._execute(pa, audit)
 
@@ -1184,7 +1208,7 @@ class ClosedLoop:
                     history={**self._fresh_history(),
                              "user_directives":
                                  self.role_directives["auditor"][-10:]})
-                audit = self.auditor.audit(bundle, audit_id)
+                audit = self._checked_audit(bundle, audit_id)
                 self.store.record_audit(audit_id, self.task.task_id,
                                         audit.to_dict())
                 self._to_planner(audit)
@@ -1204,7 +1228,7 @@ class ClosedLoop:
             self._transition(ProjectState.HUMAN, "verifier",
                             "no worktree path resolvable", {})
             return
-        verifier = self.verifier or FakeVerifierProvider()
+        verifier = self.verifier
         # Deterministic verify_id keyed on (task, worker session): the same
         # VERIFIER_PENDING re-entry (crash-resume) maps to the same id, so a
         # verdict already recorded in the narrow window before the DONE/AUDIT
@@ -1213,38 +1237,9 @@ class ClosedLoop:
         # worker session -> a new id -> a fresh verification (never skipped).
         verify_id = stable_id("VERIFY", self.task.task_id,
                               self.task.worker_session_id or "", length=16)
-        # Reuse a recorded verdict ONLY on a genuine crash-resume re-entry: the
-        # loop is already in VERIFIER_PENDING (a completed verify would have
-        # moved it to DONE/AUDIT_PENDING), so a recorded verdict here means the
-        # process was killed in the narrow window between record_verification
-        # and the state transition. Re-running the non-deterministic LLM could
-        # flip the result, so we replay the recorded verdict.
-        #
-        # In every OTHER path into _run_verifier (e.g. a local-fix cycle: FAIL
-        # -> worker fixes on the SAME session -> gate pass -> re-verify) the
-        # state is NOT VERIFIER_PENDING yet, so even though verification_seen
-        # is True we fall through and re-run the verifier — otherwise the old
-        # FAIL verdict would permanently suppress re-verification for that
-        # worker and the loop would burn max_local_fixes into HUMAN.
-        if (self.state == ProjectState.VERIFIER_PENDING
-                and self.store.verification_seen(verify_id)):
-            prior = self.store.get_verification(verify_id)
-            prior_verdict = (prior or {}).get("verdict")
-            if prior_verdict == "PASS":
-                if is_legal_transition(self.state, ProjectState.DONE):
-                    self._transition(ProjectState.DONE, "verifier",
-                                     "verifier PASS (resumed): %s"
-                                     % str((prior or {}).get("summary", ""))[:200],
-                                     {"verify_id": verify_id, "resumed": True})
-                return
-            if prior_verdict == "FAIL":
-                if is_legal_transition(self.state, ProjectState.AUDIT_PENDING):
-                    self._transition(ProjectState.AUDIT_PENDING, "verifier",
-                                     "verifier FAIL (resumed): %s"
-                                     % str((prior or {}).get("summary", ""))[:200],
-                                     {"verify_id": verify_id, "resumed": True})
-                return
-            # verdict unknown/unparseable -> re-verify (falls through)
+        prior = self.store.get_verification(verify_id) if (
+            self.state == ProjectState.VERIFIER_PENDING and
+            self.store.verification_seen(verify_id)) else None
         if self.state != ProjectState.VERIFIER_PENDING:
             if is_legal_transition(self.state, ProjectState.VERIFIER_PENDING):
                 self._transition(ProjectState.VERIFIER_PENDING, "closed_loop",
@@ -1254,6 +1249,10 @@ class ClosedLoop:
                 return
         if run is None:
             run = self.gate.run(self.task, worktree)
+        if not run.ok:
+            self._transition(ProjectState.HUMAN, "gate",
+                             "historical verifier blocked by deterministic Gate failure", {})
+            return
         gate_output = "\n".join(
             "$ %s\n%s%s" % (r.get("command", ""), r.get("stdout", ""),
                             r.get("stderr", ""))
@@ -1265,6 +1264,10 @@ class ClosedLoop:
             findings.append("path violation (forbidden): %s" % v)
         for v in outside:
             findings.append("path violation (outside allowed): %s" % v)
+        if forbidden or outside:
+            self._transition(ProjectState.HUMAN, "gate", "path violations: " +
+                             ", ".join(forbidden + outside), {})
+            return
         changed = wt.changed_paths(worktree, self._base_commit())
         if changed is None:
             # 簇七(HIGH): git inspection failed — the change set is UNKNOWN.
@@ -1291,45 +1294,23 @@ class ClosedLoop:
             gate_output=gate_output,
             changed_paths=changed,
             deterministic_findings=findings,
-            user_notes=self.role_directives["verifier"][-10:])
-        result = verifier.verify(inp, verify_id)
-        self.store.record_verification(verify_id, self.task.task_id,
-                                       result.to_dict())
-        # --- verdict coherence cross-check (review: verifier evidence) ---
-        ac_fails = [c for c in result.ac_checks if c.verdict == "FAIL"]
-        if result.verdict == "FAIL" and not ac_fails \
-                and not result.anti_gaming:
-            # FAIL with every AC green and zero anti-gaming flags smells
-            # like malformed verifier output, not a real rejection. Retry
-            # ONCE with a fresh id; a second incoherent FAIL goes to HUMAN
-            # (bounded — never re-enters audit with empty evidence).
-            retry_id = stable_id("VERIFY-RETRY", verify_id, length=16)
-            if not self.store.verification_seen(retry_id):
-                second = verifier.verify(inp, retry_id)
-                self.store.record_verification(retry_id, self.task.task_id,
-                                               second.to_dict())
-                second_bad = [c for c in second.ac_checks
-                              if c.verdict == "FAIL"]
-                if second.verdict == "FAIL" and not second_bad \
-                        and not second.anti_gaming:
-                    self._transition(ProjectState.HUMAN, "verifier",
-                        "verifier returned incoherent FAIL twice "
-                        "(all AC checks green, no anti-gaming flags)",
-                        {"verify_id": retry_id})
-                    return
-                result, ac_fails = second, second_bad
-        if result.verdict == "PASS" and ac_fails:
-            # incoherent PASS: a verdict contradicting its own per-AC checks
-            # must never reach DONE — downgrade to FAIL and let the audit
-            # loop route the corrective fix.
-            result.verdict = "FAIL"
-            result.summary = ("[downgraded] PASS contradicted by failing AC "
-                              "checks (%s); original: %s"
-                              % (", ".join(c.ac_id for c in ac_fails),
-                                 result.summary))
-            self.store.record_verification(verify_id + "-downgraded",
-                                           self.task.task_id,
-                                           result.to_dict())
+            user_notes=self.role_directives["verifier"])
+        validation = inp.validation_record(verify_id)
+        if prior is not None:
+            check_verifier(prior, verify_id, self.task.to_dict())
+            if prior.get("_validation") != validation:
+                raise ProtocolError("EVIDENCE_MISSING", "saved verification lacks matching validated input",
+                                    evidence=validation["evidence"])
+            result = VerifierResult.from_dict(prior)
+        else:
+            if verifier is None:
+                raise ContractConfigurationError("historical task Verifier is not configured")
+            result = verifier.verify(inp, verify_id)
+            payload = result.to_dict()
+            check_verifier(payload, verify_id, self.task.to_dict())
+            result = VerifierResult.from_dict(payload)
+            payload["_validation"] = validation
+            self.store.record_verification(verify_id, self.task.task_id, payload)
         if result.verdict == "PASS":
             if is_legal_transition(self.state, ProjectState.DONE):
                 self._transition(ProjectState.DONE, "verifier",
@@ -1370,7 +1351,7 @@ class ClosedLoop:
                         history={**self._fresh_history(),
                                  "user_directives":
                                      self.role_directives["auditor"][-10:]})
-                    audit = self.auditor.audit(bundle, audit_id)
+                    audit = self._checked_audit(bundle, audit_id)
                     self.store.record_audit(audit_id, self.task.task_id,
                                             audit.to_dict())
                     self._to_planner(audit)
@@ -1407,7 +1388,7 @@ class ClosedLoop:
             history={**self._fresh_history(),
                      "user_directives": self.role_directives["auditor"][-10:]},
             audit_type="COMPLETION")
-        audit = self.auditor.audit(bundle, audit_id)
+        audit = self._checked_audit(bundle, audit_id)
         self.store.record_audit(audit_id, self.task.task_id, audit.to_dict())
         self._to_planner(audit)
 

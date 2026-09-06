@@ -37,13 +37,15 @@ from .auditor import AuditorProvider
 from .closed_loop import ClosedLoop
 from .mission_contracts import (MissionPlan, MissionSpec, ProjectState,
                                 SubtaskPlan, TaskSpec,
-                                new_mission_max_subtasks)
+                                new_mission_max_subtasks, check_verifier, check_role,
+                                VerifierResult)
+from .structured import ProtocolError
 from .mission_gate import IntegrationGate
 from .event_observer import Observer
 from .planner_adapter import PlannerProvider
 from .state_store import StateStore
 from .verifier import VerifierInput, VerifierProvider
-from .event_normalizer import now_iso, make_id, _epoch_seconds
+from .event_normalizer import now_iso, make_id, stable_id, _epoch_seconds
 
 MISSION_TERMINAL = ("MISSION_DONE", "HUMAN", "FAILED")
 
@@ -197,6 +199,11 @@ class MissionController:
             result = self._step_impl()
             self._loop_error_streak = 0
             return result
+        except ProtocolError as exc:
+            self.store.record_alert(make_id("PROTOCOL-MISSION"),
+                                    dict(exc.payload(), mission_id=self.mission.mission_id))
+            self._set_state("HUMAN", str(exc))
+            return {"state": self.state, "acted": True, "error": str(exc)}
         except Exception as e:
             self._loop_error_streak = getattr(self, "_loop_error_streak", 0) + 1
             try:
@@ -206,6 +213,7 @@ class MissionController:
                     {"alert_type": "LOOP_ERROR",
                      "mission_id": self.mission.mission_id,
                      "state": self.state, "error": str(e)[:500],
+                     "protocol_errors": getattr(e, "protocol_errors", []),
                      "consecutive": self._loop_error_streak})
             except Exception:
                 pass
@@ -393,6 +401,9 @@ class MissionController:
                 plan = self.planner.plan_decompose(
                     self.mission.to_dict(),
                     "DECOMP-%s" % self.mission.mission_id)
+            check_role(plan.to_dict(), "mission-plan", mission_id=self.mission.mission_id)
+        except ProtocolError:
+            raise
         except Exception as e:  # noqa
             self._set_state("HUMAN", "new mission decomposition rejected: %s" % e)
             return
@@ -815,27 +826,40 @@ class MissionController:
                             % ", ".join(new_failures))
         elif not command_ok and not current_failures:
             findings.append("final gate commands failed")
+        # Reuse the existing deterministic scope checker; F03 owns its Git parsing.
+        forbidden, outside = wt.path_violations(
+            integ, base, allowed_paths=self.mission.allowed_paths,
+            forbidden_paths=self.mission.forbidden_paths)
+        if forbidden or outside or not gate_clean:
+            self._set_state("HUMAN", "final deterministic failure: " +
+                            "; ".join(findings + ["path violation: " + p for p in forbidden + outside]))
+            return
+        # Existing VerifierResult.task_id represents the mission target here.
+        # The trusted caller supplies this mapping explicitly.
+        final_spec = final_task.to_dict()
+        final_spec["mission_id"] = self.mission.mission_id
         inp = VerifierInput(
-            task_spec=self.mission.to_dict(),
-            diff=wt.git_diff_text(integ, base),
+            task_spec=final_spec,
+            diff=wt.git_diff_text(integ, base, limit=None),
             gate_output=gate_output,
             changed_paths=changed,
             deterministic_findings=findings)
-        # The mission-level verify summarizes the WHOLE mission — the one
-        # call that must not be lost to a transient claude/gateway hiccup
-        # (real-run bug: a single subprocess failure FAILed a fully correct
-        # mission). Retry "verifier invalid output" verdicts once after a
-        # pause; only a genuine FAIL verdict (or a second invalid output)
-        # escalates to HUMAN.
-        vid = make_id("VERIFY-MISSION")
-        res = self.verifier.verify(inp, vid)
-        if res.verdict == "FAIL" and \
-                res.summary.startswith("verifier invalid output:"):
-            time.sleep(10)
-            res = self.verifier.verify(
-                inp, vid + "R")
-        self.store.record_verification(res.verify_id, self.mission.mission_id,
-                                       res.to_dict())
+        vid = stable_id("VERIFY-MISSION", self.mission.mission_id, base, length=16)
+        validation = inp.validation_record(vid)
+        prior = self.store.latest_verification(self.mission.mission_id)
+        if prior is not None:
+            check_verifier(prior, vid, final_spec)
+            if prior.get("_validation") != validation:
+                raise ProtocolError("EVIDENCE_MISSING", "saved final verification lacks matching validated input",
+                                    evidence=validation["evidence"])
+            res = VerifierResult.from_dict(prior)
+        else:
+            res = self.verifier.verify(inp, vid)
+            payload = res.to_dict()
+            check_verifier(payload, vid, final_spec)
+            res = VerifierResult.from_dict(payload)
+            payload["_validation"] = validation
+            self.store.record_verification(vid, self.mission.mission_id, payload)
         if res.verdict == "PASS" and gate_clean:
             note = "final gate pass + verifier PASS"
             if legacy_failures:

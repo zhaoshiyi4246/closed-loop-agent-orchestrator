@@ -6,7 +6,7 @@ import pytest
 
 from loopcore.auditor import (EvidenceBundle, FakeAuditorProvider,
                          CodexCliAuditorProvider)
-from loopcore.codex_cli import CodexCliError
+from loopcore.structured import ProtocolError
 from loopcore.mission_contracts import (AuditDecision, AuditResult, AuditEvidence,
                            PlannerAction, PlannerActionType, ProjectState,
                            TaskSpec)
@@ -42,7 +42,7 @@ def test_invalid_auditor_output_raises_protocol_error():
     prov = CodexCliAuditorProvider(codex_bin="fake")
     # force _call to return invalid dict twice
     prov._call = MagicMock(return_value={"decision": "BOGUS", "evidence": []})
-    with pytest.raises(CodexCliError, match="schema-invalid output twice"):
+    with pytest.raises(ProtocolError, match="SCHEMA"):
         prov.audit(_bundle(["AC-01"]), "A3")
     assert prov._call.call_count == 2
 
@@ -88,16 +88,17 @@ def test_planner_replan_exhausted_to_human():
     assert pa.action == PlannerActionType.HUMAN
 
 
-def test_invalid_planner_output_to_human():
-    """CodexCliPlannerProvider returning invalid JSON twice -> HUMAN."""
+def test_invalid_planner_output_raises_protocol_error():
+    """CodexCliPlannerProvider returning invalid JSON twice -> protocol failure."""
     from loopcore.planner_adapter import CodexCliPlannerProvider
     prov = CodexCliPlannerProvider(codex_bin="fake")
     # force _call to return an invalid object twice
     prov._call = MagicMock(side_effect=lambda *a, **k: {"action": "Bogus"})
     audit = AuditResult("A4", "T1", AuditDecision.LOCAL_FIX,
                         [AuditEvidence("t", "s")], "d", 0.9, ["AC-01"])
-    pa = prov.plan(audit, {"task_id": "T1"}, "ACT4", target_session_id="w1")
-    assert pa.action == PlannerActionType.HUMAN
+    with pytest.raises(ProtocolError, match="SCHEMA"):
+        prov.plan(audit, {"task_id": "T1"}, "ACT4", target_session_id="w1")
+    assert prov._call.call_count == 2
 
 
 # --- action executor ----------------------------------------------------
