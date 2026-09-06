@@ -253,7 +253,8 @@ class AOAdapter:
         human. Returns True when the daemon accepted the resolution.
         """
         url = ("%s/api/v1/sessions/%s/conversation/approvals/%s/resolve"
-               % (self.base_url, worker_id, request_id))
+               % (self.base_url, urllib.parse.quote(worker_id, safe=""),
+                  urllib.parse.quote(request_id, safe="")))
         body = json.dumps({"decisionId": decision}).encode("utf-8")
         req = urllib.request.Request(
             url, data=body, method="POST",

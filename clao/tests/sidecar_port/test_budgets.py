@@ -460,7 +460,8 @@ def test_auto_approve_inside_allowed_paths_only(tmp_path, monkeypatch):
         return {"id": aid, "activityKind": "approval", "status": "pending",
                 "providerItemId": aid, "summary": "Edit x",
                 "detail": {"input": {"file_path": fpath},
-                           "subjectKind": "file_change"}}
+                           "subjectKind": "file_change", "toolKind": "edit",
+                           "decisions": [{"id": "allow", "kind": "allow_once"}]}}
     conv = {"activities": [
         _act("ap1", str(wt / "app.py")),
         _act("ap2", str(wt / "tests" / "test_divide.py")),

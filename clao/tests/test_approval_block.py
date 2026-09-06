@@ -99,39 +99,28 @@ def test_running_worker_blocked_on_approval_is_not_idle(tmp_path, monkeypatch):
 
 
 def test_gate_command_with_cd_prefix(tmp_path, monkeypatch):
-    """`cd "<worktree>" && python -m pytest ...` must be recognized as a
-    safe pytest invocation; cd elsewhere must not."""
+    """A confirmed root cd prefix preserves the exact authorized Gate cwd."""
     loop, store, adapter = _make_loop(tmp_path, monkeypatch,
                                       ProjectState.WORKER_RUNNING, False)
     wt = loop._worktree_path()
-    assert loop._is_gate_command(
-        'cd "%s" && python -m pytest tests/ -v' % wt) is True
-    assert loop._is_gate_command(
-        "cd '%s' && python -m pytest -q" % wt) is True
-    assert loop._is_gate_command(
-        'cd "%s" && git status' % wt) is True
-    assert loop._is_gate_command(
-        'cd "%s" && ls -la && command -v python' % wt) is True
-    assert loop._is_gate_command(
-        'cd "%s" && python -m pytest' % "C:/Windows/System32") is False
-    assert loop._is_gate_command(
-        'cd "%s" && del /f app.py' % wt) is False
-    assert loop._is_gate_command(
-        'cd "%s" && ls && rm -rf tests' % wt) is False
-    assert loop._is_gate_command(
-        'cd "%s" && echo hacked > app.py' % wt) is False
-    # plain commands keep working
-    assert loop._is_gate_command("python -m pytest tests/ -q") is True
+    assert loop._is_gate_command('cd "%s" && python -m pytest -q' % wt)
+    assert loop._is_gate_command("cd '%s' && python -m pytest -q" % wt)
+    assert loop._is_gate_command('cd "%s" && git status' % wt)
+    assert not loop._is_gate_command('cd "%s" && python -m pytest tests/ -v' % wt)
+    assert not loop._is_gate_command('cd "%s" && ls -la && command -v python' % wt)
+    assert not loop._is_gate_command('cd "C:/Windows/System32" && python -m pytest -q')
+    assert not loop._is_gate_command('cd "%s" && del /f app.py' % wt)
+    assert not loop._is_gate_command('cd "%s" && ls && rm -rf tests' % wt)
+    assert not loop._is_gate_command('cd "%s" && echo hacked > app.py' % wt)
+    assert loop._is_gate_command("python -m pytest -q")
 
 
-def test_subshell_parens_unwrapped(tmp_path, monkeypatch):
+def test_subshell_requires_human_but_plain_lookup_works(tmp_path, monkeypatch):
     loop, store, adapter = _make_loop(tmp_path, monkeypatch,
                                       ProjectState.WORKER_RUNNING, False)
-    wt = loop._worktree_path()
-    assert loop._is_gate_command(
-        'cd "%s" && ls -la && (command -v python)' % wt) is True
-    assert loop._is_gate_command('(command -v pytest)') is True
-    assert loop._is_gate_command('(rm -rf tests)') is False
+    assert not loop._is_gate_command('(command -v pytest)')
+    assert not loop._is_gate_command('(rm -rf tests)')
+    assert loop._is_gate_command('command -v pytest')
 
 
 def test_ready_state_blocked_worker_is_approved(tmp_path, monkeypatch):

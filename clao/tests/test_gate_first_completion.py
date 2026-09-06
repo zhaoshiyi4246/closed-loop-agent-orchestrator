@@ -258,10 +258,12 @@ def test_pending_approval_blocks_gate_first_completion(tmp_path):
     worktree = loop.adapter.get_session_workspace.return_value
     loop.adapter.get_worker_conversation.return_value = {
         "activities": [{
-            "id": "approval-outside",
+            "id": "approval-outside", "requestId": "approval-outside",
             "activityKind": "approval",
             "status": "pending",
-            "detail": {"input": {"file_path": worktree + "/outside.py"}},
+            "detail": {"input": {"file_path": worktree + "/outside.py"},
+                       "subjectKind": "file_change", "toolKind": "edit",
+                       "decisions": [{"id": "allow", "kind": "allow_once"}]},
         }]}
     loop._completion_audit = MagicMock()
 
