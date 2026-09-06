@@ -1,5 +1,7 @@
 # V03 M0 基线与目录整理证据
 
+状态：M0 COMPLETE（含下列安全保留项）；[PR #31](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/31) OPEN，等待人工审计。
+
 日期：2026-09-06。基线 main：`3a9ea27468915eb9571611bcca10962e7a732fb0`；发布源码：`4d3e8e6b5e70bab868b2eef0d28c7742dea044ba`。
 
 范围：V03-DOC-00、仓库目录与当前引用、本机重复副本分类整理；不实施 V03-F01，不修 A01—A12。PR 审计前不合并 main，不修改 v0.2 tag／Release。
@@ -45,11 +47,38 @@
 
 ## 本轮验证
 
-本轮 Windows canonical clone 验证：直接相关测试 `88 passed in 0.79s`；完整 pytest `438 passed in 105.61s`；compileall 与 diff-check 退出 0。环境与命令见 [PLANS](../PLANS.md#m0-开发验证环境)。builder 将在本次路径适配提交后的 clean HEAD 执行，artifact 验证尚待完成。
+本轮 Windows canonical clone 验证：直接相关测试 `88 passed in 0.79s`；完整 pytest `438 passed in 105.61s`；compileall 与 diff-check 退出 0。环境与命令见 [PLANS](../PLANS.md#m0-开发验证环境)。
+
+| 检查 | 本轮结果 |
+|---|---|
+| 定向命令（在 clao 内） | `.venv\Scripts\python.exe -m pytest tests/test_ao_runtime_portability.py tests/test_panel_worker_contract.py tests/test_mission_preflight.py tests/test_codex_cli.py tests/sidecar_port/test_contracts.py -q` |
+| Git 映射 | 308 个原路径全部映射；除 2 个产品注释文件及 manifest 外 blob 全部相同；历史 200 文件与 PDF 原样 |
+| 配置／Python | YAML 数据一致；修正目录文字后 AST 一致；原有源码逻辑无改动 |
+| builder source | clean committed HEAD `667ce95deb2b4baae2a22fcfa394c4c2b5e55d4d`，exit 0 |
+| ZIP | 92 个 manifest 产品文件 + `SHA256SUMS.txt`；唯一顶层 `clao/` |
+| artifact 校验 | 逐文件 SHA-256、Git HEAD blob、hygiene、secret/path scan 全部 PASS |
+| runtime file set | `RUNTIME_PRODUCT_FILESET_CHANGED=0`；仅 2 项内容 allowlist 和派生 checksum 更新 |
+| 初次 ZIP SHA-256 | `83c9854eb9f14ae8a6e74e6880a9fb7e3a1359866655270aa472e40bcbc5e3d6` |
+
+Windows 既有 `core.autocrlf=true` 使 Git archive 输出 CRLF。额外核对脚本首次直接比较 LF blob 与导出字节时失败，已定位为验证方法问题；后用 Git 自身 `hash-object --path --stdin` 转换再与 HEAD blob ID 比对通过，未修改 Git 配置、builder 或产品换行。发布前后 ZIP 的相同文件也逐字节比较通过，仅上述 allowlist 不同。
+
+收尾提交只更改治理状态／证据；最终 committed HEAD 再运行 builder，SOURCE_COMMIT、最终 ZIP hash 和链接检查数量在 PR 正文与本机报告中记录，避免在文件自身写不可固定的“本提交 SHA”。
 
 ## 本机资料边界
 
-完整路径、refs、untracked／ignored 文件清单、ZIP SHA-256 和 AO registry 结果只存本机任务证据，不进入 Git。可恢复的重复副本使用隔离目录整理；唯一历史分支、运行证据和 AO 引用不能当作垃圾永久删除。
+完整路径、refs、untracked／ignored 文件清单、ZIP SHA-256 和 AO registry 结果只存本机任务证据，不进入 Git。指定 canonical clone 的 origin 为本仓库，任务分支与远端一致、工作区 clean，main 与 origin/main 无分歧。
+
+本机范围为桌面 5 个相关目录、3 个设计／规划文件，以及旧 clone 内 1 个源码 ZIP；未扫描用户全盘。处理结果：
+
+- 旧 v0.2 工作区的 31 个本地分支、全部用户 refs 与 ignored runtime 归档保留；用 Git bundle 再保留一份全部 refs，归档后 HEAD 和 clean 状态验证通过。
+- v0.1 的 35 个历史本地分支也已保存 Git bundle；独立旧 M4-2 测试 worktree 用 `git worktree move` 移到 archive，common-dir 关系由 Git 更新。
+- 干净的官方 AO 源码参考 clone 移到 archive/reference；它不是 AO 安装或配置目录。
+- v0.2 正式 ZIP、外部 checksum 与原 release notes 归档到 releases/v0.2；ZIP hash 与 GitHub Release 一致。重复解压目录移到 quarantine。
+- v0.1 源码 ZIP 的 25 个文件全部匹配 canonical legacy blob，移到 quarantine；原 v0.3 规划 ZIP、15 页评委 PDF 和 8 页早期设计 PDF 含历史或唯一资料，移到 design-snapshots 保存。
+- **保留桌面 v0.1 clone**：AO Project registry 仍引用它，且一个旧 AO orchestrator linked worktree 的 Git common dir 在其中。未删除／重建 AO Project，未修改内部 DB 或会话。
+- **保留原工作区空壳**：当前 app 占用目录句柄，全部文件已归档，原位置仅剩空 `.git` 目录。删除空目录的命令被自动审批审查拒绝（仅返回 blocked by policy），没有执行后续删除。
+
+公开 AO CLI 还发现两个历史 Project 指向已不存在的 demo／R5 路径，原样报告并保留 registry；这不是本次整理删除的目录。归档工作区／runtime 用于保存历史材料，不承诺移动后旧 Mission 可直接恢复；linked worktree 恢复仍需原 Git 材料和路径核对。没有永久删除任何源码、历史分支或用户交付文件。
 
 ## NOT_RUN
 
