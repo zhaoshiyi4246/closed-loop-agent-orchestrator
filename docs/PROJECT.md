@@ -1,6 +1,6 @@
 # CLAO 当前项目事实
 
-更新：2026-09-06（F01 审计 PASS 并合入 main）。本文件只记录已实现事实与已知限制；v0.3的设计见 [V03_PLAN.md](V03_PLAN.md)，不能把设计直接写成已完成能力。
+更新：2026-09-06（F02 审计 PASS 并合入 main）。本文件只记录已实现事实与已知限制；v0.3的设计见 [V03_PLAN.md](V03_PLAN.md)，不能把设计直接写成已完成能力。
 
 ## 1. 版本与基线
 
@@ -9,7 +9,7 @@
 | 产品 | CLAO / Closed-Loop Agent Orchestrator |
 | 已发布版本 | v0.2，Windows本地比赛版 |
 | 已发布源码 | 4d3e8e6b5e70bab868b2eef0d28c7742dea044ba |
-| 开发目标 | v0.3：F01 已合入 main；下一任务 F02 TODO；GUI与模型切换等后续目标待实现 |
+| 开发目标 | v0.3：F01 / F02 已合入 main（DONE）；下一任务 F03 TODO；GUI与模型切换等后续目标待实现 |
 | 主仓库 | zhaoshiyi4246/closed-loop-agent-orchestrator |
 | 产品源码路径 | `clao/`，当前唯一正式产品，内部 Python 包为 `src/loopcore/` |
 | 发布工具 | `packaging/build-release.ps1` 与 `packaging/release-manifest.txt` |
@@ -21,6 +21,8 @@ v0.2完成过支持环境下的干净ZIP bootstrap、438项测试、指定CLI和
 M0 只迁移仓库目录、修正当前引用和治理状态，不修 A01—A12、不改变 runtime 或已发布 v0.2；结构验收见 [M0 证据](V03_M0_EVIDENCE.md)。
 
 F01 已通过外部审计 PASS，[PR #32](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/32) rebase 合入 main `144c599a022659f6264762e47a54ca296622f751`，状态 DONE；已发布 v0.2 未变。已有 Windows 定向 76 项、开发全量 514 项与干净包全量 514 项通过，bootstrap、compileall 与本地构建证据有效；负责人确认本阶段无需额外 live smoke，未将离线结果视作真实模型/AO验收。详细证据见 F01 卡。
+
+F02 已通过外部审计 PASS、无需返修，[PR #33](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/33) rebase 合入 main `62f5851a72490074a6cb6030803275a9846d9f45`，状态 DONE。沿用既有 Windows 定向 200 passed / 1 skipped、compileall 证据；原生 symlink 用例因权限不足跳过，真实 junction 用例通过。合并收尾无新增产品修改，未重跑测试、打包或 live；详细证据及未运行项见 F02 卡。
 
 ## 2. 当前真实架构
 
@@ -46,6 +48,10 @@ F01 在语义角色与 Controller 实际路径共用必需的完整 JSON Schema�
 
 实际角色输入带证据原长度、SHA-256、缺失/截断标识；关键证据不完整时阻断通过。Task 历史与 Mission final 结果重放校验相同契约及保存的输入摘要；缺失/损坏或输入变化进入人工处理，不伪补成功、不批量改写历史终态。长证据与 Gate 输出变化可能保守触发人工处理；默认单 Worker、gate-first、Mission final-only 保持不变。
 
+F02 让 ClosedLoop 生产审批与 AutoApprover 共用范围策略：文件按实际 AO Worker workspace / cwd 解析，先验证根包含性及链接目标，再匹配允许/禁止路径；forbidden 优先，空 allow 不授权。命令保留原始控制字符检查，完整 argv 与 cwd 匹配 Gate；通用查看操作限定参数和目标，Git 写操作不在通用白名单中。
+
+审批使用 AO requestId 和实际提供的单次允许选项，原因与人工处理标记沿用既有记录；未获批请求保留人工入口，不因此立即判整任务失败。未知/畸形请求、复杂 shell 及 AO v0.12.9 未暴露完整目标的 Codex fileChange 审批留人工；路径检查只保证审批时的解析结果，不承诺跨 AO 执行的原子文件系统保证。
+
 当前L0是确定性程序消息，用户directive也能经受控路径发给Worker；不能写成所有消息都由Planner LLM生成。当前Stop是终态HUMAN，不是暂停；attach不启动runner但仍存在组装副作用，A08要求进一步只读化。现有SSE已存在，v0.3不是从零新增实时更新。
 
 成果保留在runtime/<mission-id>/integration，不自动写回target main/master，不自动push。artifact-aware clean可以忽略正常cache，不等于原始git status为空。runtime linked worktree依赖Git common dir，不能当独立可搬运项目。
@@ -58,9 +64,9 @@ AO executable通过CLAO_AO_BIN或PATH解析；runfile通过CLAO_AO_RUN_FILE或~/
 
 ## 5. 审计缺口与修复状态
 
-依据 [原审计](reference/CLAO_v0.2_audit_20260905.pdf)；F01 已补齐 A02 的完整契约与终局一致性及 A11 相关证据边界。其他卡继续保留：
+依据 [原审计](reference/CLAO_v0.2_audit_20260905.pdf)；F01 已补齐 A02 的完整契约与终局一致性及 A11 相关证据边界，F02 已修复 A01 的审批命令与路径包含性，支持边界见上文。其他卡继续保留：
 
-- A01：命令审批和路径包含性（下一任务 F02，TODO）；A03：rename/artifact/index取证。
+- A03：rename/artifact/index取证（下一任务 F03，TODO，未开始实现）。
 - A04：Gate表专用查询与真实错误显示；A05：本地写API和安全渲染。
 - A06—A10：指令生效、外部动作未知、kill确认、停止恢复、基线/依赖和有效配置。
 - A11/A12 其余范围：多模型、后续 Git 取证边界、结果导出和普通用户使用体验；不因 F01 完成宣称所有证据路径或模型真实性已验收。
