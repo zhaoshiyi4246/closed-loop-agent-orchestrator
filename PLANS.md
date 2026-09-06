@@ -7,13 +7,13 @@
 ## 当前唯一执行指针
 
 - 当前阶段：**M1 IN_PROGRESS**；M0 COMPLETE。
-- 当前唯一任务：**V03-F01 — 完整契约与终局一致性**，IN_PROGRESS（实现/本地验收完成，PR 交付 BLOCKED）。
+- 当前唯一任务：**V03-F01 — 完整契约与终局一致性**，IN_REVIEW（实现/本地验收完成，[PR #32](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/32) 等待外部审计）。
 - 授权：2026-09-06 独立 F01 指令；必要产品代码、直接测试、依赖／安装检查、Windows 离线回归、本地 clean HEAD 构建及面向 main 的 PR。
 - 实际 base：`26b02e9d3e1d72cde3b29143d96ed4e096391249`，fetch 后本地 main 与 origin/main 一致；分支 `task/v03-f01-contract-consistency`。
 - 边界：仅 F01；真实模型／AO Worker／Mission／GLM/Kimi／凭据与全局配置修改、merge、tag、Release 均未授权。
-- 交付状态：实现与本轮 Windows 离线/干净安装/本地构建通过；GitHub push 达到 20 轮暂态连接失败上限，最后一次 API 核对仍无远端任务分支，PR 未创建。按停止条件停止网络写入；成功提交 PR 后才转 IN_REVIEW。live NOT_RUN / pending authorization，不标 DONE。
-- 本轮证据：代码提交 `bf4601b`；定向 76 passed；开发全量 514 passed；干净包全量 514 passed；compileall/diff-check/96 文件构建与 checksum 通过。本地文档提交 `65e9922` 后推送受阻；详见 F01 卡。
-- 下一步：网络恢复并获准开启新一轮交付操作后，先核对远端状态，推送本任务分支并创建面向 main 的 PR；之后等待外部审计。不开工其他卡。
+- 交付状态：实现与 Windows 离线/干净安装/本地构建通过；此前 20 轮网络失败后已按上限停止。2026-09-06 用户确认网络恢复并授权重新推送，本轮第 1 次成功，远端 SHA 与本地 `205eb3b` 一致；已创建面向 main 的 PR #32，转 IN_REVIEW。live NOT_RUN / pending authorization，不标 DONE。
+- 本轮证据：代码提交 `bf4601b`；定向 76 passed；开发全量 514 passed；干净包全量 514 passed；compileall/diff-check/96 文件构建与 checksum 通过。恢复交付仅更新治理文档，产品及发布工具 blob 未变；详见 F01 卡。
+- 下一步：等待 PR #32 外部审计；不开工其他卡，不合并、不发布。
 
 ## 快速查询
 
