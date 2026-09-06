@@ -94,7 +94,7 @@ def test_commit_all_excludes_pyc_artifacts(tmp_path):
     assert "__pycache__" not in tracked
 
 
-def test_freeze_base_writes_info_exclude(tmp_path):
+def test_freeze_base_preserves_ignore_policy(tmp_path):
     repo = tmp_path / "wt"
     repo.mkdir()
     subprocess.run(["git", "init", "-q"], cwd=str(repo), check=True)
@@ -107,18 +107,16 @@ def test_freeze_base_writes_info_exclude(tmp_path):
     subprocess.run(["git", "commit", "-qm", "init"], cwd=str(repo),
                    check=True)
     store = StateStore(str(tmp_path / "cl.db"))
+    exclude_path = repo / ".git" / "info" / "exclude"
+    original_exclude = exclude_path.read_bytes()
     base = wt.freeze_base(str(repo), store, "TASK-X", scope="w")
     assert base
-    excl = (repo / ".git" / "info" / "exclude").read_text(encoding="utf-8")
-    assert "__pycache__/" in excl and "*.pyc" in excl
-    # and git honors it: an untracked .pyc must NOT be addable via -A
+    assert exclude_path.read_bytes() == original_exclude
+    # Product filtering must work without changing the user's Git policies.
     (repo / "__pycache__").mkdir()
     (repo / "__pycache__" / "a.pyc").write_bytes(b"\x00")
-    subprocess.run(["git", "add", "-A"], cwd=str(repo), check=True)
-    staged = subprocess.run(["git", "diff", "--cached", "--name-only"],
-                            cwd=str(repo), capture_output=True,
-                            text=True).stdout
-    assert ".pyc" not in staged
+    assert wt.changed_paths(str(repo), base) == []
+    assert exclude_path.read_bytes() == original_exclude
 
 
 def test_id_helpers_are_clean():

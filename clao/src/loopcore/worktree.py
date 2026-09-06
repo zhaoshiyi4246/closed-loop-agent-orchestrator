@@ -5,23 +5,19 @@ inspection inside the worker's worktree. Used by the Integration Gate (path
 gating) and the closed-loop controller (progress fingerprinting / thrash
 detection).
 
-All changed-path detection is relative to a frozen base commit so that
-staged / committed / untracked / renamed / deleted files are all seen
-(previously `git diff --name-only` alone missed untracked files and files
-the worker `git add`-ed or reverted).
-
-  base commit      : first resolved HEAD when freeze() is called (or the
-                     last committed SHA if a previous run already froze it).
-  changed paths    : git diff --name-status <base>...HEAD  PLUS
-                     git ls-files --others --exclude-standard  PLUS
-                     git diff --name-status <base>  (working tree).
-  diff fingerprint : sha1 of (sorted changed paths + HEAD) — stable across
-                     re-reads, changes when the worker makes/undoes edits.
+All scope/evidence reads use a frozen base, NUL-delimited Git paths and
+separate committed/index/working layers. Untracked evidence uses a disposable
+index outside the repository. Artifact filtering never changes ignore policy.
 """
 from __future__ import annotations
 
 import fnmatch
 import hashlib
+import json
+import re
+import shutil
+import tempfile
+from contextlib import contextmanager
 import os
 import stat
 import subprocess
@@ -39,13 +35,8 @@ def _git(worktree: str, *args: str, timeout: int = 30) -> Optional[str]:
     and the Verifier then waved through unaudited work (review 簇四).
     """
     try:
-        proc = subprocess.run(["git", "-C", worktree, *args],
-                              capture_output=True, text=True, timeout=timeout,
-                              encoding="utf-8", errors="replace")
-        if proc.returncode != 0:
-            return None
-        return proc.stdout or ""
-    except Exception:
+        return _snapshot_git(worktree, *args, timeout=timeout).decode("utf-8")
+    except (GitStateSnapshotError, UnicodeDecodeError):
         return None
 
 
@@ -81,39 +72,9 @@ def freeze_base(worktree: str, store, task_id: str, scope: str = "") -> str:
     head = _current_head(worktree)
     if not head:
         return ""
-    _ensure_info_exclude(worktree)
     _write_base_sidecar(worktree, tag, head)
     store.counter_set(key, 1)
     return head
-
-
-def _ensure_info_exclude(worktree: str) -> None:
-    """Best-effort: keep Python build artifacts out of WORKER commits by
-    listing them in .git/info/exclude. Unlike .gitignore this file is
-    per-worktree and untracked, so it never pollutes the worker's diff —
-    and `git add -A` by the worker then never sweeps __pycache__/*.pyc into
-    history (the merge-time binary-conflict source; review 簇七)."""
-    try:
-        git_dir = _git(worktree, "rev-parse", "--git-dir")
-        if not git_dir:
-            return
-        gd = Path(worktree) / git_dir.strip()
-        if not gd.is_absolute():
-            gd = (Path(worktree) / git_dir.strip()).resolve()
-        info = gd / "info"
-        info.mkdir(parents=True, exist_ok=True)
-        excl = info / "exclude"
-        patterns = ["__pycache__/", "*.pyc", "*.pyo", ".pytest_cache/",
-                    ".mypy_cache/", ".ruff_cache/"]
-        existing = excl.read_text(encoding="utf-8", errors="replace") \
-            if excl.exists() else ""
-        add = [p for p in patterns if p not in existing]
-        if add:
-            with open(excl, "a", encoding="utf-8") as f:
-                f.write("\n# loopcore: keep build artifacts out of commits\n")
-                f.write("\n".join(add) + "\n")
-    except Exception:
-        pass  # best-effort; the diff-level excludes remain as backstop
 
 
 def _sidecar_path(worktree: str, tag: str) -> Path:
@@ -137,75 +98,38 @@ def _write_base_sidecar(worktree: str, tag: str, sha: str) -> None:
 
 
 def changed_paths(worktree: str, base_commit: str) -> Optional[List[str]]:
-    """Full changed-path set relative to base_commit; None on git failure
-    (fail-closed: callers must treat None as 'unknown', never as 'clean').
+    """Union of committed, staged and working changes; None means UNKNOWN.
 
-    Covers: modified/added/deleted/renamed (tracked) + untracked new files.
+    Working evidence includes untracked files through a disposable index.
+    R/C records contribute BOTH endpoints, even when their source is unchanged.
     """
-    paths: set = set()
-    # committed changes vs base
-    if base_commit:
-        out = _git(worktree, "diff", "--name-status", base_commit + "...HEAD")
-        if out is None:
-            return None
-        for line in out.splitlines():
-            parts = line.split("\t")
-            if len(parts) >= 2:
-                paths.add(parts[-1].strip())
-                # renames: "R100\told\tnew"
-                if parts[0].startswith("R") and len(parts) >= 3:
-                    paths.add(parts[-1].strip())
-    # uncommitted working-tree changes vs base (staged + unstaged)
-    if base_commit:
-        out = _git(worktree, "diff", "--name-status", base_commit)
-        if out is None:
-            return None
-        for line in out.splitlines():
-            parts = line.split("\t")
-            if len(parts) >= 2:
-                paths.add(parts[-1].strip())
-                if parts[0].startswith("R") and len(parts) >= 3:
-                    paths.add(parts[-1].strip())
-    # untracked files (worker created new files)
-    out = _git(worktree, "ls-files", "--others", "--exclude-standard")
-    if out is None:
+    try:
+        with _change_layers(worktree, base_commit) as layers:
+            return sorted({p for _label, _revision, paths, _env in layers
+                           for p in paths})
+    except GitStateSnapshotError:
         return None
-    for line in out.splitlines():
-        line = line.strip()
-        if line:
-            paths.add(line)
-    return sorted(p for p in paths if p and not _is_artifact(p))
 
 
-_ARTIFACT_MARKERS = (
-    "__pycache__", ".pyc", ".pyo", ".pytest_cache", ".mypy_cache",
-    ".ruff_cache", ".coverage", ".tox", ".hypothesis", ".eggs",
-)
-
-# git pathspec excludes mirroring _ARTIFACT_MARKERS, for diff commands.
-_ARTIFACT_EXCLUDES = (
-    ":(exclude)**/__pycache__/**",
-    ":(exclude)__pycache__/**",
-    ":(exclude)**/*.pyc",
-    ":(exclude)**/*.pyo",
-    ":(exclude)**/.pytest_cache/**",
-    ":(exclude).pytest_cache/**",
-    ":(exclude)**/.mypy_cache/**",
-    ":(exclude)**/.ruff_cache/**",
-    ":(exclude)**/.hypothesis/**",
-)
+_ARTIFACT_DIRS = frozenset({
+    "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache",
+    ".tox", ".hypothesis", ".eggs",
+})
 
 
 def _is_artifact(path: str) -> bool:
-    """True if `path` is a test/build artifact, not a source edit.
+    """Git paths use '/' separators. Match directory segments or exact suffixes.
 
-    The gate runs `pytest` in the worktree, which generates __pycache__ and
-    .pytest_cache regardless of what the worker edited. Flagging those as
-    'modified a forbidden/outside path' was a false positive (the old gate
-    halted a passing run on `tests/__pycache__/*.pyc` -> HUMAN).
+    A literal backslash in a POSIX Git name is not a directory separator.
+    Coverage's parallel files have the documented .coverage.host.pid.random
+    form; .coverage_policy.py and .coverage.config remain ordinary files.
     """
-    p = path.replace("\\", "/")
-    return any(marker in p for marker in _ARTIFACT_MARKERS)
+    parts = path.split("/")
+    name = parts[-1]
+    return (any(part in _ARTIFACT_DIRS for part in parts[:-1])
+            or name.endswith((".pyc", ".pyo"))
+            or name == ".coverage"
+            or re.fullmatch(r"\.coverage\.[^.]+\.[0-9]+\.[A-Za-z0-9]+", name) is not None)
 
 
 @dataclass(frozen=True)
@@ -226,15 +150,45 @@ class GitStateSnapshotError(RuntimeError):
     """A required Git probe, parse, or untracked-file read failed."""
 
 
-def _snapshot_git(worktree: str, *args: str, timeout: int = 30) -> bytes:
-    """Run one required read-only Git probe and return its exact bytes."""
+def _read_env(overrides=None):
+    env = os.environ.copy()
+    # A parent Git process must not redirect probes to a different index/repo.
+    for key in ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE",
+                "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+                "GIT_LITERAL_PATHSPECS", "GIT_GLOB_PATHSPECS",
+                "GIT_NOGLOB_PATHSPECS", "GIT_ICASE_PATHSPECS"):
+        env.pop(key, None)
+    env.update(GIT_OPTIONAL_LOCKS="0", GIT_NO_LAZY_FETCH="1")
+    env.update(overrides or {})
+    return env
+
+
+def _snapshot_git(worktree: str, *args: str, timeout: int = 30,
+                  env=None, input=None) -> bytes:
+    """Required byte probe; temporary-index writes require an explicit env.
+
+    Disable optional index refresh and external diff/textconv at each diff
+    call. No read path acquires or rewrites the real index.
+    """
     try:
+        command = ["git", "--no-optional-locks", "-c", "diff.autoRefreshIndex=false",
+                   "-c", "core.fsmonitor=false", "-C", str(worktree)]
+        read_env = _read_env(env)
+        if args[0] == "diff" or "add" in args[:6]:
+            configured = subprocess.run(
+                [*command, "config", "--null", "--name-only", "--get-regexp",
+                 r"^filter\..*\.(clean|process)$"], capture_output=True,
+                timeout=timeout, shell=False, check=False, env=read_env)
+            if configured.returncode not in (0, 1):
+                raise GitStateSnapshotError("unable to inspect Git content filters")
+            for raw_key in _nul_fields(configured.stdout, "Git content filters"):
+                key = raw_key.decode("utf-8")
+                if not re.fullmatch(r"filter\.[^\r\n]+\.(clean|process)", key):
+                    raise GitStateSnapshotError("unsupported Git content-filter key")
+                command += ["-c", key + "="]
         proc = subprocess.run(
-            ["git", "-C", worktree, *args],
-            capture_output=True,
-            timeout=timeout,
-            shell=False,
-            check=False,
+            [*command, *args], capture_output=True, timeout=timeout,
+            shell=False, check=False, env=read_env, input=input,
         )
     except Exception as exc:
         raise GitStateSnapshotError(
@@ -250,34 +204,189 @@ def _snapshot_git(worktree: str, *args: str, timeout: int = 30) -> bytes:
     return proc.stdout or b""
 
 
-def _nul_paths(raw: bytes, probe: str) -> List[str]:
-    if raw and not raw.endswith(b"\0"):
-        raise GitStateSnapshotError("%s returned malformed path data" % probe)
+def _nul_fields(raw: bytes, probe: str) -> List[bytes]:
+    if not raw:
+        return []
+    if not raw.endswith(b"\0") or any(not p for p in raw[:-1].split(b"\0")):
+        raise GitStateSnapshotError("%s returned malformed NUL data" % probe)
+    return raw[:-1].split(b"\0")
+
+
+def _decode_path(raw: bytes) -> str:
     try:
-        return [os.fsdecode(item) for item in raw.split(b"\0") if item]
+        path = os.fsdecode(raw)
+        if (os.fsencode(path) != raw or path.startswith("/")
+                or any(p in ("", ".", "..") for p in path.split("/"))
+                or (os.name == "nt" and ("\\" in path or ":" in path))):
+            raise ValueError("not an exact repository-relative path")
+        return path
     except Exception as exc:
-        raise GitStateSnapshotError(
-            "%s path decoding failed: %s" % (probe, str(exc)[:500])) from exc
+        raise GitStateSnapshotError("invalid Git path: %r" % raw[:300]) from exc
+
+
+def _nul_paths(raw: bytes, probe: str) -> List[str]:
+    return [_decode_path(item) for item in _nul_fields(raw, probe)]
+
+
+def _name_status_paths(raw: bytes, *, filter_artifacts=False) -> List[str]:
+    fields = _nul_fields(raw, "git name-status")
+    paths = set()
+    i = 0
+    while i < len(fields):
+        status = fields[i]
+        i += 1
+        if not re.fullmatch(rb"(?:[ADT]|M[0-9]{0,3}|[RC][0-9]{1,3})", status):
+            raise GitStateSnapshotError("unsupported Git status: %r" % status)
+        if len(status) > 1 and int(status[1:]) > 100:
+            raise GitStateSnapshotError("invalid Git similarity score")
+        count = 2 if status[:1] in (b"R", b"C") else 1
+        if i + count > len(fields):
+            raise GitStateSnapshotError("incomplete Git rename/copy/path record")
+        record = [_decode_path(p) for p in fields[i:i + count]]
+        i += count
+        if filter_artifacts:
+            # Copying into a cache does not modify its source. A rename away
+            # from source DOES delete it, even when the destination is cache.
+            if status.startswith(b"C") and _is_artifact(record[-1]):
+                continue
+            record = [p for p in record if not _is_artifact(p)]
+        paths.update(record)
+    return sorted(paths)
+
+
+_DIFF_OPTIONS = ("--no-ext-diff", "--no-textconv", "--no-relative", "--no-color",
+                 "--ignore-submodules=none")
+
+
+def _layer_paths(worktree, revision=(), *, env=None, detect_copies=True):
+    detection = ("--find-renames", "--find-copies", "--find-copies-harder", "-l0") \
+        if detect_copies else ("--no-renames",)
+    raw = _snapshot_git(worktree, "diff", *_DIFF_OPTIONS, *detection,
+                        "--name-status", "-z", *revision, "--", env=env)
+    return _name_status_paths(raw, filter_artifacts=True)
+
+
+def _layer_diff(worktree, revision, paths, *, env=None):
+    if not paths:
+        return b""
+    return _snapshot_git(
+        worktree, "diff", *_DIFF_OPTIONS, "--no-renames", "--binary",
+        "--full-index", *revision, "--",
+        *[":(top,literal)%s" % p for p in paths], env=env)
+
+
+def _untracked_paths(worktree):
+    return sorted(set(p for p in _nul_paths(_snapshot_git(
+        worktree, "ls-files", "--others", "--exclude-standard", "--full-name",
+        "-z", "--"), "git untracked") if not _is_artifact(p)))
+
+
+def _check_index(worktree):
+    """Do not report clean when index flags or gitlinks hide user content."""
+    raw = _snapshot_git(worktree, "ls-files", "--stage", "-v", "--full-name", "-z")
+    for record in _nul_fields(raw, "git index entries"):
+        # Only the fixed metadata header contains the FIRST tab separator;
+        # the complete remaining path can itself contain arbitrary tabs.
+        header, separator, path_bytes = record.partition(b"\t")
+        if not separator:
+            raise GitStateSnapshotError("malformed Git index entry")
+        path = _decode_path(path_bytes)
+        if _is_artifact(path):
+            continue
+        if not re.fullmatch(rb"H (?:100644|100755|120000) [0-9a-f]{40}(?:[0-9a-f]{24})? 0", header):
+            raise GitStateSnapshotError(
+                "index entry requires manual inspection (hidden/unmerged/submodule): %r" % path)
+
+
+def _absolute_git_path(worktree, *args):
+    raw = _snapshot_git(worktree, "rev-parse", "--path-format=absolute", *args)
+    if not raw.endswith(b"\n"):
+        raise GitStateSnapshotError("Git filesystem path missing terminator")
+    return Path(os.fsdecode(raw[:-1]))
+
+
+def _read_untracked(root, path):
+    candidate = root / path
+    try:
+        # Read a leaf symlink's target string, never the target's content.
+        if not candidate.parent.resolve(strict=True).is_relative_to(root.resolve(strict=True)):
+            raise ValueError("untracked parent escapes repository")
+        mode = candidate.lstat().st_mode
+        if stat.S_ISLNK(mode):
+            return b"symlink", os.fsencode(os.readlink(candidate))
+        if stat.S_ISREG(mode):
+            return b"file", candidate.read_bytes()
+        raise ValueError("unsupported untracked file type")
+    except Exception as exc:
+        raise GitStateSnapshotError("unable to read untracked %r: %s" %
+                                    (path, str(exc)[:500])) from exc
+
+
+@contextmanager
+def _working_index(worktree):
+    """Overlay untracked intent-to-add in an external disposable index.
+
+    Objects written by Git also go to the disposable directory. No reset,
+    restore, ignore-policy change, or real-index write is needed on success
+    OR exception. Disabling splitIndex prevents shared-index writes.
+    """
+    untracked = _untracked_paths(worktree)
+    if not untracked:
+        yield None, []
+        return
+    root = _absolute_git_path(worktree, "--show-toplevel")
+    for path in untracked:
+        _read_untracked(root, path)
+    index = _absolute_git_path(worktree, "--git-path", "index")
+    objects = _absolute_git_path(worktree, "--git-path", "objects")
+    try:
+        with tempfile.TemporaryDirectory(prefix="clao-git-evidence-") as temp:
+            temp = Path(temp)
+            shutil.copyfile(index, temp / "index")
+            (temp / "objects" / "info").mkdir(parents=True)
+            # Git's alternates file uses one object directory per line.
+            if "\n" in str(objects) or "\r" in str(objects):
+                raise GitStateSnapshotError("unsupported object-directory line break")
+            (temp / "objects" / "info" / "alternates").write_bytes(
+                os.fsencode(objects.as_posix()) + b"\n")
+            env = {"GIT_INDEX_FILE": str(temp / "index"),
+                   "GIT_OBJECT_DIRECTORY": str(temp / "objects")}
+            _snapshot_git(
+                worktree, "-c", "core.splitIndex=false",
+                "-c", "core.hooksPath=" + str(temp / "no-hooks"), "add", "-N",
+                "--pathspec-from-file=-", "--pathspec-file-nul", env=env,
+                input=b"".join(os.fsencode(":(top,literal)" + p) + b"\0"
+                               for p in untracked))
+            yield env, untracked
+    except GitStateSnapshotError:
+        raise
+    except Exception as exc:
+        raise GitStateSnapshotError("temporary Git evidence failed: %s" % exc) from exc
+
+
+@contextmanager
+def _change_layers(worktree, base_commit):
+    if not isinstance(base_commit, str) or not re.fullmatch(
+            r"[0-9a-fA-F]{40}|[0-9a-fA-F]{64}", base_commit):
+        raise GitStateSnapshotError("frozen base commit unavailable or invalid")
+    _check_index(worktree)
+    # Two endpoints, not ... (which would silently substitute the merge-base).
+    committed = (base_commit, "HEAD")
+    staged = ("--cached", "HEAD")
+    committed_paths = _layer_paths(worktree, committed)
+    staged_paths = _layer_paths(worktree, staged)
+    with _working_index(worktree) as (env, untracked):
+        working_paths = sorted(set(_layer_paths(worktree, env=env)) | set(untracked))
+        yield [("committed", committed, committed_paths, None),
+               ("staged", staged, staged_paths, None),
+               ("unstaged / untracked", (), working_paths, env)]
 
 
 def _non_artifact_diff(worktree: str, *, cached: bool) -> tuple[bytes, bytes]:
-    """Return (path-list bytes, full diff bytes) for one Git state layer."""
-    layer = "cached" if cached else "unstaged"
-    prefix = ["diff"] + (["--cached"] if cached else [])
-    raw_paths = _snapshot_git(
-        worktree, *prefix, "--name-only", "-z", "--no-renames",
-        "--no-ext-diff", "--no-textconv", "--")
-    paths = sorted(set(
-        path for path in _nul_paths(raw_paths, "git %s path probe" % layer)
-        if not _is_artifact(path)))
-    framed_paths = b"\0".join(os.fsencode(path) for path in paths)
-    if not paths:
-        return framed_paths, b""
-    pathspecs = [":(literal)%s" % path for path in paths]
-    diff = _snapshot_git(
-        worktree, *prefix, "--no-renames", "--no-ext-diff",
-        "--no-textconv", "--binary", "--full-index", "--", *pathspecs)
-    return framed_paths, diff
+    revision = ("--cached", "HEAD") if cached else ()
+    paths = _layer_paths(worktree, revision)
+    return (b"\0".join(os.fsencode(p) for p in paths),
+            _layer_diff(worktree, revision, paths))
 
 
 def _hash_frame(hasher, label: bytes, payload: bytes) -> None:
@@ -293,7 +402,7 @@ def git_state_snapshot(worktree: str) -> GitStateSnapshot:
     test/build artifacts use the same ``_is_artifact`` policy as the existing
     path gate.  External diff drivers and textconv are disabled.
     """
-    root = Path(worktree)
+    _check_index(worktree)
     raw_head = _snapshot_git(worktree, "rev-parse", "HEAD")
     try:
         head = raw_head.decode("ascii").strip()
@@ -308,41 +417,14 @@ def git_state_snapshot(worktree: str) -> GitStateSnapshot:
     cached_paths, cached_diff = _non_artifact_diff(worktree, cached=True)
     unstaged_paths, unstaged_diff = _non_artifact_diff(
         worktree, cached=False)
-    raw_untracked = _snapshot_git(
-        worktree, "ls-files", "--others", "--exclude-standard", "-z", "--")
-    untracked_paths = sorted(set(
-        path for path in _nul_paths(raw_untracked, "git untracked path probe")
-        if not _is_artifact(path)))
-
+    untracked_paths = _untracked_paths(worktree)
+    root = _absolute_git_path(worktree, "--show-toplevel")
     untracked = hashlib.sha256()
     for path in untracked_paths:
-        normalized = path.replace("\\", "/")
-        if (normalized.startswith("/") or
-                any(part == ".." for part in normalized.split("/"))):
-            raise GitStateSnapshotError(
-                "unsafe untracked path returned by Git: %s" % path[:300])
-        candidate = root / Path(path)
-        try:
-            mode = candidate.lstat().st_mode
-            if stat.S_ISLNK(mode):
-                kind = b"symlink"
-                content = os.fsencode(os.readlink(candidate))
-            elif stat.S_ISREG(mode):
-                kind = b"file"
-                content = candidate.read_bytes()
-            else:
-                raise GitStateSnapshotError(
-                    "unsupported untracked path type: %s" % path[:300])
-        except GitStateSnapshotError:
-            raise
-        except Exception as exc:
-            raise GitStateSnapshotError(
-                "unable to read untracked path %s: %s" %
-                (path[:300], str(exc)[:500])) from exc
-        _hash_frame(untracked, b"path", os.fsencode(normalized))
+        kind, content = _read_untracked(root, path)
+        _hash_frame(untracked, b"path", os.fsencode(path))
         _hash_frame(untracked, b"kind", kind)
-        _hash_frame(untracked, b"content-sha256",
-                    hashlib.sha256(content).digest())
+        _hash_frame(untracked, b"content-sha256", hashlib.sha256(content).digest())
 
     state = hashlib.sha256()
     _hash_frame(state, b"head", head.encode("ascii"))
@@ -371,7 +453,7 @@ def diff_fingerprint(worktree: str, base_commit: str) -> str:
         # across reads (no false thrash) but distinct from any real change.
         raw = "GIT-ERROR\n" + head
         return hashlib.sha1(raw.encode("utf-8")).hexdigest()
-    raw = head + "\n" + "\n".join(paths)
+    raw = json.dumps([head, paths], ensure_ascii=True)
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()
 
 
@@ -382,12 +464,19 @@ def path_violations(worktree: str, base_commit: str, *,
 
     forbidden_violations: changed paths matching any forbidden pattern.
     allowed_violations : changed paths OUTSIDE every allowed pattern
-                         (empty allowed_paths means "no restriction").
+                         (empty allowed_paths authorizes no changes).
     """
     changed = changed_paths(worktree, base_commit)
     if changed is None:
         # fail-closed: an unauditable tree must never read as "clean"
         return ["<git-error: changed paths unavailable>"], []
+    return scope_violations(changed, allowed_paths=allowed_paths,
+                            forbidden_paths=forbidden_paths)
+
+
+def scope_violations(changed: List[str], *, allowed_paths: List[str],
+                     forbidden_paths: List[str]) -> Tuple[List[str], List[str]]:
+    """Check already-collected exact paths; forbidden rules take precedence."""
     forbidden = []
     for path in changed:
         for pat in forbidden_paths or []:
@@ -396,14 +485,14 @@ def path_violations(worktree: str, base_commit: str, *,
                 forbidden.append(path)
                 break
     allowed = []
-    if allowed_paths:
+    if changed:
         for path in changed:
             if path in forbidden:
                 continue
             if not any(
                 fnmatch.fnmatch(path, a.replace("\\", "/").rstrip("/")) or
                 fnmatch.fnmatch(path, a.replace("\\", "/").rstrip("/") + "/*")
-                for a in allowed_paths):
+                for a in allowed_paths or []):
                 allowed.append(path)
     return forbidden, allowed
 
@@ -423,48 +512,25 @@ def _head_tail(text: str, limit: Optional[int]) -> str:
             + text[-tail:])
 
 
-def git_diff_text(worktree: str, base_commit: str, limit: int = 12000) -> str:
-    """Diff text for the Auditor/Verifier, relative to base_commit.
+def git_diff_text(worktree: str, base_commit: str, limit: Optional[int] = 12000) -> str:
+    """Full layer evidence, including new files, without writing the real index.
 
-    Must cover EVERYTHING the worker changed since the base:
-      - the committed range base..HEAD (workers often `git commit` mid-task,
-        which a plain working-tree diff would hide), and
-      - untracked NEW files (git diff does not show them at all) — staged
-        into the index just for the diff, then unstaged.
+    JSON path lists preserve exact endpoints even when patch display quotes
+    names. Errors invalidate the entire evidence rather than returning a
+    partial diff as successful. Existing role consumers recognize unavailable.
     """
-    if not base_commit:
-        out = _git(worktree, "diff")
-        return ("[loopcore] git diff unavailable (error)\n"
-                if out is None else _head_tail(out, limit))
-    # Committed-range diffs must exclude build artifacts too: workers commit
-    # with `git add -A`, which sweeps __pycache__/*.pyc into their commits,
-    # and the Verifier then reads "binary file changed" hunks as out-of-scope
-    # edits (real-run evidence: MISSION-QUICK-012 S1 verifier FAILed a fully
-    # correct delivery three times over committed .pyc noise).
-    scope = ["--", "."] + list(_ARTIFACT_EXCLUDES)
-    committed = _git(worktree, "diff", base_commit + "...HEAD", *scope)
-    working = _git(worktree, "diff", base_commit, *scope)
-    if committed is None or working is None:
-        # fail-closed: the Auditor/Verifier must SEE that evidence is missing
-        return "[loopcore] git diff unavailable (git error)\n"
-    out = committed + "\n" + working
-    untracked_raw = _git(worktree, "ls-files", "--others",
-                         "--exclude-standard")
-    if untracked_raw is None:
-        return "[loopcore] git diff unavailable (git error)\n"
-    untracked = [p for p in untracked_raw.splitlines()
-                 if p and not _is_artifact(p)]
-    if untracked:
-        _git(worktree, "add", "-N", "--", *untracked)
-        try:
-            staged = _git(worktree, "diff", "--", *untracked)
-            out += "\n" + (staged or "")
-        finally:
-            # Always undo the intent-to-add entries; if this is skipped (e.g.
-            # diff raised) the phantom entries linger in the index and pollute
-            # later changed_paths / Verifier diffs.
-            _git(worktree, "reset", "-q", "--", *untracked)
-    return _head_tail(out, limit)
+    try:
+        chunks = []
+        with _change_layers(worktree, base_commit) as layers:
+            for label, revision, paths, env in layers:
+                if paths:
+                    chunks.append("[loopcore] %s paths=%s\n" %
+                                  (label, json.dumps(paths, ensure_ascii=True)))
+                    chunks.append(_layer_diff(worktree, revision, paths, env=env)
+                                  .decode("utf-8", errors="backslashreplace"))
+        return _head_tail("".join(chunks), limit)
+    except GitStateSnapshotError as exc:
+        return "[loopcore] git diff unavailable (git error): %s\n" % str(exc)[:1000]
 
 
 # ------------------------------------------------------ integration merge
@@ -473,11 +539,22 @@ def _git_check(worktree: str, *args: str, timeout: int = 60) -> Tuple[bool, str]
     try:
         proc = subprocess.run(["git", "-C", worktree, *args],
                               capture_output=True, text=True, timeout=timeout,
-                              encoding="utf-8", errors="replace")
+                              encoding="utf-8", errors="replace",
+                              env=_read_env())
         out = ((proc.stdout or "") + (proc.stderr or "")).strip()
         return proc.returncode == 0, out
     except Exception as e:  # noqa
         return False, str(e)
+
+
+def _materializable_paths(worktree, head):
+    untracked = set(_untracked_paths(worktree))
+    changed = set(_layer_paths(worktree, (head,), detect_copies=False)) | untracked
+    indexed = set(_nul_paths(_snapshot_git(
+        worktree, "ls-files", "--cached", "--full-name", "-z", "--"), "git index"))
+    # Already-staged deletions no longer have an index/worktree entry; git add
+    # on those pathspecs fails. They remain in the explicit commit path list.
+    return sorted(changed), sorted(changed & (indexed | untracked))
 
 
 def commit_all(worktree: str, message: str) -> str:
@@ -493,27 +570,30 @@ def commit_all(worktree: str, message: str) -> str:
     if not head:
         raise RuntimeError("git inspection failed: unable to read current HEAD")
 
-    # changed_paths already filters artifacts and honors Git's ignore policy
-    # for untracked files. Stage only those exact materializable paths: adding
-    # "." plus explicit artifact exclusions makes Git reject an ignored
-    # __pycache__ directory on real AO worktrees (MISSION-PANEL-20260901-200228).
-    changed = changed_paths(worktree, head)
-    if changed is None:
-        raise RuntimeError(
-            "git inspection failed: unable to inspect Worker changes")
+    # Validate every layer first; stage only the net working delivery. Sources
+    # of copies belong to scope, but are not themselves edits to materialize.
+    if changed_paths(worktree, head) is None:
+        raise RuntimeError("git inspection failed: unable to inspect Worker changes")
+    try:
+        changed, to_add = _materializable_paths(worktree, head)
+    except GitStateSnapshotError as exc:
+        raise RuntimeError("git inspection failed: %s" % exc) from exc
     if not changed:
         return head
-    pathspecs = [":(literal)%s" % path for path in changed]
+    pathspecs = [":(top,literal)%s" % path for path in changed]
+    add_specs = [":(top,literal)%s" % path for path in to_add]
 
     last_stage = "git commit"
     last_detail = ""
     for attempt in range(2):
-        ok, detail = _git_check(worktree, "add", "-A", "--", *pathspecs)
+        ok, detail = (_git_check(worktree, "add", "-A", "--", *add_specs)
+                      if add_specs else (True, ""))
         if not ok:
             last_stage, last_detail = "git add", detail
         else:
-            ok, detail = _git_check(worktree, "commit", "-q", "-m",
-                                    message)
+            # --only excludes already-staged caches without unstaging them.
+            ok, detail = _git_check(worktree, "commit", "-q", "--only", "-m",
+                                    message, "--", *pathspecs)
             if ok:
                 committed_head = _current_head(worktree)
                 if not committed_head:
@@ -535,13 +615,17 @@ def _main_head(repo_path: str) -> Optional[str]:
 
     `git worktree list --porcelain` always lists the main worktree first.
     """
-    out = _git(repo_path, "worktree", "list", "--porcelain")
-    if not out:
+    try:
+        raw = _snapshot_git(repo_path, "worktree", "list", "--porcelain", "-z")
+        if not raw.endswith(b"\0\0"):
+            return None
+        first = raw.split(b"\0\0", 1)[0].split(b"\0")
+        heads = [f[5:] for f in first if f.startswith(b"HEAD ")]
+        if len(heads) != 1 or not re.fullmatch(rb"[0-9a-f]{40}|[0-9a-f]{64}", heads[0]):
+            return None
+        return heads[0].decode("ascii")
+    except GitStateSnapshotError:
         return None
-    for line in out.splitlines():
-        if line.startswith("HEAD "):
-            return line.split(None, 1)[1].strip() or None
-    return None
 
 
 def add_integration_worktree(repo_path: str, branch: str,
@@ -554,8 +638,10 @@ def add_integration_worktree(repo_path: str, branch: str,
     mission diff showed only the LAST merged subtask (root cause of
     MISSION-QUICK-010's phantom 'square missing' verdict).
     """
-    Path(target_path).mkdir(parents=True, exist_ok=True)
     start = _main_head(repo_path)
+    if not start:
+        return None
+    Path(target_path).mkdir(parents=True, exist_ok=True)
     args = ["worktree", "add", "--checkout", "-B", branch, target_path]
     if start:
         args.append(start)

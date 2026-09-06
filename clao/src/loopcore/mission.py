@@ -634,13 +634,17 @@ class MissionController:
             # BEFORE any subtask merge lands — so the final mission diff shows
             # what the whole mission delivered (freezing after the merges
             # would yield an empty diff vs the merge commits themselves).
-            wt.freeze_base(out, self.store, self.mission.mission_id,
-                           scope="integration")
+            if not wt.freeze_base(out, self.store, self.mission.mission_id,
+                                  scope="integration"):
+                self._set_state("HUMAN", "integration frozen base unavailable")
+                return None
             if not self.merged:
                 # Baseline failure set on the PRISTINE tree: pre-existing red
                 # tests are recorded here so the final gate can separate them
                 # from mission-caused failures (review 簇一).
                 self._capture_baseline(out)
+                if self.state == "HUMAN":
+                    return None
         return out
 
     # ------------------------------------------------------ baseline gate
@@ -649,53 +653,69 @@ class MissionController:
                     % self.mission.mission_id)
 
     def _capture_baseline(self, integ: str) -> List[str]:
-        """Run the mission gate commands on the pristine integration tree and
-        record the failing-test id set (idempotent via a JSON sidecar).
+        """Use the same clean-before/content-after watchdog as the Final Gate.
 
-        argv-only like the IntegrationGate (review 簇七): gate commands are
-        author configuration, never handed to a shell anywhere."""
-        import subprocess
-        from .mission_gate import _to_argv
+        Only a baseline with intact Git evidence may exempt known failures.
+        Keep the existing sidecar and Gate records; do not invent a second
+        executor or re-run an already captured baseline on a merged tree.
+        """
         from .test_failures import extract_failure_ids
         p = self._baseline_sidecar()
         if p.exists():
-            try:
-                return list(json.loads(p.read_text(encoding="utf-8"))
-                            .get("failures", []))
-            except Exception:
-                return []
-        failures: List[str] = []
-        for cmd in self.mission.gate_commands or []:
-            argv = _to_argv(cmd)
-            if not argv:
-                failures.append("<baseline run error: %s>" % cmd)
-                continue
-            try:
-                proc = subprocess.run(argv, cwd=integ, shell=False,
-                                      capture_output=True, text=True,
-                                      timeout=300, encoding="utf-8",
-                                      errors="replace")
-                if proc.returncode != 0:
-                    failures += extract_failure_ids(
-                        (proc.stdout or "") + (proc.stderr or ""))
-            except Exception:
-                failures.append("<baseline run error: %s>" % cmd)
-        failures = sorted(set(failures))
+            return self._baseline_failures()
+        task = TaskSpec(
+            task_id=self.mission.mission_id + "-baseline",
+            project_id=self.mission.project_id,
+            objective=self.mission.objective,
+            allowed_paths=list(self.mission.allowed_paths),
+            forbidden_paths=list(self.mission.forbidden_paths),
+            acceptance_criteria=self.mission.acceptance_criteria,
+            gate_commands=list(self.mission.gate_commands))
+        run = self.gate.run(task, integ, require_clean=True)
+        failures = sorted({failure for result in run.results
+                           if result.get("exit_code") != 0
+                           for failure in extract_failure_ids(
+                               (result.get("stdout") or "") +
+                               (result.get("stderr") or ""))})
+        record = dict(failures=failures, integrity_ok=run.integrity_ok,
+                      integrity_error=run.integrity_error,
+                      initial_clean=run.initial_clean,
+                      head_before=run.head_before, head_after=run.head_after,
+                      state_digest_before=run.state_digest_before,
+                      state_digest_after=run.state_digest_after,
+                      commands=list(self.mission.gate_commands))
         try:
-            p.write_text(json.dumps({"failures": failures},
-                                    ensure_ascii=False), encoding="utf-8")
-        except Exception:
-            pass
+            p.write_text(json.dumps(record, ensure_ascii=False), encoding="utf-8")
+        except OSError as exc:
+            self._set_state("HUMAN", "baseline evidence could not be saved: %s" % exc)
+            return []
+        if not run.integrity_ok:
+            self._set_state("HUMAN", "baseline repository integrity failed: %s" %
+                            run.integrity_error)
+            return []
         return failures
 
     def _baseline_failures(self) -> List[str]:
-        p = self._baseline_sidecar()
-        if not p.exists():
-            return []  # never captured (crash window): every failure is 'new'
+        import re
         try:
-            return list(json.loads(p.read_text(encoding="utf-8"))
-                        .get("failures", []))
-        except Exception:
+            data = json.loads(self._baseline_sidecar().read_text(encoding="utf-8"))
+            base = wt._read_base_sidecar(
+                str(Path(self.store.path).parent / "integration"),
+                self.mission.mission_id + ":integration")
+            if (data.get("integrity_ok") is not True
+                    or data.get("initial_clean") is not True
+                    or not base or data.get("head_before") != base
+                    or data.get("head_after") != base
+                    or data.get("commands") != list(self.mission.gate_commands)
+                    or not isinstance(data.get("state_digest_before"), str)
+                    or not re.fullmatch(r"[0-9a-f]{64}", data["state_digest_before"])
+                    or data.get("state_digest_before") != data.get("state_digest_after")
+                    or not isinstance(data.get("failures"), list)
+                    or any(not isinstance(f, str) or not f for f in data["failures"])):
+                return []
+            return sorted(set(data["failures"]))
+        except (OSError, ValueError, TypeError, AttributeError):
+            # Legacy/missing/damaged evidence never grants a red-test exemption.
             return []
 
     def _merge_done(self) -> None:
@@ -826,9 +846,9 @@ class MissionController:
                             % ", ".join(new_failures))
         elif not command_ok and not current_failures:
             findings.append("final gate commands failed")
-        # Reuse the existing deterministic scope checker; F03 owns its Git parsing.
-        forbidden, outside = wt.path_violations(
-            integ, base, allowed_paths=self.mission.allowed_paths,
+        # Scope and the Verifier use the exact same complete path set.
+        forbidden, outside = wt.scope_violations(
+            changed, allowed_paths=self.mission.allowed_paths,
             forbidden_paths=self.mission.forbidden_paths)
         if forbidden or outside or not gate_clean:
             self._set_state("HUMAN", "final deterministic failure: " +

@@ -247,6 +247,8 @@ def _mock_materialization(monkeypatch, add_results, commit_results,
 
     monkeypatch.setattr(wt, "_current_head", lambda _path: next(heads))
     monkeypatch.setattr(wt, "changed_paths", lambda *_args: ["app.py"])
+    monkeypatch.setattr(wt, "_materializable_paths",
+                        lambda *_args: (["app.py"], ["app.py"]))
     monkeypatch.setattr(wt.time, "sleep", lambda _seconds: None)
 
     def git_check(_path, *args, **_kwargs):
@@ -321,7 +323,7 @@ def test_commit_all_uses_only_add_and_policy_respecting_commit(monkeypatch):
     assert wt.commit_all("worker", "subtask S1") == "NEW"
     flattened = [token for args in calls for token in args]
     assert [args[0] for args in calls] == ["add", "commit"]
-    assert calls[0] == ("add", "-A", "--", ":(literal)app.py")
+    assert calls[0] == ("add", "-A", "--", ":(top,literal)app.py")
     assert "-f" not in flattened
     assert "--no-verify" not in flattened
     assert not {"config", "reset", "restore", "checkout"} & set(flattened)
