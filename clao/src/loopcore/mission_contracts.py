@@ -2,8 +2,7 @@
 PlannerAction, VerifierResult + the task state machine.
 
 Ported from ao-supervision-sidecar src/contracts.py (same team), with the
-schema root corrected for the clao layout. Validation uses
-jsonschema when installed, else a hand-rolled minimum check.
+schema root corrected for the clao layout. Validation requires complete JSON Schema support.
 """
 from __future__ import annotations
 
@@ -15,55 +14,67 @@ from typing import Any, Dict, List, Optional, Tuple
 # src/loopcore/mission_contracts.py -> clao/ (holds schemas/)
 ROOT = Path(__file__).resolve().parent.parent.parent
 
-try:
-    import jsonschema  # type: ignore
-    _HAS_JSONSCHEMA = True
-except ImportError:
-    _HAS_JSONSCHEMA = False
+from .structured import (ContractConfigurationError, ProtocolError, check_schema,
+                         correlate, schema_validator, response_digest, role_dict)
 
 
 def _load_schema(name: str) -> Dict:
-    with open(ROOT / "schemas" / ("%s.schema.json" % name), encoding="utf-8") as f:
-        return json.load(f)
+    try:
+        schema = json.loads((ROOT / "schemas" / (name + ".schema.json")).read_text("utf-8"))
+        schema_validator(schema)
+        return schema
+    except Exception as exc:
+        raise ContractConfigurationError("Invalid/missing local schema: " + name) from exc
 
 
 _SCHEMAS = {n: _load_schema(n) for n in
             ("task-spec", "audit-result", "planner-action", "project-state",
-             "verifier-result")}
+             "verifier-result", "mission-plan")}
 
 
 def _validate(obj: Dict, schema_name: str) -> Tuple[bool, str]:
-    if _HAS_JSONSCHEMA:
-        try:
-            jsonschema.validate(obj, _SCHEMAS[schema_name])
-            return True, ""
-        except jsonschema.ValidationError as e:
-            return False, str(e.message)
-    # Minimal hand-rolled fallback: check required top-level keys + enums.
-    return _fallback_validate(obj, schema_name)
+    try:
+        check_schema(obj, _SCHEMAS[schema_name])
+        return True, ""
+    except ProtocolError as exc:
+        return False, str(exc)
 
 
-def _fallback_validate(obj: Dict, schema_name: str) -> Tuple[bool, str]:
-    sch = _SCHEMAS[schema_name]
-    for k in sch.get("required", []):
-        if k not in obj:
-            return False, "missing required field: %s" % k
-    props = sch.get("properties", {})
-    if schema_name == "audit-result":
-        if obj["decision"] not in props["decision"]["enum"]:
-            return False, "bad decision"
-        if not obj.get("evidence"):
-            return False, "evidence must be non-empty"
-    if schema_name == "planner-action":
-        if obj["action"] not in props["action"]["enum"]:
-            return False, "bad action"
-    if schema_name == "task-spec":
-        b = obj["budgets"]
-        for k in ("max_local_fixes", "max_replans", "max_same_alerts",
-                  "max_runtime_seconds"):
-            if k not in b:
-                return False, "missing budget: %s" % k
-    return True, ""
+def check_role(obj, schema_name, **expected):
+    try:
+        check_schema(obj, _SCHEMAS[schema_name])
+        correlate(obj, **expected)
+        if schema_name == "audit-result" and obj["decision"] == "PASS" and obj.get("failed_criteria"):
+            raise ProtocolError("COHERENCE", "audit PASS contradicts failed criteria")
+    except ProtocolError as exc:
+        exc.evidence.update(request=expected, response=response_digest(obj))
+        raise
+
+
+def check_verifier(obj, verify_id, task_spec):
+    check_role(obj, "verifier-result", verify_id=verify_id,
+               task_id=task_spec.get("task_id"))
+    if "mission_id" in obj:
+        correlate(obj, mission_id=task_spec.get("mission_id") or task_spec.get("subtask_of"))
+    required = [a["id"] for a in task_spec["acceptance_criteria"]]
+    actual = [a["ac_id"] for a in obj["ac_checks"]]
+    if len(required) != len(set(required)) or len(actual) != len(set(actual)) or set(actual) != set(required):
+        raise ProtocolError("COHERENCE", "AC coverage must be exact, unique and complete")
+    if obj["verdict"] == "PASS" and (
+            any(a["verdict"] != "PASS" for a in obj["ac_checks"]) or
+            any(a["verdict"] == "FAIL" for a in obj["anti_gaming"])):
+        raise ProtocolError("COHERENCE", "PASS contradicts AC or anti-gaming checks")
+
+
+def check_planner(obj, action_id, task_id, target_session_id=None):
+    check_role(obj, "planner-action", action_id=action_id, task_id=task_id)
+    target = obj.get("target_session_id")
+    if target is not None and target != target_session_id:
+        raise ProtocolError("CORRELATION", "target_session_id does not match request")
+    if obj["action"] == "REPLAN_SPAWN":
+        replacement = obj.get("replacement_task_spec")
+        if not isinstance(replacement, dict) or not replacement.get("objective", "").strip():
+            raise ProtocolError("SCHEMA", "REPLAN_SPAWN requires non-empty replacement objective")
 
 
 # ----------------------------------------------------------------- enums
@@ -203,9 +214,11 @@ class AuditResult:
 
     def to_dict(self) -> Dict:
         d = asdict(self)
+        if hasattr(self, "_input_evidence"):
+            d["_input_evidence"] = self._input_evidence
         d["evidence"] = [asdict(e) if not isinstance(e, dict) else e
                          for e in self.evidence]
-        return d
+        return role_dict(self, d)
 
     @classmethod
     def from_dict(cls, d: Dict) -> "AuditResult":
@@ -234,7 +247,7 @@ class PlannerAction:
     plan: str = ""   # the Planner's strategy/decomposition (leader capability)
 
     def to_dict(self) -> Dict:
-        return asdict(self)
+        return role_dict(self, asdict(self))
 
     @classmethod
     def from_dict(cls, d: Dict) -> "PlannerAction":
@@ -285,7 +298,7 @@ class VerifierResult:
 
     def to_dict(self) -> Dict:
         d = asdict(self)
-        return d
+        return role_dict(self, d)
 
     @classmethod
     def from_dict(cls, d: Dict) -> "VerifierResult":
@@ -421,7 +434,7 @@ class MissionPlan:
     strategy: str = ""
 
     def to_dict(self) -> Dict:
-        return asdict(self)
+        return role_dict(self, asdict(self))
 
     @classmethod
     def from_dict(cls, d: Dict) -> "MissionPlan":

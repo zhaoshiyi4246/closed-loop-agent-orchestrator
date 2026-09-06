@@ -1,6 +1,7 @@
 """Gate-first completion regressions for a clean first Worker attempt."""
 import sys
 from types import SimpleNamespace
+from dataclasses import replace
 from unittest.mock import MagicMock, patch
 
 from loopcore.closed_loop import ClosedLoop
@@ -127,9 +128,9 @@ def test_idle_changed_source_gate_fail_uses_auditor_and_planner(tmp_path):
         "A-GATE-FIRST-FAIL", task.task_id, AuditDecision.HUMAN,
         [AuditEvidence("test_failure", "gate failed")],
         "gate failed", 1.0, ["AC-01"])
-    loop.auditor.audit = MagicMock(return_value=audit)
-    loop.planner.plan = MagicMock(return_value=PlannerAction(
-        "ACT-GATE-FIRST-FAIL", task.task_id, PlannerActionType.HUMAN,
+    loop.auditor.audit = MagicMock(side_effect=lambda bundle, audit_id: replace(audit, audit_id=audit_id))
+    loop.planner.plan = MagicMock(side_effect=lambda audit, task_spec, action_id, **kwargs: PlannerAction(
+        action_id, task.task_id, PlannerActionType.HUMAN,
         reason="gate failure requires human"))
     loop.executor.execute = MagicMock(return_value=MagicMock(
         ok=True, new_state=ProjectState.HUMAN,
@@ -165,9 +166,9 @@ def test_task_gate_exit_zero_source_mutation_uses_failure_path(tmp_path):
         "A-GATE-INTEGRITY", task.task_id, AuditDecision.HUMAN,
         [AuditEvidence("gate_repository_integrity", "gate changed source")],
         "gate changed source", 1.0, ["AC-01"])
-    loop.auditor.audit = MagicMock(return_value=audit)
-    loop.planner.plan = MagicMock(return_value=PlannerAction(
-        "ACT-GATE-INTEGRITY", task.task_id, PlannerActionType.HUMAN,
+    loop.auditor.audit = MagicMock(side_effect=lambda bundle, audit_id: replace(audit, audit_id=audit_id))
+    loop.planner.plan = MagicMock(side_effect=lambda audit, task_spec, action_id, **kwargs: PlannerAction(
+        action_id, task.task_id, PlannerActionType.HUMAN,
         reason="gate integrity failure requires human"))
     loop.executor.execute = MagicMock(return_value=MagicMock(
         ok=True, new_state=ProjectState.HUMAN,

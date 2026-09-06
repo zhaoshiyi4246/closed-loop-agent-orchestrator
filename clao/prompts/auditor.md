@@ -23,6 +23,11 @@
 
 ## 输入
 
+请求的 `audit_id`、`task_id` 必须原样回传，不得猜测或补齐。
+EvidenceBundle 的 `evidence` 中各部分含 `content`、`original_length`、`sha256`、
+`truncated`、`missing`、`omitted_chars`；片段或缺失材料只能用于明确受限的诊断，
+不能当完整证据，也不能据此 PASS。
+
 你会收到一个 EvidenceBundle，包含：
 - TaskSpec（目标、验收标准、禁止路径、预算）
 - 触发的 Alert（类型、指纹、样本消息）

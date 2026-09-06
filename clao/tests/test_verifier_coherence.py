@@ -1,10 +1,4 @@
-"""Regression (review: verifier evidence hardening):
-  - diff truncation keeps BOTH ends (the old [:limit] slice dropped the
-    verdict-critical tail of any large diff).
-  - verdict/ac_checks coherence: a PASS contradicted by failing AC checks is
-    downgraded to FAIL (incoherent PASS must never reach DONE); a FAIL with
-    all ACs green and no anti-gaming flags is retried ONCE, then HUMAN.
-"""
+"""F01: never rewrite inconsistent PASS or retry a valid semantic FAIL."""
 
 from __future__ import annotations
 
@@ -47,6 +41,7 @@ class _ScriptedVerifier:
         self.calls += 1
         r = self.queue.pop(0) if self.queue else self.queue_last
         self.queue_last = r
+        r.verify_id = verify_id
         return r
 
 
@@ -85,51 +80,45 @@ def _make_loop(tmp_path, monkeypatch, verifier):
                       observer=Observer(_cfg(), state_store=store),
                       adapter=adapter, gate=IntegrationGate(store),
                       store=store, verifier=verifier)
+    loop.executor._run = MagicMock(return_value=MagicMock(returncode=0, stdout="sent", stderr=""))
     loop._transition(ProjectState.WORKER_RUNNING, "test", "setup", {})
     loop._transition(ProjectState.GATE_PENDING, "test", "setup", {})
     loop._transition(ProjectState.VERIFIER_PENDING, "test", "setup", {})
     return loop
 
 
-def test_incoherent_pass_is_downgraded(tmp_path, monkeypatch):
+def test_incoherent_pass_is_protocol_failure(tmp_path, monkeypatch):
     verifier = _ScriptedVerifier(
         _vr("v1", "PASS", [("AC-01", "PASS"), ("AC-02", "FAIL")]))
     loop = _make_loop(tmp_path, monkeypatch, verifier)
-    loop._run_verifier()
-    # downgraded PASS must route into the audit pipeline, never DONE
-    # (FakeAuditor+FakePlanner may already have advanced it past
-    # AUDIT_PENDING within the same call — all these states prove the FAIL
-    # route was taken).
-    assert loop.state in (ProjectState.AUDIT_PENDING,
-                          ProjectState.PLANNER_PENDING,
-                          ProjectState.LOCAL_FIX_PENDING,
-                          ProjectState.WORKER_RETRYING)
-    assert loop.state != ProjectState.DONE
-    rows = loop.store._conn.execute(
-        "SELECT payload_json FROM verifications").fetchall()
-    assert any("downgraded" in r[0] for r in rows)
-
-
-def test_incoherent_fail_retried_once_then_human(tmp_path, monkeypatch):
-    verifier = _ScriptedVerifier(
-        _vr("v1", "FAIL", [("AC-01", "PASS"), ("AC-02", "PASS")]),
-        _vr("v2", "FAIL", [("AC-01", "PASS"), ("AC-02", "PASS")]))
-    loop = _make_loop(tmp_path, monkeypatch, verifier)
-    loop._run_verifier()
-    assert verifier.calls == 2            # exactly one retry, bounded
+    loop.step()
     assert loop.state == ProjectState.HUMAN
+    assert verifier.calls == 1
+    assert verifier.queue_last.verdict == "PASS"
+    assert loop.store._conn.execute("SELECT count(*) FROM verifications").fetchone()[0] == 0
+    rows = loop.store._conn.execute("SELECT payload_json FROM alerts").fetchall()
+    assert any("COHERENCE" in r[0] for r in rows)
 
 
-def test_incoherent_fail_retry_accepts_coherent_second(tmp_path, monkeypatch):
+def test_semantic_fail_with_green_acs_is_not_retried(tmp_path, monkeypatch):
     verifier = _ScriptedVerifier(
         _vr("v1", "FAIL", [("AC-01", "PASS"), ("AC-02", "PASS")]),
-        _vr("v2", "FAIL", [("AC-01", "PASS"), ("AC-02", "FAIL")]))
+        _vr("v2", "PASS", [("AC-01", "PASS"), ("AC-02", "PASS")]))
     loop = _make_loop(tmp_path, monkeypatch, verifier)
     loop._run_verifier()
-    assert verifier.calls == 2
-    # coherent FAIL routes back into the audit pipeline, not HUMAN / DONE
-    assert loop.state in (ProjectState.AUDIT_PENDING,
-                          ProjectState.PLANNER_PENDING,
-                          ProjectState.LOCAL_FIX_PENDING,
-                          ProjectState.WORKER_RETRYING)
-    assert loop.state not in (ProjectState.HUMAN, ProjectState.DONE)
+    assert verifier.calls == 1
+    assert loop.state == ProjectState.WORKER_RETRYING
+    rows = loop.store._conn.execute("SELECT payload_json FROM verifications").fetchall()
+    assert len(rows) == 1 and '"verdict": "FAIL"' in rows[0][0]
+
+
+def test_semantic_fail_with_failed_ac_retains_original_evidence(tmp_path, monkeypatch):
+    verifier = _ScriptedVerifier(
+        _vr("v1", "FAIL", [("AC-01", "PASS"), ("AC-02", "FAIL")]))
+    loop = _make_loop(tmp_path, monkeypatch, verifier)
+    loop._run_verifier()
+    assert verifier.calls == 1
+    assert loop.state == ProjectState.WORKER_RETRYING
+    rows = loop.store._conn.execute("SELECT payload_json FROM verifications").fetchall()
+    assert len(rows) == 1 and '"verdict": "FAIL"' in rows[0][0]
+    assert "downgraded" not in rows[0][0]

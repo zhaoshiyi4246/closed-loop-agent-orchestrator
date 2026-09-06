@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from loopcore.structured import ProtocolError, ContractConfigurationError
 from loopcore.codex_cli import CodexCliError, run_codex_json
 
 
@@ -108,6 +109,7 @@ def test_planner_transport_schema_preserves_replan_objective(monkeypatch,
                                                              tmp_path):
     seen = {}
     payload = {
+        "action_id": "A", "task_id": "T", "action": "REPLAN_SPAWN", "reason": "route",
         "replacement_task_spec": {
             "objective": "Use a corrected implementation route",
         },
@@ -150,7 +152,7 @@ def test_object_schema_without_properties_fails_before_subprocess(
         raise AssertionError("subprocess must not start")
 
     monkeypatch.setattr(subprocess, "run", fake_run)
-    with pytest.raises(CodexCliError,
+    with pytest.raises(ContractConfigurationError,
                        match="object schema must declare properties"):
         run_codex_json("prompt", schema_path,
                        codex_bin="codex-test-bin")
@@ -213,7 +215,7 @@ def test_rejects_unusable_output(monkeypatch, tmp_path, payload, expected):
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr(subprocess, "run", fake_run)
-    with pytest.raises(CodexCliError, match=expected):
+    with pytest.raises(ProtocolError, match=expected):
         run_codex_json("prompt", _schema(tmp_path),
                        codex_bin="codex-test-bin")
     assert not Path(seen["output_path"]).exists()

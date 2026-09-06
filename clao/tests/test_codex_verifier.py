@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from loopcore.structured import ProtocolError
 from loopcore.codex_cli import CodexCliError
 from loopcore.verifier import CodexCliVerifierProvider, VerifierInput
 
@@ -103,24 +104,22 @@ def test_invalid_verifier_result_is_retried(monkeypatch):
         return next(values)
 
     monkeypatch.setattr(provider, "_call", fake_call)
-    monkeypatch.setattr("loopcore.verifier.time.sleep", lambda _: None)
     assert provider.verify(_input(), "VERIFY-CODEX").verdict == "FAIL"
     assert len(calls) == 2
 
 
-def test_verifier_coerce_still_applies_before_local_validation(monkeypatch):
+def test_verifier_does_not_repair_invalid_nested_output(monkeypatch):
+    from copy import deepcopy
     provider = CodexCliVerifierProvider()
     raw = _result()
     raw["summary"] = None
     raw["anti_gaming"][0]["note"] = None
     raw["anti_gaming"][0]["verdict"] = "UNKNOWN"
+    original = deepcopy(raw)
     monkeypatch.setattr(provider, "_call", lambda *a, **k: raw)
-
-    result = provider.verify(_input(), "VERIFY-CODEX")
-
-    assert result.summary == ""
-    assert result.anti_gaming[0].note == ""
-    assert result.anti_gaming[0].verdict == "UNVERIFIABLE"
+    with pytest.raises(ProtocolError, match="SCHEMA"):
+        provider.verify(_input(), "VERIFY-CODEX")
+    assert raw == original
 
 
 def test_two_schema_invalid_verifier_results_raise_protocol_error(monkeypatch):
@@ -132,8 +131,7 @@ def test_two_schema_invalid_verifier_results_raise_protocol_error(monkeypatch):
         return {}
 
     monkeypatch.setattr(provider, "_call", invalid)
-    monkeypatch.setattr("loopcore.verifier.time.sleep", lambda _: None)
-    with pytest.raises(CodexCliError, match="schema-invalid output twice"):
+    with pytest.raises(ProtocolError, match="SCHEMA"):
         provider.verify(_input(), "VERIFY-CODEX")
     assert len(calls) == 2
 

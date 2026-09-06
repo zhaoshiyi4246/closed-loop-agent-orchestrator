@@ -19,6 +19,7 @@ from loopcore.action_executor import ActionExecutor
 from loopcore.auditor import FakeAuditorProvider
 from loopcore.closed_loop import ClosedLoop
 from loopcore.codex_cli import CodexCliError
+from loopcore.event_normalizer import stable_id
 from loopcore.event_observer import Observer
 from loopcore.mission_contracts import (AuditResult, PlannerAction,
                                         ProjectState, TaskSpec)
@@ -88,7 +89,7 @@ def _parked_loop(tmp_path, monkeypatch, target):
 
 def _pass_audit(task_id):
     return AuditResult(audit_id="AUDIT-CRASH-1", task_id=task_id,
-                       decision="PASS", evidence=[], diagnosis="ok",
+                       decision="PASS", evidence=[{"type": "gate", "summary": "passed"}], diagnosis="ok",
                        confidence=0.9).to_dict()
 
 
@@ -137,7 +138,7 @@ def test_audit_transport_failure_retries_on_next_tick(tmp_path, monkeypatch):
                 raise CodexCliError("auditor timed out")
             return AuditResult(
                 audit_id=audit_id, task_id=loop.task.task_id,
-                decision="PASS", evidence=[], diagnosis="complete",
+                decision="PASS", evidence=[{"type": "gate", "summary": "passed"}], diagnosis="complete",
                 confidence=1.0)
 
     flaky = FlakyAuditor()
@@ -246,7 +247,10 @@ def test_local_fix_pending_resumes_action_idempotent(tmp_path, monkeypatch):
     transition: resume must advance the machine WITHOUT re-sending."""
     loop, store = _parked_loop(tmp_path, monkeypatch,
                                ProjectState.LOCAL_FIX_PENDING)
-    pa = PlannerAction(action_id="ACTION-CRASH-2", task_id=loop.task.task_id,
+    audit = _pass_audit(loop.task.task_id)
+    store.record_audit(audit["audit_id"], loop.task.task_id, audit)
+    action_id = stable_id("ACTION", audit["audit_id"], length=16)
+    pa = PlannerAction(action_id=action_id, task_id=loop.task.task_id,
                        action="SEND_LOCAL_FIX", reason="fix",
                        target_session_id="w-crash", message="please fix")
     store.record_action(pa.action_id, pa.task_id, pa.to_dict())
@@ -258,7 +262,7 @@ def test_local_fix_pending_resumes_action_idempotent(tmp_path, monkeypatch):
     # exactly one executed action row: no double side effect
     rows = store._conn.execute(
         "SELECT action_id FROM executed_actions").fetchall()
-    assert rows == [("ACTION-CRASH-2",)]
+    assert rows == [(action_id,)]
 
 
 def test_gate_pending_resumes_gate(tmp_path, monkeypatch):

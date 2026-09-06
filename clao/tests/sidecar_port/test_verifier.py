@@ -4,6 +4,7 @@ Uses fake providers + temp SQLite; no real AO/model call. The key property under
 test: a new deterministic Gate PASS reaches DONE without a task Verifier,
 while historical VERIFIER_PENDING rows retain their old PASS/FAIL behavior.
 """
+from dataclasses import replace
 from unittest.mock import MagicMock, patch
 
 from loopcore.auditor import FakeAuditorProvider
@@ -31,7 +32,8 @@ class _ScriptedVerifier:
         return VerifierResult(
             verify_id=verify_id, task_id=inp.task_spec.get("task_id", ""),
             verdict=self.verdict,
-            ac_checks=[AcCheck(ac_id="AC-01", verdict=self.verdict)],
+            ac_checks=[AcCheck(ac_id=a["id"], verdict=self.verdict)
+                       for a in inp.task_spec["acceptance_criteria"]],
             anti_gaming=[],
             summary="scripted %s" % self.verdict)
 
@@ -111,9 +113,9 @@ def test_gate_fail_does_not_finish_or_call_task_verifier(tmp_path):
     audit = AuditResult("A-GATE-FAIL", task.task_id, AuditDecision.HUMAN,
                         [AuditEvidence("test_failure", "gate failed")],
                         "gate failed", 1.0, ["AC-01"])
-    loop.auditor.audit = MagicMock(return_value=audit)
-    loop.planner.plan = MagicMock(return_value=PlannerAction(
-        "ACT-GATE-FAIL", task.task_id, PlannerActionType.HUMAN,
+    loop.auditor.audit = MagicMock(side_effect=lambda bundle, audit_id: replace(audit, audit_id=audit_id))
+    loop.planner.plan = MagicMock(side_effect=lambda audit, task_spec, action_id, **kwargs: PlannerAction(
+        action_id, task.task_id, PlannerActionType.HUMAN,
         reason="gate failure requires human"))
     loop.executor.execute = MagicMock(return_value=MagicMock(
         ok=True, new_state=ProjectState.HUMAN,
@@ -143,10 +145,10 @@ def test_historical_verifier_fail_reenters_audit_planner(tmp_path):
     audit = AuditResult("A-V1", task.task_id, AuditDecision.LOCAL_FIX,
                         [AuditEvidence("verifier_fail", "AC-01 FAIL")],
                         "d", 0.9, ["AC-01"])
-    loop.auditor.audit = MagicMock(return_value=audit)
+    loop.auditor.audit = MagicMock(side_effect=lambda bundle, audit_id: replace(audit, audit_id=audit_id))
     loop.planner = MagicMock()
-    loop.planner.plan = MagicMock(return_value=PlannerAction(
-        "ACT-V1", task.task_id, PlannerActionType.SEND_LOCAL_FIX,
+    loop.planner.plan = MagicMock(side_effect=lambda audit, task_spec, action_id, **kwargs: PlannerAction(
+        action_id, task.task_id, PlannerActionType.SEND_LOCAL_FIX,
         reason="fix verifier findings", target_session_id="w1",
         message="fix AC-01"))
     loop.executor.execute = MagicMock(return_value=MagicMock(

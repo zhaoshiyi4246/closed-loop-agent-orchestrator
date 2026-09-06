@@ -7,6 +7,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 from typing import Optional, Union
+from .structured import (ContractConfigurationError, ProtocolError, parse_json,
+                         check_schema, schema_validator)
 
 
 class CodexCliError(RuntimeError):
@@ -26,6 +28,8 @@ def run_codex_json(
     ``--output-last-message`` file is the sole response source; stdout and
     stderr are used only for short diagnostics.
     """
+    from .structured import evidence_part, require_complete
+    require_complete({"role_prompt": evidence_part(prompt, 64000)})
     source_schema_path = Path(schema_path).resolve()
     workdir = str(Path(cwd).resolve()) if cwd is not None else None
     executable = shutil.which(codex_bin) or codex_bin
@@ -46,7 +50,7 @@ def run_codex_json(
             transport_schema = json.loads(
                 source_schema_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
-            raise CodexCliError("codex schema could not be read: %s"
+            raise ContractConfigurationError("codex schema could not be read: %s"
                                 % summary(exc)) from exc
 
         def make_strict(node: object) -> None:
@@ -57,7 +61,7 @@ def run_codex_json(
                 if is_object:
                     if "properties" not in node or not isinstance(
                             node["properties"], dict):
-                        raise CodexCliError(
+                        raise ContractConfigurationError(
                             "object schema must declare properties")
                     properties = node["properties"]
                     node["additionalProperties"] = False
@@ -68,6 +72,8 @@ def run_codex_json(
                 for value in node:
                     make_strict(value)
 
+        local_schema = json.loads(json.dumps(transport_schema))
+        schema_validator(local_schema)
         make_strict(transport_schema)
         transport_schema_path = Path(temp_dir) / source_schema_path.name
         transport_schema_path.write_text(
@@ -109,7 +115,7 @@ def run_codex_json(
                 % (completed.returncode, summary(completed.stdout),
                    summary(completed.stderr)))
         if not output_path.exists():
-            raise CodexCliError("codex output-last-message file is missing")
+            raise ProtocolError("JSON_PARSE", "codex output-last-message file is missing")
         try:
             raw = output_path.read_text(encoding="utf-8").strip()
         except OSError as exc:
@@ -117,13 +123,9 @@ def run_codex_json(
                 "codex output-last-message could not be read: %s"
                 % summary(exc)) from exc
         if not raw:
-            raise CodexCliError("codex output-last-message file is empty")
-        try:
-            result = json.loads(raw)
-        except json.JSONDecodeError as exc:
-            raise CodexCliError(
-                "codex output-last-message is not valid JSON: %s"
-                % summary(exc)) from exc
+            raise ProtocolError("JSON_PARSE", "codex output-last-message file is empty")
+        result = parse_json(raw)
         if not isinstance(result, dict):
-            raise CodexCliError("codex output-last-message is not a JSON object")
+            raise ProtocolError("JSON_PARSE", "codex output-last-message is not a JSON object")
+        check_schema(result, local_schema)
         return result

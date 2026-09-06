@@ -305,7 +305,7 @@ class _RecordingVerifier:
                               summary="recorded")
 
 
-def test_head_mutation_reaches_verifier_findings(tmp_path, monkeypatch):
+def test_head_mutation_blocks_historical_verifier(tmp_path, monkeypatch):
     """Historical task verification preserves gate-mutation evidence."""
     store = StateStore(str(tmp_path / "cl.db"))
     task = TaskSpec.from_dict(_task_spec())
@@ -328,9 +328,10 @@ def test_head_mutation_reaches_verifier_findings(tmp_path, monkeypatch):
     loop._transition(ProjectState.GATE_PENDING, "test", "setup", {})
     loop._transition(ProjectState.VERIFIER_PENDING, "test", "historical", {})
     loop._run_verifier()
-    assert verifier.inputs, "verifier must have been invoked"
-    findings = verifier.inputs[0].deterministic_findings
-    assert any("mutated HEAD" in f for f in findings), findings
+    assert verifier.inputs == []
+    assert loop.state == ProjectState.HUMAN
+    reason = store._conn.execute("SELECT reason FROM state_transitions ORDER BY id DESC LIMIT 1").fetchone()[0]
+    assert "deterministic Gate failure" in reason
 
 
 def test_to_argv_windows_quote_stripping():

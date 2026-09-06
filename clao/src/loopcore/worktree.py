@@ -408,12 +408,12 @@ def path_violations(worktree: str, base_commit: str, *,
     return forbidden, allowed
 
 
-def _head_tail(text: str, limit: int) -> str:
+def _head_tail(text: str, limit: Optional[int]) -> str:
     """Truncate keeping BOTH ends: the head carries the diff headers/stat,
     the tail carries the final hunks — plain [:limit] slicing used to drop
     the verdict-critical tail of a large diff entirely (review: verifier
     evidence)."""
-    if len(text) <= limit:
+    if limit is None or len(text) <= limit:
         return text
     head = int(limit * 0.65)
     tail = limit - head - 64
