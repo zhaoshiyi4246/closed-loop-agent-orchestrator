@@ -742,7 +742,14 @@ class MissionController:
             except Exception:
                 pass  # best-effort; a dead worker is fine, merge must proceed
             try:
-                wt.commit_all(worktree, "subtask %s" % sid)
+                # Dispatch froze this base before the Worker could commit.
+                # Never refreeze at delivery time or merge an unfiltered HEAD.
+                base = wt._read_base_sidecar(
+                    worktree, task.task_id + ":" + task.worker_session_id)
+                if not base:
+                    raise RuntimeError("materialization requires an exact frozen base")
+                delivery = wt.commit_all(worktree, "subtask %s" % sid,
+                                         base_commit=base)
             except RuntimeError as exc:
                 detail = str(exc)[:1200]
                 self._set_state(
@@ -755,7 +762,7 @@ class MissionController:
                 self._set_state("HUMAN",
                                 "integration worktree unavailable for %s" % sid)
                 return
-            r = wt.merge_worktree(integ, worktree)
+            r = wt.merge_worktree(integ, worktree, source_commit=delivery)
             if r.status == wt.MergeOutcome.OK:
                 self.merged.append(sid)
                 # Persist merged so a crash-resume can re-fire final verify

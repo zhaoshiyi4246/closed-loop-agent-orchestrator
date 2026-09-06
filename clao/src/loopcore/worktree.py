@@ -557,18 +557,82 @@ def _materializable_paths(worktree, head):
     return sorted(changed), sorted(changed & (indexed | untracked))
 
 
-def commit_all(worktree: str, message: str) -> str:
-    """Sidecar-side commit of everything in the worker's worktree.
+def _tree_entries(worktree, revision):
+    """Exact leaf entries, also suitable for NUL-delimited index-info input."""
+    if not isinstance(revision, str) or not re.fullmatch(
+            r"[0-9a-f]{40}|[0-9a-f]{64}", revision):
+        raise GitStateSnapshotError("materialization requires an exact frozen base/commit")
+    entries = {}
+    raw = _snapshot_git(worktree, "ls-tree", "-r", "-z", "--full-tree", revision, "--")
+    for record in _nul_fields(raw, "git tree"):
+        metadata, sep, path = record.partition(b"\t")
+        if not sep or not re.fullmatch(
+                rb"(?:(?:100644|100755|120000) blob|160000 commit) "
+                rb"(?:[0-9a-f]{40}|[0-9a-f]{64})", metadata):
+            raise GitStateSnapshotError("invalid git tree entry")
+        name = _decode_path(path)
+        if name in entries:
+            raise GitStateSnapshotError("duplicate git tree path")
+        entries[name] = record
+    return entries
+
+
+def _delivery_commit(worktree, head, base_entries, message):
+    """Append a delivery commit object; leave Worker refs/index/files intact.
+
+    Artifact entries come from the frozen base, including their original mode
+    and blob. All other entries come from the materialized Worker HEAD. The
+    original commits remain parents; no existing history is rewritten.
+    """
+    current = _tree_entries(worktree, head)
+    delivery = {p: entry for p, entry in current.items() if not _is_artifact(p)}
+    delivery.update({p: entry for p, entry in base_entries.items() if _is_artifact(p)})
+    if delivery == current:
+        return head
+    try:
+        with tempfile.TemporaryDirectory(prefix="clao-git-delivery-") as temp:
+            env = {"GIT_INDEX_FILE": str(Path(temp) / "index")}
+            # This index is built exclusively from existing tree entries. No
+            # worktree checkout, filters, hooks or real-index updates occur.
+            # Git for Windows otherwise silently skips tree-only Tab/newline
+            # paths. This override is confined to the disposable index; real
+            # checkout/merge retains the user's filesystem protections.
+            options = ("-c", "core.splitIndex=false", "-c", "core.protectNTFS=false")
+            _snapshot_git(worktree, *options, "read-tree", "--empty", env=env)
+            if delivery:
+                _snapshot_git(worktree, *options, "update-index", "-z", "--index-info",
+                              env=env, input=b"".join(
+                                  delivery[p] + b"\0" for p in sorted(delivery)))
+            tree = _snapshot_git(worktree, *options, "write-tree", env=env).strip().decode("ascii")
+            # In particular, a file/directory collision with a baseline cache
+            # must fail, never silently replace a normal user entry.
+            if _tree_entries(worktree, tree) != delivery:
+                raise GitStateSnapshotError("materialized tree does not match delivery entries")
+            commit = _snapshot_git(worktree, "commit-tree", tree, "-p", head,
+                                   "-m", message + "\n\nPreserve frozen-base artifact entries.")
+            sha = commit.strip().decode("ascii")
+            if not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", sha):
+                raise GitStateSnapshotError("invalid materialized commit id")
+            return sha
+    except (OSError, UnicodeError) as exc:
+        raise GitStateSnapshotError("unable to form materialized delivery: %s" % exc) from exc
+
+
+def commit_all(worktree: str, message: str, *, base_commit: Optional[str] = None) -> str:
+    """Commit user edits and, with a frozen base, return a clean delivery SHA.
 
     Called ONLY by trusted controller code (never the worker) so the merge
-    pipeline has a clean commit to fetch. A clean worktree returns its current
-    HEAD. Materialization gets one short retry for transient local Git
-    failures; persistent failures raise with bounded, stage-specific Git
+    pipeline has an explicit commit to fetch. With a frozen base, committed
+    artifacts are restored to that base in a separate commit object, without
+    moving Worker HEAD or changing its staged artifacts. Materialization gets
+    one short retry for transient local Git failures; persistent failures
+    raise with bounded, stage-specific Git
     output so the controller can preserve the real evidence.
     """
     head = _current_head(worktree)
     if not head:
         raise RuntimeError("git inspection failed: unable to read current HEAD")
+    base_entries = _tree_entries(worktree, base_commit) if base_commit is not None else None
 
     # Validate every layer first; stage only the net working delivery. Sources
     # of copies belong to scope, but are not themselves edits to materialize.
@@ -579,7 +643,8 @@ def commit_all(worktree: str, message: str) -> str:
     except GitStateSnapshotError as exc:
         raise RuntimeError("git inspection failed: %s" % exc) from exc
     if not changed:
-        return head
+        return (_delivery_commit(worktree, head, base_entries, message)
+                if base_entries is not None else head)
     pathspecs = [":(top,literal)%s" % path for path in changed]
     add_specs = [":(top,literal)%s" % path for path in to_add]
 
@@ -599,7 +664,8 @@ def commit_all(worktree: str, message: str) -> str:
                 if not committed_head:
                     raise RuntimeError(
                         "git commit succeeded but reading HEAD failed")
-                return committed_head
+                return (_delivery_commit(worktree, committed_head, base_entries, message)
+                        if base_entries is not None else committed_head)
             last_stage, last_detail = "git commit", detail
 
         if attempt == 0:
@@ -672,15 +738,20 @@ class MergeOutcome:
         return "MergeOutcome(%s, %r)" % (self.status, self.detail[:120])
 
 
-def merge_worktree(integration_wt: str, source_wt: str) -> MergeOutcome:
-    """Merge a finished worker's worktree HEAD into the integration worktree.
+def merge_worktree(integration_wt: str, source_wt: str, *,
+                   source_commit: Optional[str] = None) -> MergeOutcome:
+    """Merge a materialized commit (or the caller's HEAD) into integration.
 
     Works for linked worktrees and independent clones alike: fetch from the
     source PATH (a local path is a valid git remote URL), then merge
     FETCH_HEAD. Conflicts are detected deterministically and reported — the
     controller routes them back to the Planner (bounded by mission budgets).
     """
-    ok, out = _git_check(integration_wt, "fetch", "--quiet", source_wt, "HEAD")
+    if source_commit is not None and not re.fullmatch(
+            r"[0-9a-f]{40}|[0-9a-f]{64}", source_commit):
+        return MergeOutcome(MergeOutcome.ERROR, "invalid materialized commit id")
+    ok, out = _git_check(integration_wt, "fetch", "--quiet", source_wt,
+                         source_commit if source_commit is not None else "HEAD")
     if not ok:
         return MergeOutcome(MergeOutcome.ERROR, "fetch: " + out[:400])
     ok, out = _git_check(integration_wt, "merge", "--no-edit", "--no-ff",
