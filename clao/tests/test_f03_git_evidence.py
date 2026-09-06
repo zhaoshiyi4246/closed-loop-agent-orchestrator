@@ -14,7 +14,7 @@ from loopcore.mission_contracts import ProjectState, TaskSpec
 from loopcore.mission_gate import IntegrationGate
 from loopcore.state_store import StateStore
 from tests.sidecar_port.test_contracts import _task_spec
-from tests.sidecar_port.test_mission import _mc
+from tests.sidecar_port.test_mission import SINGLE_MISSION, _mc
 from tests.test_cluster7_audit import _make_loop
 from tests.test_final_gate_baseline import _seed_done_mission
 from tests.test_f01_contract_boundary import ScriptedVerifier
@@ -142,6 +142,160 @@ def test_staged_artifacts_preserved_but_not_committed(repo):
     assert wt._nul_paths(git(repo, "diff", "--name-only", "-z", base, head), "test") == ["real module.py"]
     assert git(repo, "ls-files", "--stage", "-z", "--", "__pycache__/new.pyc") == cache_entry
     assert (repo / "__pycache__/new.pyc").read_text() == "cache"
+
+
+def _delivery_mission(repo, tmp_path, monkeypatch):
+    worker = tmp_path / "Worker 中文 空格"
+    git(repo, "worktree", "add", "-qb", "worker-delivery", str(worker))
+    mc, store = _mc(tmp_path, mission_data={
+        **SINGLE_MISSION, "allowed_paths": ["**"],
+        "gate_commands": ['python -c "pass"'],
+    })
+    mc.adapter.get_session_workspace.return_value = str(worker)
+    monkeypatch.setattr(mc.executor, "spawn_initial_worker", lambda task: "sess-artifacts")
+    monkeypatch.setattr(mc.executor, "kill_worker", lambda session: True)
+    mc.step()  # deterministic single-task plan; no model call
+    mc._dispatch_ready()  # real dispatch-time frozen base, fake AO spawn only
+    sid = next(iter(mc.tasks))
+    store.record_transition(task_id=sid, from_state="WORKER_RUNNING", to_state="DONE",
+                            actor="test", reason="Worker completed", evidence={})
+    return mc, worker, sid
+
+
+@pytest.mark.parametrize("baseline_cache", ["absent", "unchanged", "modified", "deleted"])
+@pytest.mark.parametrize("pending_source", [False, True])
+def test_mission_integrates_committed_source_without_worker_artifacts(
+        repo, tmp_path, monkeypatch, baseline_cache, pending_source):
+    baseline_paths = ["frozen.pyc", "__pycache__/frozen state"]
+    if baseline_cache != "absent":
+        for path in baseline_paths:
+            write(repo, path, "baseline content\n")
+        git(repo, "add", "-A")
+        git(repo, "update-index", "--chmod=+x", "frozen.pyc")
+        git(repo, "commit", "-qm", "baseline already contains cache")
+    base = wt._current_head(repo)
+    base_cache = git(repo, "ls-tree", "-rz", base, "--", *baseline_paths)
+    exclude = repo / ".git" / "info" / "exclude"
+    original_exclude = exclude.read_bytes()
+    mc, worker, sid = _delivery_mission(repo, tmp_path, monkeypatch)
+    write(worker, "source.py", "source = 99\n")
+    for name in ("data.pyconfig", ".coverage_policy.py", "中文 source.py"):
+        write(worker, name, "normal source/config\n")
+    for path in ("__pycache__/worker.pyc", ".pytest_cache/v/cache/nodeids", "new.pyc"):
+        write(worker, path, "Worker generated and committed\n")
+    for path in baseline_paths if baseline_cache in ("modified", "deleted") else []:
+        if baseline_cache == "modified":
+            write(worker, path, "Worker overwrote baseline cache\n")
+        else:
+            (worker / path).unlink()
+    git(worker, "add", "-A")
+    git(worker, "commit", "-qm", "Worker commits source AND caches")
+    worker_commit = wt._current_head(worker)
+    # Existing pending-cache behavior must survive the committed-cache fix.
+    write(worker, "staged.pyc", "leave staged\n")
+    git(worker, "add", "staged.pyc")
+    write(worker, ".ruff_cache/untracked", "leave untracked\n")
+    if pending_source:
+        write(worker, "pending.py", "deliver pending source too\n")
+    before = physical_state(worker)
+    staged_cache = git(worker, "ls-files", "--stage", "-z", "--", "staged.pyc")
+
+    mc._merge_done()  # real commit_all, integration creation, Gate, fetch and merge
+
+    assert mc.state != "HUMAN", mc._read_state()
+    assert mc.merged == [sid]
+    integration = tmp_path / "integration"
+    expected = {"source.py", "data.pyconfig", ".coverage_policy.py", "中文 source.py"}
+    if pending_source:
+        expected.add("pending.py")
+    # Raw Git facts, deliberately bypassing CLAO artifact filtering in assertions.
+    assert set(wt._nul_paths(git(integration, "diff", "--name-only", "-z", base, "HEAD"), "test")) == expected
+    assert git(integration, "ls-tree", "-rz", "HEAD", "--", *baseline_paths) == base_cache
+    for path in expected:
+        assert git(integration, "show", "HEAD:" + path) == (worker / path).read_bytes()
+    assert not git(integration, "status", "--porcelain=v1", "-z")
+    assert git(worker, "ls-files", "--stage", "-z", "--", "staged.pyc") == staged_cache
+    assert physical_state(worker)[3] == before[3]
+    if not pending_source:
+        assert physical_state(worker) == before
+    assert exclude.read_bytes() == original_exclude
+    assert not (worker / ".gitignore").exists()
+    assert wt._current_head(repo) == base  # main was not written back
+    # The clean delivery is an extra descendant, not a rewritten Worker commit.
+    delivery = git(integration, "rev-parse", "HEAD^2").strip().decode()
+    assert git(integration, "rev-parse", delivery + "^").strip().decode() == wt._current_head(worker)
+    git(integration, "merge-base", "--is-ancestor", worker_commit, "HEAD")
+
+
+@pytest.mark.parametrize("failure", ["missing_base", "null_base", "invalid_base",
+                                     "after_index_write", "commit_tree"])
+def test_delivery_failure_never_falls_back_to_worker_head(
+        repo, tmp_path, monkeypatch, failure):
+    mc, worker, sid = _delivery_mission(repo, tmp_path, monkeypatch)
+    write(worker, "source.py", "source = 99\n")
+    write(worker, "committed.pyc", "cache\n")
+    git(worker, "add", "-A")
+    git(worker, "commit", "-qm", "Worker committed cache")
+    write(worker, "staged.pyc", "preserve index\n")
+    git(worker, "add", "staged.pyc")
+    if failure == "missing_base":
+        wt._sidecar_path(worker, sid + ":sess-artifacts").unlink()
+    elif failure == "null_base":
+        wt._write_base_sidecar(worker, sid + ":sess-artifacts", None)
+    elif failure == "invalid_base":
+        wt._write_base_sidecar(worker, sid + ":sess-artifacts", {"bad": "base"})
+    else:
+        original = wt._snapshot_git
+        def fail(path, *args, **kwargs):
+            if ((failure == "after_index_write" and "update-index" in args)
+                    or (failure == "commit_tree" and "commit-tree" in args)):
+                original(path, *args, **kwargs)
+                raise wt.GitStateSnapshotError("injected delivery failure")
+            return original(path, *args, **kwargs)
+        monkeypatch.setattr(wt, "_snapshot_git", fail)
+    before = physical_state(worker)
+    mc._merge_done()
+    assert mc.state == "HUMAN"
+    assert mc.merged == []
+    assert not (tmp_path / "integration").exists()
+    assert physical_state(worker) == before
+    reason = mc._read_state()["reason"]
+    assert ("exact frozen base" if failure in ("missing_base", "null_base", "invalid_base")
+            else "injected delivery failure") in reason
+
+
+def test_baseline_cache_file_directory_collision_does_not_drop_source(repo):
+    write(repo, "__pycache__/baseline.pyc", "baseline\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "baseline cache")
+    base = wt._current_head(repo)
+    (repo / "__pycache__/baseline.pyc").unlink()
+    (repo / "__pycache__").rmdir()
+    write(repo, "__pycache__", "normal file replacing a directory\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "source/cache path collision")
+    before = physical_state(repo)
+    with pytest.raises(wt.GitStateSnapshotError):
+        wt.commit_all(repo, "cannot drop source", base_commit=base)
+    assert physical_state(repo) == before
+
+
+@pytest.mark.parametrize("name", ["中文 空格.py", "tab\tname.py", "line\nname.py"])
+def test_delivery_tree_preserves_exact_git_object_paths(repo, name):
+    git(repo, "config", "core.protectNTFS", "true")
+    base = wt._current_head(repo)
+    original_tree = git(repo, "ls-tree", "-z", base)
+    blob = git(repo, "hash-object", "-w", "--stdin", input=b"source bytes\n").strip()
+    source = b"100644 blob " + blob + b"\t" + name.encode() + b"\0"
+    cache = b"100644 blob " + blob + b"\tgenerated.pyc\0"
+    tree = git(repo, "mktree", "-z", input=original_tree + source + cache).strip().decode()
+    head = git(repo, "commit-tree", tree, "-p", base, "-m", "Worker object").strip().decode()
+    before = physical_state(repo)
+    delivery = wt._delivery_commit(repo, head, wt._tree_entries(repo, base), "delivery")
+    expected_tree = git(repo, "mktree", "-z", input=original_tree + source).strip()
+    assert git(repo, "rev-parse", delivery + "^{tree}").strip() == expected_tree
+    assert physical_state(repo) == before
+    assert git(repo, "config", "--get", "core.protectNTFS").strip() == b"true"
 
 
 def test_staged_delete_and_rename_materialize(repo):

@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from loopcore import worktree as wt
 from loopcore.action_executor import ActionExecutor, ActionResult
 from loopcore.auditor import FakeAuditorProvider
 from loopcore.mission_contracts import (MissionSpec, PlannerAction, PlannerActionType,
@@ -283,20 +284,21 @@ def test_merge_resolves_workspace_before_kill_and_uses_actual_path(tmp_path):
     def kill(session_id):
         order.append(("kill", session_id))
 
-    def commit(path, _message):
-        order.append(("commit", path))
+    def commit(path, _message, *, base_commit):
+        order.append(("commit", path, base_commit))
         return "abc123"
 
     def integration_wt(*, source_worktree=None):
         order.append(("integration", source_worktree))
         return str(integration)
 
-    def merge(target, source):
-        order.append(("merge", target, source))
+    def merge(target, source, *, source_commit):
+        order.append(("merge", target, source, source_commit))
         return MagicMock(status="ok")
 
     mc.adapter.get_session_workspace.side_effect = workspace
     mc.executor.kill_worker = kill
+    wt._write_base_sidecar(worker, sid + ":" + task.worker_session_id, "frozen-base")
     with patch("loopcore.mission.wt.commit_all", side_effect=commit), \
             patch.object(mc, "_integration_wt",
                          side_effect=integration_wt), \
@@ -306,9 +308,9 @@ def test_merge_resolves_workspace_before_kill_and_uses_actual_path(tmp_path):
     assert order == [
         ("workspace", task.worker_session_id),
         ("kill", task.worker_session_id),
-        ("commit", str(worker)),
+        ("commit", str(worker), "frozen-base"),
         ("integration", str(worker)),
-        ("merge", str(integration), str(worker)),
+        ("merge", str(integration), str(worker), "abc123"),
     ]
     assert sid in mc.merged
 
@@ -348,6 +350,7 @@ def test_merge_commit_failure_preserves_git_detail(tmp_path):
     worker = tmp_path / "actual-worker"
     worker.mkdir()
     mc.adapter.get_session_workspace.return_value = str(worker)
+    wt._write_base_sidecar(worker, sid + ":" + task.worker_session_id, "a" * 40)
 
     with patch.object(mc.executor, "kill_worker") as kill, \
             patch("loopcore.mission.wt.commit_all",
