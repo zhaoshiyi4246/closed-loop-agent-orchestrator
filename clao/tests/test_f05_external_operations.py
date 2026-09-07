@@ -19,6 +19,7 @@ from loopcore.state_store import StateStore
 from tests.sidecar_port.test_contracts import _task_spec
 from tests.sidecar_port.test_mission import _mc, SINGLE_MISSION
 from tests.test_f03_git_evidence import git, write
+from tests.test_f04_panel_boundaries import panel, http_panel, request
 
 
 class Crash(BaseException):
@@ -495,7 +496,7 @@ def test_panel_stop_flag_follows_persisted_receipt(tmp_path, ao, monkeypatch):
         assert not panel.stop_flag.is_set()
         original(mid)
     monkeypatch.setattr(store, "request_mission_stop", checked_receipt)
-    panel.stop()
+    assert panel.stop() == {"ok": True, "stop_requested": True}
     assert panel.stop_flag.is_set()
     assert store.mission_stop_requested(mc.mission.mission_id)
     assert mc._read_state()["worker_stop"]["status"] == "CONFIRMED"
@@ -503,18 +504,68 @@ def test_panel_stop_flag_follows_persisted_receipt(tmp_path, ao, monkeypatch):
 
 
 def test_panel_failed_receipt_does_not_claim_stop(tmp_path, ao, monkeypatch):
-    from panel.server import PanelState
+    from panel.server import PanelState, ClientError
     from types import SimpleNamespace
     mc, store = mission_with_ao(tmp_path, ao)
     panel = PanelState()
     panel.rt = SimpleNamespace(controller=mc)
     monkeypatch.setattr(store, "request_mission_stop", MagicMock(side_effect=OSError("disk full")))
-    panel.stop()
+    with pytest.raises(ClientError, match="disk full") as error:
+        panel.stop()
+    assert error.value.code == 503
     assert not panel.stop_flag.is_set()
     assert not store.mission_stop_requested(mc.mission.mission_id)
     assert "disk full" in panel.errors[-1]
     assert not ao.calls
     store.close()
+
+
+@pytest.mark.parametrize("failure", ["receipt", "kill_false", "kill_timeout", "after_receipt"])
+def test_http_stop_acknowledges_durable_receipt_not_worker_termination(
+        http_panel, tmp_path, ao, monkeypatch, failure):
+    from types import SimpleNamespace
+    mc, store = mission_with_ao(tmp_path, ao)
+    mc.step()
+    task = next(iter(mc.tasks.values()))
+    task.worker_session_id = "w1"
+    store.record_task(task.task_id, task.to_dict())
+    ao.session("w1")
+    ao.terminate = False
+    ao.fault = "timeout" if failure == "kill_timeout" else "false"
+    http_panel.state.rt = SimpleNamespace(controller=mc)
+    kill = MagicMock(wraps=mc.executor.kill_worker)
+    monkeypatch.setattr(mc.executor, "kill_worker", kill)
+    if failure == "receipt":
+        monkeypatch.setattr(store, "request_mission_stop", MagicMock(side_effect=OSError("disk full")))
+    elif failure == "after_receipt":
+        original = mc.request_stop
+        def cleanup_error():
+            original()
+            raise OSError("cleanup reporting failed after receipt")
+        monkeypatch.setattr(mc, "request_stop", cleanup_error)
+    try:
+        status, _, data = request(http_panel, "POST", "/api/stop", {})
+        if failure == "receipt":
+            assert status == 503 and data["ok"] is False
+            assert "disk full" in data["error"]
+            assert "stop_request" not in mc._read_state()
+            assert not store.mission_stop_requested(mc.mission.mission_id)
+            assert not http_panel.state.stop_flag.is_set()
+            assert not mc._stop_event.is_set()
+            kill.assert_not_called()
+            assert not ao.calls and not store.operations()
+        else:
+            assert status == 200
+            assert data == {"ok": True, "stop_requested": True}
+            assert store.mission_stop_requested(mc.mission.mission_id)
+            assert mc._read_state()["stop_request"]["source"] == "user"
+            assert mc._read_state()["worker_stop"]["status"] == "UNKNOWN"
+            assert http_panel.state.stop_flag.is_set()
+            assert mc._stop_event.is_set()
+            assert [args[0] for args in ao.calls] == ["session"]
+            assert store.operations()[0]["status"] == "UNKNOWN"
+    finally:
+        store.close()
 
 
 def test_mission_resume_unknown_send_parks_before_any_materialization(tmp_path, ao, monkeypatch):

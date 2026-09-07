@@ -7,14 +7,15 @@
 ## 当前唯一执行指针
 
 - 当前阶段：**M1 IN_PROGRESS**；M0 COMPLETE。
-- 当前唯一任务：**V03-F05 — 停止确认与未知外部动作保护**，IN_REVIEW；base `fe1d12c42f780e6bbf6af272d0aca38ddb50026a`，分支 `codex/v03-f05-external-operations`；[PR #36](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/36) 已提交，等待外部审计，本轮不合并。
+- 当前唯一任务：**V03-F05 — 停止确认与未知外部动作保护**，IN_REVIEW；base `fe1d12c42f780e6bbf6af272d0aca38ddb50026a`，分支 `codex/v03-f05-external-operations`；[PR #36](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/36) 已完成 Stop receipt HTTP 回执返修，等待再次外部审计，本轮不合并。
 - 最近完成：**V03-F04 — Gate查询、本地API与安全渲染**，DONE；[PR #35](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/35) 外部审计 PASS、无需返修；2026-09-07 已 rebase merge 到 main `c51ccd155f7ab6c226454846c9e1f1fff146956d`。
 - F01 / F02 / F03 保持 DONE；[PR #32](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/32) / [PR #33](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/33) / [PR #34](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/34) 均已审计 PASS 并合入，历史证据仍有效，详见对应卡。
 - F05 候选：同一 StateStore 持久 intent / IN_FLIGHT / confirmed result / UNKNOWN；spawn 精确随机标记对账、普通 send 未确认不重发、kill 需 AO Session 终止事实。Stop 先持久接收，未知停止阻断 replan 和 materialization；不扩展 Mission 生命周期。
 - F04 既有验证：Windows 定向 **224 passed / 160.98s**；追加历史 Verifier/契约检查 **49 passed / 316.91s**，均 0 failed / 0 skipped，分开报告、不累计数量；浏览器、compileall 等证据见 F04 卡，本轮未重跑这两个完整集合。收尾文档 diff-check、4 个变更文档的 20 个本地链接与产品 blob 核对通过。
 - 验证边界：实现结束时集中定向 Windows/fault injection、compileall、diff-check 与文档检查；不运行全量、clean install、打包、smoke、真实模型或 GUI 视觉验收。不实施 R01/R02/U01/U02 或模型任务，不合并、不创建 tag/Release。
-- 本轮验证：Windows 产品 venv 最终 operation/预算定向 **114 passed / 79.75s**，ClosedLoop 恢复入口 **9 passed / 29.08s**（集合重叠不累计）；compileall、diff-check、4 份文档的 20 个本地链接通过。更大消费者集合与夹具修正过程见 F05 卡。
-- 下一步：停止等待 F05 外部审计；M1 保持 IN_PROGRESS，R01 TODO，不开始下一任务。
+- F05 此前验证：Windows 产品 venv 最终 operation/预算定向 **114 passed / 79.75s**，ClosedLoop 恢复入口 **9 passed / 29.08s**（集合重叠不累计）；compileall、diff-check、4 份文档的 20 个本地链接通过。更大消费者集合与夹具修正过程见 F05 卡。
+- 本轮审计返修：仅修 Panel `/api/stop` 接收结果传递；无法确认持久 receipt 返回 HTTP 503，已持久接收但 Worker stop UNKNOWN 仍确认请求已接收。Windows F05/Panel 定向 **122 passed / 44.87s**（含真实 HTTP 与浏览器错误提示）；compileall、diff-check 通过，详见 F05 卡。
+- 下一步：停止等待 F05 再次外部审计；M1 保持 IN_PROGRESS，R01 TODO，不开始下一任务。
 
 ## 快速查询
 

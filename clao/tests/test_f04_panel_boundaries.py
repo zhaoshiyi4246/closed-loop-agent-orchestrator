@@ -340,7 +340,11 @@ def test_real_browser_text_rendering_nonce_and_pending_writes(http_panel, monkey
             return result(*args, **kwargs) if callable(result) else result
         return run
     monkeypatch.setattr(http_panel.state, "start_mission", action("start", None))
-    monkeypatch.setattr(http_panel.state, "stop", action("stop", None))
+    def stop_response():
+        if calls["stop"] > 1:
+            raise server.ClientError("STOP_RECEIPT_NOT_SAVED", 503)
+        return {"ok": True, "stop_requested": True}
+    monkeypatch.setattr(http_panel.state, "stop", action("stop", stop_response))
     monkeypatch.setattr(http_panel.state, "post_directive", action("directive", {"mirrored_to_planner": False}))
     monkeypatch.setattr(http_panel.state, "set_config", action("config", original_config))
     monkeypatch.setattr(server.Handler, "_resume", action("resume", {"ok": True}))
@@ -386,6 +390,10 @@ def test_real_browser_text_rendering_nonce_and_pending_writes(http_panel, monkey
     document.getElementById('d_text').value='普通中文 directive';
     await twice('btnSend','directive');
     await twice('btnStop','stop');
+    check(document.getElementById('toast').textContent.includes('已请求停止'),'missing accepted Stop message');
+    await twice('btnStop','stop');
+    check(document.getElementById('clientErrors').textContent.includes('STOP_RECEIPT_NOT_SAVED'),'lost Stop receipt error');
+    check(!document.getElementById('toast').textContent.includes('已请求停止'),'failed Stop displayed as accepted');
     document.getElementById('f_obj').value='normal objective';
     document.getElementById('f_ac').value='works';
     document.getElementById('newMission').classList.add('open');
@@ -413,7 +421,7 @@ def test_real_browser_text_rendering_nonce_and_pending_writes(http_panel, monkey
                             capture_output=True, timeout=55, encoding="utf-8", errors="replace")
     outcome = re.search(r'data-f04-result="([^"]*)"', result.stdout)
     assert outcome and outcome.group(1) == "PASS", (result.returncode, outcome.group(1) if outcome else result.stdout[-1500:], result.stderr[-1000:])
-    assert calls == {key: 1 for key in calls}
+    assert calls == {key: (2 if key == "stop" else 1) for key in calls}
     assert not any(http_panel.httpd.panel_nonce.encode() in p.read_bytes()
                    for p in http_panel.root.rglob("*") if p.is_file())
 
