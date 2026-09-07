@@ -228,7 +228,7 @@ def test_invalid_json_never_writes(http_panel, raw):
 def test_same_origin_page_nonce_allows_normal_write(http_panel):
     status, headers, html = request(http_panel, path="/")
     assert status == 200
-    nonce = re.search(rb'<script nonce="([A-Za-z0-9_-]+)"', html).group(1).decode()
+    nonce = re.search(rb'<script[^>]* nonce="([A-Za-z0-9_-]+)"', html).group(1).decode()
     assert nonce == http_panel.httpd.panel_nonce
     assert "frame-ancestors 'none'" in headers["Content-Security-Policy"]
     assert "no-store" in headers["Cache-Control"]
@@ -374,7 +374,8 @@ def test_real_browser_text_rendering_nonce_and_pending_writes(http_panel, monkey
     await new Promise(r=>setTimeout(r,10));
   }};
   try{
-    await waitFor(()=>LAST && PROJECTS.length && !document.getElementById('btnStart').disabled);
+    await waitFor(()=>LAST && PROJECTS.length);
+    document.getElementById('f_project').value=String(PROJECTS[0].id);showSelectedProject();
     check(!window.PWNED,'executed injected HTML');
     check(!document.querySelector('img,[onerror],[onload],[onmouseover]'),'injected DOM or attribute');
     for(const id of ['missionsList','subtasks','workers','evidence','diagnostics','tab-al']){
@@ -386,7 +387,7 @@ def test_real_browser_text_rendering_nonce_and_pending_writes(http_panel, monkey
     check(document.getElementById('evidence').textContent.includes('overall=fail'),'false overall pass');
     check(document.getElementById('evidence').textContent.includes('command=pass'),'lost command result');
     check(document.getElementById('evidence').textContent.includes('SCOPE_FAILURE'),'lost scope');
-    check(document.querySelector('#missionsList [title]').title.includes('INJECT_MARKER'),'lost safe title');
+    check([...document.querySelectorAll('#missionsList h3')].some(n=>n.textContent.includes('INJECT_MARKER')),'lost safe task title');
     async function twice(id,key){
       document.getElementById(id).click(); render(LAST); document.getElementById(id).click();
       await waitFor(()=>!PENDING.has(key));
@@ -401,11 +402,13 @@ def test_real_browser_text_rendering_nonce_and_pending_writes(http_panel, monkey
     check(!document.getElementById('toast').textContent.includes('取消请求已持久接收'),'failed Stop displayed as accepted');
     document.getElementById('f_obj').value='normal objective';
     document.getElementById('f_ac').value='works';
-    document.getElementById('newMission').classList.add('open');
+    document.getElementById('f_paths').value='src/**';
+    render({...LAST,running:false});showDialog('newMission');showStep(3);
     await twice('btnStart','mission');
     render({...LAST,running:false});
-    for(const [mid,label] of [['M-ATTACH','查看'],['M-RESUME','检查并恢复']]){
-      const find=()=>[...document.querySelectorAll('#missionsList button')].find(b=>b.textContent===label && b.closest('.mrow').textContent.includes(mid));
+    for(const [mid,label] of [['M-ATTACH','加载存档'],['M-RESUME','检查并恢复']]){
+      openTask(mid);
+      const find=()=>[...document.querySelectorAll('#detailExtraActions button')].find(b=>b.textContent===label);
       find().click(); render(LAST); find().click(); await waitFor(()=>!PENDING.has('mission'));
     }
     await writeAction('failure','/api/missing',{});

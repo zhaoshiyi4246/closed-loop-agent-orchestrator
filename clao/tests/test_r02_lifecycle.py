@@ -449,7 +449,11 @@ def test_real_edge_r02_status_receipts_and_new_attempt_pending(http_panel,monkey
       check($('diagnostics').textContent.includes('browser-cmd'),'receipt missing');
       check(document.querySelector('#d_target [value="gate"]').disabled,'Gate falsely available');
       check(document.querySelector('#d_target [value="observer"]').disabled,'Observer falsely available');
-      const find=()=>[...document.querySelectorAll('#missionsList button')].find(b=>b.textContent==='新 attempt');
+      openTask(LAST.mission.id);
+      const find=()=>[...document.querySelectorAll('#detailExtraActions button')].find(b=>b.textContent==='新 attempt');
+      check(find()?.disabled,'unknown stop must block new attempt');find().click();
+      check(!PENDING.has('mission'),'unknown stop initiated a write');
+      render({...LAST,mission:{...LAST.mission,state:'CANCELLED',cancellation:{status:'cancelled'},worker_stop:{status:'CONFIRMED'}}});
       check(find(),'terminal missing new attempt');find().click();render(LAST);find().click();await wait(()=>!PENDING.has('mission'));
       for(const state of ['requested','cancelling','cancelled','unknown']){
         render({...LAST,mission:{...LAST.mission,cancellation:{status:state,reason:'真实取消阶段 中文'},stop_request:{source:'user'}}});

@@ -260,31 +260,49 @@ def test_panel_rejects_out_of_range_workers(monkeypatch, tmp_path, value):
 
 
 def test_panel_frontend_defaults_to_bounded_single_worker():
-    html = INDEX.read_text(encoding="utf-8")
-    assert ('id="f_sub" type="number" min="1" max="2" value="1"'
-            in html)
-    assert 'max_subtasks:Number($("f_sub").value)' in html
-    assert 'max_subtasks:+$("f_sub").value||2' not in html
+    from html.parser import HTMLParser
+
+    class Choices(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.inside = False
+            self.values = []
+
+        def handle_starttag(self, tag, attrs):
+            attrs = dict(attrs)
+            if tag == "select":
+                self.inside = attrs.get("id") == "f_sub"
+            if tag == "option" and self.inside:
+                self.values.append(attrs.get("value"))
+
+        def handle_endtag(self, tag):
+            if tag == "select":
+                self.inside = False
+
+    parser = Choices()
+    parser.feed(INDEX.read_text(encoding="utf-8"))
+    assert parser.values == ["1", "2"]  # first/default stays single Worker
+    script = INDEX.with_name("app.js").read_text(encoding="utf-8")
+    assert 'max_subtasks:Number($("f_sub").value)' in script
+    assert 'max_subtasks:+$("f_sub").value||2' not in script
 
 
 def test_panel_frontend_loads_and_selects_ao_projects():
     html = INDEX.read_text(encoding="utf-8")
+    script = INDEX.with_name("app.js").read_text(encoding="utf-8")
     assert 'id="f_project" disabled' in html
-    assert 'fetch("/api/projects")' in html
-    assert 'option.textContent=`${p.name} (${p.id})`' in html
-    assert '$("f_project").onchange=showSelectedProject' in html
-    assert 'Project path：${selected.path || "—"}' in html
-    assert 'kind：${selected.kind || "—"}' in html
-    assert 'option.textContent="AO 中没有已注册项目"' in html
-    assert 'error.textContent=e.message' in html
-    assert 'selector.disabled=false; start.disabled=false' in html
-    assert 'project_id:$("f_project").value' in html
-    assert "project_path:" not in html
-    assert "project_name:" not in html
+    assert 'fetch("/api/projects")' in script
+    assert 'PROJECTS.some(p=>String(p.id)===$(id).value)' in script
+    assert 'prompt.value=""' in script  # explicit choice; no implicit first project
+    assert 'PROJECT_ERROR=error.message' in script
+    assert 'selector.disabled=!PROJECTS.length' in script
+    assert 'project_id:$("f_project").value' in script
+    assert "project_path:" not in script
+    assert "project_name:" not in script
 
 
 def test_panel_frontend_does_not_expose_auto_master_writeback():
-    html = INDEX.read_text(encoding="utf-8")
+    html = INDEX.read_text(encoding="utf-8") + INDEX.with_name("app.js").read_text(encoding="utf-8")
     assert "k_ff" not in html
     assert "auto_ff_master" not in html
     assert "DONE 后自动合并 master" not in html
