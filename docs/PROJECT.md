@@ -1,6 +1,6 @@
 # CLAO 当前项目事实
 
-更新：2026-09-07（R02 外部审计 PASS 并合入 main，状态 DONE；F01–F05、R01 DONE；M0 / M1 / M2 COMPLETE；M3 IN_PROGRESS；U01 在任务分支实现，等待代码与视觉审计）。本文件只记录已实现事实与已知限制；v0.3的设计见 [V03_PLAN.md](V03_PLAN.md)，不能把设计直接写成已完成能力。
+更新：2026-09-08（R02 外部审计 PASS 并合入 main，状态 DONE；F01–F05、R01 DONE；M0 / M1 / M2 COMPLETE；M3 IN_PROGRESS；U01 代码与产品整改外部审计 PASS、PR #39 已合入，DONE；下一任务 U02 TODO）。本文件只记录已实现事实与已知限制；v0.3的设计见 [V03_PLAN.md](V03_PLAN.md)，不能把设计直接写成已完成能力。
 
 ## 1. 版本与基线
 
@@ -9,7 +9,7 @@
 | 产品 | CLAO / Closed-Loop Agent Orchestrator |
 | 已发布版本 | v0.2，Windows本地比赛版 |
 | 已发布源码 | 4d3e8e6b5e70bab868b2eef0d28c7742dea044ba |
-| 开发目标 | v0.3：F01–F05、R01 / R02 已合入 main（DONE）；M0 / M1 / M2 COMPLETE，M3 IN_PROGRESS；U01 工作台骨架在分支待审计，U02/U03 与模型扩展待实现 |
+| 开发目标 | v0.3：F01–F05、R01 / R02 已合入 main（DONE）；M0 / M1 / M2 COMPLETE，M3 IN_PROGRESS；U01 工作台骨架与产品整改已审计合入（DONE），U02/U03 与模型扩展待实现 |
 | 主仓库 | zhaoshiyi4246/closed-loop-agent-orchestrator |
 | 产品源码路径 | `clao/`，当前唯一正式产品，内部 Python 包为 `src/loopcore/` |
 | 发布工具 | `packaging/build-release.ps1` 与 `packaging/release-manifest.txt` |
@@ -174,9 +174,11 @@ Worker 初始/replan prompt 包含实际 objective、AC、allowed/forbidden path
 原 user instruction。固定 AO 的 [spawn Prompt 上限](https://github.com/Untrivial-ai/agent-orchestrator/blob/4cbb4b6ced1ad93f79641a2347d2342f1ffd218a/backend/internal/httpd/controllers/sessions.go)
 为 4096 UTF-8 bytes；完整内容超限直接拒绝，不静默裁掉范围。模型/用量/费用 unknown
 和 R01 冻结配置规则不变。Windows 定向 Git/SQLite/fake AO/HTTP 与 Edge 证据见 R02 卡，
-未运行全量、安装、打包、smoke、真实 AO/模型或完整 GUI 视觉验收；R01 / R02 DONE，M2 COMPLETE；U01 分支实现见下节，U02/U03 仍 TODO。
+未运行全量、安装、打包、smoke、真实 AO/模型或完整 GUI 视觉验收；R01 / R02 DONE，M2 COMPLETE；U01 已合入实现见下节，U02/U03 仍 TODO。
 
-### U01 工作台骨架（分支实现，待代码与视觉审计）
+### U01 工作台骨架（DONE，已审计合入）
+
+[PR #39](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/39) 本轮代码与产品收敛整改外部审计通过，2026-09-07 已 rebase merge；产品实现保持已审计 head 不变。
 
 沿用 Python Panel 与原生 HTML/CSS/JavaScript，四入口为概览、任务、模型、设置。
 桌面侧栏、窄屏底部导航共用同一页面；浅/深/跟随系统主题只保存浏览器外观偏好。
@@ -203,8 +205,8 @@ CSP 脚本 nonce 要求不变。12 个本地 Lucide 符号及完整 ISC/Feather 
 构建服务、CDN 或模型探测请求。当前仍依赖 AO 注册项目及 origin，尚未实现独立项目与执行入口。
 
 定向 Windows/Edge 证据及截图索引见 [U01 卡](V03_BACKLOG.md#v03-u01iphone风格界面骨架与状态夹具)。
-截图由实际实现产生，已自行查看；最终代码与视觉验收由负责人在 PR 中进行。
-M0/M1/M2 COMPLETE，U02/U03 TODO；没有结果导出、GLM/Kimi 或新恢复后端。
+已有 Windows/浏览器验证与实际截图沿用，截图由 Codex 自查；本次外部代码与产品整改审计通过，不宣称外部逐张截图验收。合并收尾未重新运行测试或模型，仅做文档与差异检查。
+M0/M1/M2 COMPLETE，M3 IN_PROGRESS；唯一下一任务 U02 TODO，先独立项目入口与本地执行，再完整任务旅程。当前仍依赖 AO；U02/U03 与模型扩展未开始。
 
 ## 4. 已验证外部前提
 
@@ -229,7 +231,7 @@ AO executable通过CLAO_AO_BIN或PATH解析；runfile通过CLAO_AO_RUN_FILE或~/
 
 | 主题 | 当前实现 | v0.3设计（待实现） |
 |---|---|---|
-| GUI | U01 分支：四入口、分组卡片、主题、响应式渐进表单；开发夹具独立；代码/视觉待审计 | U02 独立项目/本地执行后完成任务旅程与 U03 结果中心/导出 |
+| GUI | U01 已审计合入（DONE）：四入口、分组卡片、主题、响应式渐进表单；开发夹具独立 | U02 独立项目/本地执行后完成任务旅程与 U03 结果中心/导出 |
 | 模型 | Codex CLI与AO Codex | GLM/Kimi语义profile，Worker单独准入 |
 | 配置 | R01 已合入；R02 恢复先验证冻结材料 | 新 GUI 的配置旅程 |
 | 结果 | integration路径与日志 | 可独立应用的patch导出与证据摘要 |

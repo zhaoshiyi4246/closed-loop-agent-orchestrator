@@ -1,6 +1,6 @@
 # CLAO v0.3 任务与验收台账
 
-版本：0.3-plan-r1 · 2026-09-06。状态：已批准 / IN EFFECT。DOC-00、F01–F05、R01 / R02 已完成（DONE），M0 / M1 / M2 为 `COMPLETE`；当前任务 U01 为 `IN_REVIEW`，M3 `IN_PROGRESS`；其余功能卡状态见下表，原报告的发现不等于已复现或已修复。
+版本：0.3-plan-r1 · 2026-09-06。状态：已批准 / IN EFFECT。DOC-00、F01–F05、R01 / R02 已完成（DONE），M0 / M1 / M2 为 `COMPLETE`；U01 已审计合入（`DONE`），M3 `IN_PROGRESS`；唯一下一任务 U02 `TODO`；其余功能卡状态见下表，原报告的发现不等于已复现或已修复。
 
 设计以 [V03_PLAN.md](V03_PLAN.md) 为准。当前唯一任务由根目录 [PLANS.md](../PLANS.md) 指定。本文件保存每张卡的详细状态和证据，PLANS 不重复整张台账。
 
@@ -40,7 +40,7 @@
 | V03-F05 | M1 | 停止确认与未知外部动作保护 | DOC-00 | DONE（PR #36 再次审计 PASS / merged） |
 | V03-R01 | M2 | 有效配置与阶段诊断 | F01/F04 | DONE（PR #37 再次审计 PASS / merged） |
 | V03-R02 | M2 | 指令回执、取消恢复、固定基线 | F03/F05/R01 | DONE（PR #38 审计 PASS / merged） |
-| V03-U01 | M3 | iPhone风格界面骨架与状态夹具 | G1；R01/R02字段设计 | IN_REVIEW |
+| V03-U01 | M3 | iPhone风格界面骨架与状态夹具 | G1；R01/R02字段设计 | DONE（PR #39 代码/产品整改审计 PASS / merged） |
 | V03-U02 | M3 | 完整任务GUI与数据接线 | U01/R02/F04 | TODO |
 | V03-U03 | M3 | 结果中心与独立导出 | U02/F03 | TODO |
 | V03-P01 | M4 | 模型配置／凭据与GLM语义后端 | F01/R01/F04 | TODO |
@@ -219,7 +219,8 @@ G1=F01—F05；G2=R01—R02；G3=U01—U03；G4=P01—P02及P03有记录的支�
 
 ## V03-U01｜iPhone风格界面骨架与状态夹具
 
-- 状态：IN_REVIEW；M3 IN_PROGRESS，base `89f1e1e475ea46246f9a6f9307d50ccb71b4995f`，分支 `codex/v03-u01-workbench-shell`；U02/U03 TODO。
+- 状态：DONE；M3 IN_PROGRESS，base `89f1e1e475ea46246f9a6f9307d50ccb71b4995f`，分支 `codex/v03-u01-workbench-shell`；U02/U03 TODO。
+- 合并收尾（2026-09-08）：[PR #39](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/39) 本轮代码与产品收敛整改外部审计 PASS，无继续返修问题；已 rebase merge 到 main `014e9123a842e8ecd1f42f4ca3845b929835ca2b`，已审计 head `01dfd935c7f55d0800edd526a707387744933423`；合入 tree 与该 head 完全相同。
 - 对应：GUI新设计，A12。依赖：G1已通过；G2字段约定确定。
 - 工作：四入口、浅/深主题、响应式、分组卡片、渐进表单、键盘焦点；拓扑降为高级诊断。先用状态夹具展示完整/失败/取消/断连/审批/空记录。
 - 完成：负责人审核1440/1366/768/390宽截图与键盘流程；不把mock原型写成真实功能；无字体/图标许可遗漏。
@@ -233,7 +234,7 @@ G1=F01—F05；G2=R01—R02；G3=U01—U03；G4=P01—P02及P03有记录的支�
 - 最终窄屏修正后：`python -m pytest tests/test_u01_panel.py::test_edge_workbench_preview_keyboard_themes_and_actual_200_percent_zoom -q -s` → **1 passed / 8.68s，实际 Edge 184 项断言**；图标精确子集/完整许可复查 **1 passed / 1.15s**。与上列集合重叠，不累计为额外产品用例。
 - 浏览器覆盖：1440×900、1366×768、768×1024、390×844 浅/深主题与四入口；实际 browser zoom=200%（临时隔离 profile/测试扩展，非 CSS zoom）；语义文本对比度 ≥4.5:1、主要操作高度 ≥44px；键盘弹层/焦点恢复、字段错误/草稿保留、长文本/XSS、断连保留/SSE 去重、预览零 API 请求。正常 `panel/server.py --no-browser` 启动方式已打开四入口预览，未创建真实任务。
 - 静态检查：compileall、Node JS 语法、diff-check、本地文档路径及既有 `panel/` manifest 前缀覆盖检查通过；Python 仅增加五个固定静态资源路径，不扩大文件访问或 CSP 脚本权限。
-- 首轮历史截图：以下 **19 张实际 Edge 截图**由实现直接产生，已逐张自查并修正空图标与模型页窄屏挤压；代码与视觉最终结论 **PENDING，等待负责人审计**。不把自动化检查或截图生成写成视觉 PASS。
+- 首轮历史截图：以下 **19 张实际 Edge 截图**由实现直接产生，已逐张自查并修正空图标与模型页窄屏挤压；首轮当时待审计。截图属于 Codex 自查，不把自动化或截图生成写成外部视觉验收。
 
 <details>
 <summary>首轮历史截图（返修前，仅留作对照）</summary>
@@ -249,14 +250,16 @@ G1=F01—F05；G2=R01—R02；G3=U01—U03；G4=P01—P02及P03有记录的支�
 
 </details>
 
-- 本轮截图（正式 Panel、隔离 SQLite/HTTP 的执行事实；没有真实 Worker 或模型调用）：[正常概览](assets/u01/revision-overview-light.png)、[任务详情](assets/u01/revision-detail-light.png)、[设置](assets/u01/revision-settings-light.png)、[窄屏深色概览](assets/u01/revision-overview-390-dark.png)、[窄屏深色详情](assets/u01/revision-detail-390-dark.png)。只更新这五张，已自行查看，负责人最终代码/视觉审计 PENDING。
+- 本轮截图（正式 Panel、隔离 SQLite/HTTP 的执行事实；没有真实 Worker 或模型调用）：[正常概览](assets/u01/revision-overview-light.png)、[任务详情](assets/u01/revision-detail-light.png)、[设置](assets/u01/revision-settings-light.png)、[窄屏深色概览](assets/u01/revision-overview-390-dark.png)、[窄屏深色详情](assets/u01/revision-detail-390-dark.png)。返修仅更新这五张，由 Codex 自行查看；外部代码与产品整改审计已通过，不追加外部逐张截图验收声明。
 - 本轮 Windows 定向：首次 U01/F04/Worker contract/R01/R02 集合 **171 passed / 1 failed / 33.18s**；修正开发传输的异步等待、详情返回顺序与夹具运行事实后，`pytest tests/test_u01_panel.py tests/test_f04_panel_boundaries.py::test_real_browser_text_rendering_nonce_and_pending_writes tests/test_r01_effective_config.py::test_browser_config_phases_and_sse_reconnect_are_safe tests/test_r02_lifecycle.py::test_real_edge_r02_status_receipts_and_new_attempt_pending -q` → **28 passed / 13.98s**。过程中保留并修正状态/焦点负例，不删断言。
 - 最后补齐表单错误的单处展示/关闭后保留：F04/R01/R02 三个浏览器回归通过；U01 最终浏览器 **1 passed / 8.73s**，含原四宽度/浅深主题/200% 缩放、10 状态、键盘草稿、开发 HTTP POST 拒绝、旧 preview URL 真实数据、子任务失败/完成、仅阶段变更的列表更新；这些集合重叠不累计。compileall、JS 语法、diff-check、51 个本地文档路径、开发资源不在发布映射检查通过。
-- NOT_RUN：全量回归、clean install、打包、smoke、真实 AO Mission/收费模型、完整 U02 任务旅程与负责人最终视觉验收。没有 GLM/Kimi 接入、结果导出、Controller/Store 重构、tag 或 Release。
-- 下一步：仅等待本 PR 的代码与视觉审计；M0/M1/M2 COMPLETE，M3 IN_PROGRESS，U02/U03 TODO。
+- 实施阶段 NOT_RUN：全量回归、clean install、打包、smoke、真实 AO Mission/收费模型、完整 U02 任务旅程；截图自查与本次外部代码/产品整改审计分别记录，不将后者等同逐张截图验收。没有 GLM/Kimi 接入、结果导出、Controller/Store 重构、tag 或 Release。
+- 本次收尾沿用以上 Windows/浏览器证据，仅更新既有背景文档并检查链接/路径、diff 与产品 blob 一致性；不重跑测试、构建、smoke、真实 AO/模型。
+- 下一步：唯一指针 U02 TODO，首个切片“独立项目入口与本地执行”，完成后再推进完整任务旅程；尚未开始。M0/M1/M2 COMPLETE，M3 IN_PROGRESS；U03/模型扩展仍 TODO，D10 独立产品目标尚未实现。
 
 ## V03-U02｜完整任务GUI与数据接线
 
+- 状态：TODO；当前唯一下一任务，首个实施切片“独立项目入口与本地执行”；尚未开始。
 - 对应：A04/A05/A06/A08。依赖：U01+G2。
 - 顺序（D10，尚未实现）：先完成独立项目入口与本地执行，再完成完整任务旅程。用户无需预先使用或配置 AO，能在 CLAO 内打开/创建项目并执行；普通本地项目不要求 GitHub/origin。优先复用成熟编码引擎，Codex App Server 是候选；具体适配在后续专门切片落实，本 PR 不改执行后端。
 - 工作：真实就绪卡；显式Project与base确认；目标/范围/Gate/模型摘要；运行阶段、审批、取消、历史与重试；大错误常驻；真实角色调用与证据scope。

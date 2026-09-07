@@ -4,7 +4,7 @@ Closed-Loop Agent Orchestrator
 
 CLAO 是构建在 Agent Orchestrator（AO）上的本地闭环软件开发控制层。默认单Worker执行任务，通过确定性Gate、集成和Mission终局复核保存可检查结果。
 
-**已发布：v0.2（Windows本地比赛版）。v0.3 规划已批准，M0 / M1 COMPLETE；V03-F01 的 [PR #32](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/32)、V03-F02 的 [PR #33](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/33)、V03-F03 的 [PR #34](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/34)、V03-F04 的 [PR #35](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/35) 与 V03-F05 的 [PR #36](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/36) 均已外部审计 PASS 并合入 main（DONE）。V03-R01 — 有效配置与阶段诊断的 [PR #37](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/37) 已再次外部审计 PASS 并合入（DONE）；V03-R02 — 指令回执、取消恢复、固定基线的 [PR #38](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/38) 已外部审计 PASS 并 rebase 合入（DONE）；M2 COMPLETE，M3 IN_PROGRESS；V03-U01 — iPhone 风格界面骨架与状态夹具已在独立分支实现，等待代码与视觉审计；U02/U03 与其余规划能力待实施。**
+**已发布：v0.2（Windows本地比赛版）。v0.3 规划已批准，M0 / M1 COMPLETE；V03-F01 的 [PR #32](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/32)、V03-F02 的 [PR #33](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/33)、V03-F03 的 [PR #34](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/34)、V03-F04 的 [PR #35](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/35) 与 V03-F05 的 [PR #36](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/36) 均已外部审计 PASS 并合入 main（DONE）。V03-R01 — 有效配置与阶段诊断的 [PR #37](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/37) 已再次外部审计 PASS 并合入（DONE）；V03-R02 — 指令回执、取消恢复、固定基线的 [PR #38](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/38) 已外部审计 PASS 并 rebase 合入（DONE）；M2 COMPLETE，M3 IN_PROGRESS；V03-U01 — iPhone 风格界面骨架与状态夹具的 [PR #39](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/39) 本轮代码与产品整改外部审计 PASS，已 rebase 合入（DONE）；下一任务 U02 TODO，先“独立项目入口与本地执行”，再完整任务旅程；U03 与模型扩展未开始。**
 
 ## 使用已发布产品
 
@@ -14,7 +14,7 @@ CLAO 是构建在 Agent Orchestrator（AO）上的本地闭环软件开发控制
 
 结果保留在 `runtime/<mission-id>/integration`，不自动写回main/master，不自动push。当前版本只按支持环境和指定路径验证；已知权限、结果一致性和GUI证据问题列入v0.3首批修复，重要项目应备份并保留人工监督。
 
-U01 开发分支提供概览、任务、模型、设置四入口，浅/深主题、窄屏导航和四步新建表单。正常页面仅使用真实数据；开发夹具与产品服务/发布资源隔离。参见[工作台说明](clao/README.md#任务工作台v03-u01-开发分支)与[返修截图和开发检查](docs/V03_BACKLOG.md#v03-u01iphone风格界面骨架与状态夹具)。代码与视觉等待审计；当前仍依赖 AO，独立项目与本地执行属于 U02 未实现目标，U03 导出尚未实现。
+main 已合入的 U01 提供概览、任务、模型、设置四入口，浅/深主题、窄屏导航和四步新建表单。正常页面仅使用真实数据；开发夹具与产品服务/发布资源隔离。参见[工作台说明](clao/README.md#任务工作台v03-u01)与[返修截图和开发检查](docs/V03_BACKLOG.md#v03-u01iphone风格界面骨架与状态夹具)。已有 Windows/浏览器验证和 Codex 截图自查，与本次外部代码/产品整改审计分别记录；当前仍依赖 AO，独立项目与本地执行属于 U02 未实现目标，U03 导出尚未实现。
 
 ## v0.3 开发方向
 
