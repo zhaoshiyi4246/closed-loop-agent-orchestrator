@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 from typing import Optional, Union
+from .diagnostics import model_attempt
 from .structured import (ContractConfigurationError, ProtocolError, parse_json,
                          check_schema, schema_validator)
 
@@ -90,42 +91,45 @@ def run_codex_json(
             "--output-last-message", str(output_path),
             "-",
         ]
-        try:
-            completed = subprocess.run(
-                command,
-                input=prompt,
-                cwd=workdir,
-                shell=False,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                encoding="utf-8",
-                errors="replace",
-            )
-        except subprocess.TimeoutExpired as exc:
-            raise CodexCliError(
-                "codex timed out after %ss; stdout=%s stderr=%s"
-                % (timeout, summary(exc.stdout), summary(exc.stderr))) from exc
-        except OSError as exc:
-            raise CodexCliError("codex launch failed: %s" % summary(exc)) from exc
+        with model_attempt(model) as fact:
+            try:
+                completed = subprocess.run(
+                    command,
+                    input=prompt,
+                    cwd=workdir,
+                    shell=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout,
+                    encoding="utf-8",
+                    errors="replace",
+                )
+            except subprocess.TimeoutExpired as exc:
+                raise CodexCliError(
+                    "codex timed out after %ss; stdout=%s stderr=%s"
+                    % (timeout, summary(exc.stdout), summary(exc.stderr))) from exc
+            except OSError as exc:
+                raise CodexCliError("codex launch failed: %s" % summary(exc)) from exc
 
-        if completed.returncode != 0:
-            raise CodexCliError(
-                "codex exited %s; stdout=%s stderr=%s"
-                % (completed.returncode, summary(completed.stdout),
-                   summary(completed.stderr)))
-        if not output_path.exists():
-            raise ProtocolError("JSON_PARSE", "codex output-last-message file is missing")
-        try:
-            raw = output_path.read_text(encoding="utf-8").strip()
-        except OSError as exc:
-            raise CodexCliError(
-                "codex output-last-message could not be read: %s"
-                % summary(exc)) from exc
-        if not raw:
-            raise ProtocolError("JSON_PARSE", "codex output-last-message file is empty")
-        result = parse_json(raw)
-        if not isinstance(result, dict):
-            raise ProtocolError("JSON_PARSE", "codex output-last-message is not a JSON object")
-        check_schema(result, local_schema)
-        return result
+            if completed.returncode != 0:
+                raise CodexCliError(
+                    "codex exited %s; stdout=%s stderr=%s"
+                    % (completed.returncode, summary(completed.stdout),
+                       summary(completed.stderr)))
+            if not output_path.exists():
+                raise ProtocolError("JSON_PARSE", "codex output-last-message file is missing")
+            try:
+                raw = output_path.read_text(encoding="utf-8").strip()
+            except OSError as exc:
+                raise CodexCliError(
+                    "codex output-last-message could not be read: %s"
+                    % summary(exc)) from exc
+            if not raw:
+                raise ProtocolError("JSON_PARSE", "codex output-last-message file is empty")
+            result = parse_json(raw)
+            if not isinstance(result, dict):
+                raise ProtocolError("JSON_PARSE", "codex output-last-message is not a JSON object")
+            check_schema(result, local_schema)
+            if fact is not None:
+                fact["result"] = "structured response validated"
+            return result

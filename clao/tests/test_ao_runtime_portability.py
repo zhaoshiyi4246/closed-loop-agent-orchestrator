@@ -172,6 +172,7 @@ def test_action_executor_only_adds_explicit_runfile(monkeypatch, tmp_path):
 
 
 def test_build_runtime_resolves_one_shared_ao_contract(monkeypatch, tmp_path):
+    monkeypatch.setattr(run_mission, "ROOT", tmp_path)
     calls = {"bin": 0, "run_file": 0}
     captured = {}
     run_file = tmp_path / "running.json"
@@ -187,6 +188,7 @@ def test_build_runtime_resolves_one_shared_ao_contract(monkeypatch, tmp_path):
     class DummyRuntime:
         def __init__(self, mission, cfg, **kwargs):
             captured.update(kwargs)
+            self.diagnostics = SimpleNamespace(errors=[])
 
     monkeypatch.setattr(run_mission, "resolve_ao_bin", resolve_bin)
     monkeypatch.setattr(run_mission, "resolve_ao_run_file", resolve_run_file)
@@ -266,7 +268,7 @@ def test_read_only_attach_skips_ao_but_normal_start_fails_fast(
 
     normal_panel = server.PanelState()
     monkeypatch.setattr(server, "PANEL", normal_panel)
-    with pytest.raises(RuntimeError, match="CLAO_AO_BIN"):
+    with pytest.raises(ValueError, match="no effective config snapshot"):
         normal_panel.start_mission(mission)
 
 

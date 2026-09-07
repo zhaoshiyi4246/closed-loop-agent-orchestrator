@@ -27,6 +27,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from .diagnostics import phase_call
+
 from .codex_cli import run_codex_json
 from .structured import role_result
 from .mission_contracts import AcCheck, VerifierResult, check_verifier
@@ -155,6 +157,7 @@ class CodexCliVerifierProvider(VerifierProvider):
             cwd=self.cwd,
         )
 
+    @phase_call("verifier", role="verifier")
     def verify(self, inp: VerifierInput, verify_id: str) -> VerifierResult:
         inp.validate_evidence()
         obj = protocol_call(lambda: self._call(inp, verify_id),

@@ -20,6 +20,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from .diagnostics import phase_call
+
 from .codex_cli import run_codex_json
 from .structured import role_result
 from .mission_contracts import (AuditResult, AuditEvidence, AuditDecision,
@@ -139,6 +141,7 @@ class CodexCliAuditorProvider(AuditorProvider):
             cwd=self.cwd,
         )
 
+    @phase_call("auditor", role="auditor")
     def audit(self, bundle: EvidenceBundle, audit_id: str) -> AuditResult:
         obj = protocol_call(lambda: self._call(bundle, audit_id),
                             lambda obj: check_role(obj, "audit-result",

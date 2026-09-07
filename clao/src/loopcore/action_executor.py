@@ -18,9 +18,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Optional
 
+from time import time as _epoch_seconds
+from .diagnostics import phase_call, Diagnostics
+
 from .mission_contracts import (PlannerAction, PlannerActionType, TaskSpec,
                         ProjectState)
-from .event_normalizer import _epoch_seconds
 from .state_store import StateStore
 from .ao_adapter import AOAdapter
 
@@ -112,7 +114,10 @@ class ActionExecutor:
                  spawn_backoff_seconds: int = 30,
                  max_transient_spawn_attempts: int = 8,
                  transient_spawn_backoff_seconds: int = 90,
-                 adapter: Optional[AOAdapter] = None):
+                 adapter: Optional[AOAdapter] = None,
+                 spawn_timeout_seconds: float = 120,
+                 send_timeout_seconds: float = 60,
+                 kill_timeout_seconds: float = 30):
         self.ao_bin = ao_bin
         self.data_dir = data_dir
         self.run_file = str(run_file) if run_file else None
@@ -128,7 +133,10 @@ class ActionExecutor:
         # rejecting the spawn). Cap attempts per task with linear backoff;
         # the caller escalates to HUMAN once the cap is reached.
         self.max_spawn_attempts = int(max_spawn_attempts or 3)
-        self.spawn_backoff_seconds = int(spawn_backoff_seconds or 30)
+        self.spawn_backoff_seconds = spawn_backoff_seconds
+        self.spawn_timeout_seconds = spawn_timeout_seconds
+        self.send_timeout_seconds = send_timeout_seconds
+        self.kill_timeout_seconds = kill_timeout_seconds
         # Preserve historical counters/config compatibility. F05 never uses
         # transport diagnostics to authorize another invocation.
         self.max_transient_spawn_attempts = int(
@@ -148,6 +156,7 @@ class ActionExecutor:
                 "summary": reason, "requires_human": True})
         return saved
 
+    @phase_call("reconciliation", role="worker")
     def _reconcile(self, op, counters=()):
         """AO 0.12.9 public reads only. Absence is NEVER proof of non-execution."""
         counters = op["request"].get("success_counters", counters)
@@ -213,7 +222,16 @@ class ActionExecutor:
             return current
         op = self.store.operation(op["operation_id"])
         try:
-            proc = self._run(args, timeout=timeout)
+            diag = getattr(self, "diagnostics", None)
+            if isinstance(diag, Diagnostics):
+                with diag.phase(op["kind"], task_id=op["owner_id"], role="worker",
+                                attempt=op["attempts"], requested_model=self.worker_model if op["kind"] == "spawn" else None,
+                                passed_model=self.worker_model if op["kind"] == "spawn" else None,
+                                transport="ao_cli", reason="waiting for AO acknowledgement; this is not Worker completion") as fact:
+                    proc = self._run(args, timeout=timeout)
+                    fact["result"] = "CLI exit " + str(proc.returncode)
+            else:
+                proc = self._run(args, timeout=timeout)
         except AOProcessNotStarted:
             # Popen did not create a CLI process; unlike a transport error this
             # proves AO was not invoked. The same intent may retry within cap.
@@ -262,7 +280,7 @@ class ActionExecutor:
                    "marker": secrets.token_urlsafe(15)}
         op = self.store.ensure_operation(identity, "spawn", owner_id, project_id, request)
         op = self._effect(op, self._spawn_args(project_id, harness, op["request"]["marker"], prompt),
-                          counters=counters, max_attempts=self.max_spawn_attempts)
+                          timeout=self.spawn_timeout_seconds, counters=counters, max_attempts=self.max_spawn_attempts)
         if op["status"] in ("UNKNOWN", "IN_FLIGHT"):
             self._require_known(op)
         if op["status"] == "SUCCEEDED":
@@ -498,7 +516,7 @@ class ActionExecutor:
         # Ordinary AO send has no caller key. A missing ACK is reconciled to
         # UNKNOWN, even when an identical message appears in the conversation.
         return self._effect(op, ["send", "--session", session_id, "--message", message],
-                            timeout=60, counters=counters)
+                            timeout=self.send_timeout_seconds, counters=counters)
 
     def _replan_spawn(self, action, task) -> ActionResult:
         identity = operation_id("spawn-replan", action.action_id)
@@ -596,7 +614,7 @@ class ActionExecutor:
                 return self._reconcile(op)["status"] == "SUCCEEDED"
         except Exception:
             pass  # first authorized kill may proceed, but never counts as stopped
-        op = self._effect(op, ["session", "kill", session_id], timeout=30)
+        op = self._effect(op, ["session", "kill", session_id], timeout=self.kill_timeout_seconds)
         return op["status"] == "SUCCEEDED"
 
     def nudge_worker(self, session_id: str, message: str, *, identity: str = "",

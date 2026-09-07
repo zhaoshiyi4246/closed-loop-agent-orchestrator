@@ -27,11 +27,14 @@ import sys
 import time
 from pathlib import Path
 
-import yaml
+import copy
 
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT / "src"))
 
+from loopcore.effective_config import (resolve_config, load_config as read_config,
+                                      restore_snapshot, ConfigError)
+from loopcore.diagnostics import Diagnostics
 from loopcore.action_executor import ActionExecutor          # noqa: E402
 from loopcore.ao_adapter import AOAdapter                    # noqa: E402
 from loopcore.auditor import CodexCliAuditorProvider         # noqa: E402
@@ -105,8 +108,7 @@ def setup_environment(*, ao_run_file: Path | str | None = None) -> None:
 
 
 def load_config() -> dict:
-    return yaml.safe_load(
-        (ROOT / "config" / "default.yaml").read_text("utf-8"))
+    return read_config(ROOT / "config" / "default.yaml")
 
 
 def _run_preflight_command(argv: list[str], *, cwd: Path | None = None):
@@ -263,16 +265,16 @@ def mission_preflight(mission_dict: dict, cfg: dict) -> dict:
     }
 
 
-def build_planner(cfg: dict, *, timeout: int = 180,
+def build_planner(cfg: dict, *, timeout: float | None = None,
                   codex_bin: str = "codex",
                   cwd: Path | None = None) -> CodexCliPlannerProvider:
     """Build the one production Planner used by normal and dry-run paths."""
-    roles = cfg.get("roles") or {}
-    planner_cfg = roles.get("planner") or {}
-    model = planner_cfg.get("model") or "gpt-5.6-sol"
+    cfg = resolve_config(cfg)
+    planner_cfg = cfg["roles"]["planner"]
+    model = planner_cfg["model"]
     return CodexCliPlannerProvider(
         model=model,
-        timeout=timeout,
+        timeout=timeout if timeout is not None else planner_cfg["timeout_seconds"],
         codex_bin=codex_bin,
         cwd=cwd or ROOT,
     )
@@ -283,7 +285,8 @@ class MissionRuntime:
 
     def __init__(self, mission_dict: dict, cfg: dict, *, ao_bin: str,
                  ao_run_file: Path, dry_run: bool = False):
-        self.mission_dict = mission_dict
+        cfg = resolve_config(cfg)
+        self.mission_dict = copy.deepcopy(mission_dict)
         self.cfg = cfg
         self.dry_run = dry_run
         self.ao_bin = ao_bin
@@ -291,35 +294,37 @@ class MissionRuntime:
         self.runtime = ROOT / "runtime" / mission_dict["mission_id"]
         self.runtime.mkdir(parents=True, exist_ok=True)
         self.store = StateStore(str(self.runtime / "state.db"))
-        ao_cfg = cfg.get("ao") or {}
+        self.diagnostics = Diagnostics(self.store, mission_dict["mission_id"])
+        ao_cfg = cfg["ao"]
         self.adapter = AOAdapter(
-            base_url=ao_cfg.get("base_url") or "http://127.0.0.1:3001",
-            timeout=float(ao_cfg.get("request_timeout_seconds", 15)),
+            base_url=ao_cfg["base_url"],
+            timeout=ao_cfg["request_timeout_seconds"],
             run_file=ao_run_file)
         self.ao_base_url = self.adapter.base_url
-        wcfg = cfg.get("worker") or {}
+        wcfg = cfg["worker"]
         self.executor = ActionExecutor(
             ao_bin=ao_bin, data_dir=None, run_file=str(ao_run_file),
             store=self.store,
             adapter=self.adapter,
-            worker_model=wcfg.get("model", ""),
-            max_spawn_attempts=int(wcfg.get("spawn_max_attempts", 3)),
-            spawn_backoff_seconds=int(wcfg.get("spawn_backoff_seconds", 30)),
-            max_transient_spawn_attempts=int(
-                wcfg.get("spawn_max_transient_attempts", 8)),
-            transient_spawn_backoff_seconds=int(
-                wcfg.get("spawn_transient_backoff_seconds", 90)))
-        self.gate = IntegrationGate(self.store)
-        planner = build_planner(cfg, timeout=180, cwd=ROOT)
-        roles = cfg.get("roles") or {}
-        auditor_cfg = roles.get("auditor") or {}
-        verifier_cfg = roles.get("verifier") or {}
+            worker_model=wcfg["model"],
+            max_spawn_attempts=wcfg["spawn_max_attempts"],
+            spawn_backoff_seconds=wcfg["spawn_backoff_seconds"],
+            spawn_timeout_seconds=wcfg["spawn_timeout_seconds"],
+            send_timeout_seconds=wcfg["send_timeout_seconds"],
+            kill_timeout_seconds=wcfg["kill_timeout_seconds"])
+        self.gate = IntegrationGate(self.store, **cfg["gate"])
+        planner = build_planner(cfg, cwd=ROOT)
+        roles = cfg["roles"]
+        auditor_cfg = roles["auditor"]
+        verifier_cfg = roles["verifier"]
         auditor = CodexCliAuditorProvider(
-            model=auditor_cfg.get("model") or "gpt-5.6-sol",
-            timeout=180, cwd=ROOT)
+            model=auditor_cfg["model"],
+            timeout=auditor_cfg["timeout_seconds"], cwd=ROOT)
         verifier = CodexCliVerifierProvider(
-            model=verifier_cfg.get("model") or "gpt-5.6-sol",
-            timeout=180, cwd=ROOT)
+            model=verifier_cfg["model"],
+            timeout=verifier_cfg["timeout_seconds"], cwd=ROOT)
+        for component in (self.executor, self.adapter, self.gate, planner, auditor, verifier):
+            component.diagnostics = self.diagnostics
         # Keep references for lifecycle introspection and compatibility with
         # any provider that exposes optional cleanup.
         self._planner = planner
@@ -331,12 +336,12 @@ class MissionRuntime:
             planner=planner, auditor=auditor, verifier=verifier,
             executor=self.executor, adapter=self.adapter, gate=self.gate,
             store=self.store, dry_run=dry_run)
-        bus_cfg = cfg.get("bus") or {}
+        self.controller.diagnostics = self.diagnostics
+        bus_cfg = cfg["bus"]
         self.bus = LoopBus(BusConfig(
-            max_hops_per_thread=int(bus_cfg.get("max_hops_per_thread", 24)),
-            max_audits_per_thread=int(bus_cfg.get("max_audits_per_thread", 3)),
-            overall_timeout_seconds=float(
-                bus_cfg.get("overall_timeout_seconds", 600))))
+            max_hops_per_thread=bus_cfg["max_hops_per_thread"],
+            max_audits_per_thread=bus_cfg["max_audits_per_thread"],
+            overall_timeout_seconds=bus_cfg["overall_timeout_seconds"]))
         # run memory lands in runtime/, never pollutes the target repo
         self.memory = ProjectMemory(str(self.runtime))
         self.projector = StoreBusProjector(
@@ -366,21 +371,53 @@ def build_runtime(mission_dict: dict, cfg: dict, *, dry_run: bool = False,
     if not require_ao and not dry_run:
         raise ValueError(
             "require_ao=False is only valid for read-only inspection")
-    if require_ao:
-        checked = mission_preflight(mission_dict, cfg)
-        ao_bin = checked["ao_bin"]
-        ao_run_file = checked["ao_run_file"]
-    else:
-        ao_bin = "ao-unavailable-read-only"
-        ao_run_file = resolve_ao_run_file()
-    setup_environment(ao_run_file=ao_run_file if require_ao else None)
-    return MissionRuntime(
-        mission_dict, cfg, ao_bin=ao_bin, ao_run_file=ao_run_file,
-        dry_run=dry_run)
+    # Freeze configuration BEFORE any external/model call. Existing records
+    # never borrow today's defaults; legacy records remain inspectable only.
+    mission_dict = copy.deepcopy(mission_dict)
+    cfg = resolve_config(cfg)
+    runtime = ROOT / "runtime" / mission_dict["mission_id"]
+    store = StateStore(runtime / "state.db")
+    diag = Diagnostics(store, mission_dict["mission_id"])
+    try:
+        previous = store.mission_config(mission_dict["mission_id"])
+        if previous:
+            saved = previous.get("effective_config")
+            if saved is None and require_ao:
+                raise ConfigError("historical Mission has no effective config snapshot; inspect only, configuration unknown")
+            if saved is not None:
+                cfg = restore_snapshot(saved)
+        else:
+            cfg = resolve_config(cfg, overrides={"budgets": mission_dict.get("budgets", {})})
+            for key in cfg.sources:
+                if cfg.sources[key] == "invocation override" and key.startswith("budgets."):
+                    cfg.sources[key] = "mission input"
+            mission_dict["budgets"] = copy.deepcopy(cfg["budgets"])
+            if require_ao:
+                saved = store.freeze_config(mission_dict["mission_id"], mission_dict, cfg.snapshot())
+                cfg = restore_snapshot(saved)
+        mission_dict["budgets"] = copy.deepcopy(cfg["budgets"])
+        if require_ao:
+            try:
+                store.interrupt_open_phases(mission_dict["mission_id"])
+            except Exception as exc:
+                diag.errors.append("diagnostic recovery unavailable: " + type(exc).__name__)
+            with diag.phase("preflight", reason="checking local tools and AO project readiness"):
+                checked = mission_preflight(mission_dict, cfg)
+            ao_bin, ao_run_file = checked["ao_bin"], checked["ao_run_file"]
+        else:
+            ao_bin = "ao-unavailable-read-only"
+            ao_run_file = resolve_ao_run_file()
+        setup_environment(ao_run_file=ao_run_file if require_ao else None)
+    finally:
+        store.close()
+    rt = MissionRuntime(mission_dict, cfg, ao_bin=ao_bin, ao_run_file=ao_run_file, dry_run=dry_run)
+    rt.diagnostics.errors.extend(diag.errors)
+    return rt
 
 
-def run_loop(rt: MissionRuntime, *, cap_seconds: float = 300.0,
-             poll_seconds: float = 5.0, on_tick=None,
+
+def run_loop(rt: MissionRuntime, *, cap_seconds: float | None = None,
+             poll_seconds: float | None = None, on_tick=None,
              should_stop=None) -> dict:
     """Drive the controller until terminal / cap / external stop.
 
@@ -388,10 +425,15 @@ def run_loop(rt: MissionRuntime, *, cap_seconds: float = 300.0,
     uses it for heartbeats); should_stop() lets the panel abort without
     killing the thread (state stays resumable in the store).
     """
+    cap_seconds = rt.cfg["runner"]["cap_seconds"] if cap_seconds is None else cap_seconds
+    poll_seconds = rt.cfg["runner"]["poll_seconds"] if poll_seconds is None else poll_seconds
+    if cap_seconds != rt.cfg["runner"]["cap_seconds"] or poll_seconds != rt.cfg["runner"]["poll_seconds"]:
+        raise ConfigError("runner overrides must be resolved before the Mission configuration is frozen")
     started = time.monotonic()
     while True:
         result = rt.controller.step()
-        n = rt.projector.project_once()
+        with rt.diagnostics.phase("projection", reason="projecting StateStore facts to bus/Markdown"):
+            n = rt.projector.project_once()
         state = result.get("state", "?")
         elapsed = time.monotonic() - started
         if on_tick:
@@ -405,7 +447,19 @@ def run_loop(rt: MissionRuntime, *, cap_seconds: float = 300.0,
             break
         if should_stop and should_stop():
             break
-        time.sleep(poll_seconds)
+        wait_phase = "retry_wait" if result.get("error") else "observation_wait"
+        blocked = False
+        try:
+            if rt.store.has_unstarted_operations():
+                wait_phase = "retry_wait"
+            blocked = any(getattr(loop, "_waiting_for_approval", False) for loop in rt.controller.loops.values())
+        except Exception as exc:
+            rt.diagnostics.errors.append("wait diagnosis unavailable: " + type(exc).__name__)
+        if blocked:
+            wait_phase = "approval_wait"
+        with rt.diagnostics.phase(wait_phase, reason=("waiting for next poll; Worker may still be executing" if wait_phase == "observation_wait" else
+                                                     "waiting for unresolved approval" if blocked else "bounded retry; no unknown effect is resent")):
+            time.sleep(poll_seconds)
     rt.projector.project_once()
     return {
         "mission_id": rt.mission.mission_id,
@@ -423,9 +477,9 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("mission_json")
     ap.add_argument("--dry-run", action="store_true")
-    ap.add_argument("--poll-seconds", type=float, default=5.0)
-    ap.add_argument("--cap-seconds", type=float, default=300.0,
-                    help="hard wall-clock cap for this runner (default 5 min)")
+    ap.add_argument("--poll-seconds", type=float, default=None)
+    ap.add_argument("--cap-seconds", type=float, default=None,
+                    help="override runner.cap_seconds for a new Mission")
     args = ap.parse_args()
 
     try:
@@ -436,7 +490,12 @@ def main() -> int:
                   file=sys.stderr)
             return 2
         raise
-    cfg = load_config()
+    try:
+        overrides = {k: v for k, v in {"poll_seconds": args.poll_seconds, "cap_seconds": args.cap_seconds}.items() if v is not None}
+        cfg = resolve_config(load_config(), overrides={"runner": overrides})
+    except (ConfigError, OSError) as exc:
+        print("configuration rejected: %s" % exc, file=sys.stderr)
+        return 2
 
     if args.dry_run:
         try:
@@ -460,6 +519,8 @@ def main() -> int:
                        for item in mission_dict["acceptance_criteria"]):
                 raise ValueError(
                     "acceptance criteria require id and description")
+            cfg = resolve_config(cfg, overrides={"budgets": mission_dict.get("budgets", {})})
+            mission_dict = dict(mission_dict, budgets=copy.deepcopy(cfg["budgets"]))
             mission = MissionSpec.from_dict(mission_dict)
             if not mission.mission_id or not mission.project_id \
                     or not mission.objective:
@@ -474,7 +535,7 @@ def main() -> int:
                 planner = None
                 plan = deterministic_single_task_plan(mission)
             else:
-                planner = build_planner(cfg, timeout=180, cwd=ROOT)
+                planner = build_planner(cfg, cwd=ROOT)
                 plan = planner.plan_decompose(
                     mission.to_dict(), "DECOMP-%s" % mission.mission_id)
             summary = {
@@ -497,21 +558,20 @@ def main() -> int:
     setup_environment()
     try:
         rt = build_runtime(mission_dict, cfg, dry_run=False)
-    except PreflightError as exc:
+    except (PreflightError, ConfigError) as exc:
         detail = str(exc).replace("\r", " ").replace("\n", " ")[:400]
         print("preflight failed: %s" % detail, file=sys.stderr)
         return 2
 
     print(f"[runner] mission={rt.mission.mission_id} "
           f"project={rt.mission.project_id} dry_run={args.dry_run} "
-          f"cap={args.cap_seconds:g}s", flush=True)
+          f"cap={rt.cfg['runner']['cap_seconds']:g}s", flush=True)
 
     def _tick(result, n, elapsed):
         print(f"[runner] {elapsed:6.1f}s state={result.get('state', '?')} "
               f"acted={result.get('acted')} bus+{n}", flush=True)
 
-    summary = run_loop(rt, cap_seconds=args.cap_seconds,
-                       poll_seconds=args.poll_seconds, on_tick=_tick)
+    summary = run_loop(rt, on_tick=_tick)
     print(json.dumps(summary, ensure_ascii=False, indent=2), flush=True)
     return 0 if summary["final_state"] == "MISSION_DONE" else 2
 

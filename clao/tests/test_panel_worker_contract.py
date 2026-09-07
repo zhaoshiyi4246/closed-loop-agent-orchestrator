@@ -20,6 +20,16 @@ PRODUCT_ROOT = SERVER.parents[1]
 PRODUCT_ARCHITECTURE = PRODUCT_ROOT / "docs" / "ARCHITECTURE.md"
 
 
+@pytest.fixture(autouse=True)
+def isolated_defaults(tmp_path, monkeypatch):
+    from loopcore.effective_config import load_config
+    config_path = tmp_path / "config" / "default.yaml"
+    config_path.parent.mkdir()
+    config_path.write_bytes((PRODUCT_ROOT / "config" / "default.yaml").read_bytes())
+    monkeypatch.setattr(panel_server.run_mission, "ROOT", tmp_path)
+    monkeypatch.setattr(panel_server.run_mission, "load_config", lambda: load_config(config_path))
+
+
 def _start_panel_mission(monkeypatch, tmp_path, max_subtasks=...):
     start = MagicMock()
     project_path = tmp_path / "registered-project"
@@ -213,7 +223,9 @@ def test_panel_normal_start_uses_shared_runtime_preflight(
         panel.start_mission({"mission_id": "M-PANEL", "project_id": "unknown"})
 
     build.assert_called_once()
-    assert panel.rt is None
+    assert panel.rt.mission.mission_id == "M-PANEL"
+    assert panel.rt.controller is None
+    assert "not registered" in panel.errors[-1]
     assert panel.thread is None
 
 
@@ -223,7 +235,7 @@ def test_panel_accepts_one_or_two_workers(monkeypatch, tmp_path, value):
     assert mission["budgets"]["max_subtasks"] == value
 
 
-@pytest.mark.parametrize("value", [0, -1, 3])
+@pytest.mark.parametrize("value", [0, -1, 3, "1", 1.0, True])
 def test_panel_rejects_out_of_range_workers(monkeypatch, tmp_path, value):
     start = MagicMock()
     project_path = tmp_path / "registered-project"
@@ -321,7 +333,7 @@ def test_panel_project_selector_has_no_demo_or_ao_database_fallback():
     assert "ao.db" not in source
 
 
-def test_panel_snapshot_config_has_only_live_time_parameters(
+def test_panel_snapshot_has_defaults_separate_from_missing_mission_config(
         monkeypatch, tmp_path):
     panel = panel_server.PanelState()
     monkeypatch.setattr(panel_server, "PANEL", panel)
@@ -342,25 +354,26 @@ def test_panel_config_rejects_auto_master_writeback_true():
         panel.set_config({"auto_ff_master": True})
 
 
-def test_panel_config_ignores_legacy_false_and_applies_time_parameters():
+def test_panel_config_rejects_dead_option_atomically_then_persists_time_parameters():
     panel = panel_server.PanelState()
 
-    config = panel.set_config({
-        "auto_ff_master": False,
-        "poll_seconds": 9,
-        "idle_audit_cooldown_seconds": 17,
-    })
-
-    assert config["poll_seconds"] == 9
-    assert config["idle_audit_cooldown_seconds"] == 17
+    with pytest.raises(RuntimeError, match="deprecated"):
+        panel.set_config({"auto_ff_master": False, "poll_seconds": 9})
+    assert panel.live["poll_seconds"] == 5
+    config = panel.set_config({"poll_seconds": 9, "idle_audit_cooldown_seconds": 17})
+    assert config["values"]["runner"]["poll_seconds"] == 9
+    assert config["values"]["observer"]["idle_audit_cooldown_seconds"] == 17
     assert "auto_ff_master" not in config
 
 
 def test_panel_mission_done_has_no_scm_writeback(monkeypatch):
     panel = panel_server.PanelState()
-    controller = SimpleNamespace(state="MISSION_DONE", step=MagicMock())
+    controller = SimpleNamespace(state="MISSION_DONE", step=MagicMock(return_value={"state":"MISSION_DONE"}))
     projector = SimpleNamespace(project_once=MagicMock())
+    from contextlib import nullcontext
     panel.rt = SimpleNamespace(
+        cfg=panel.defaults(), diagnostics=SimpleNamespace(phase=lambda *a, **k: nullcontext({})),
+        runtime=Path("runtime"), memory=SimpleNamespace(memory_path="memory",project_path="project"),
         controller=controller,
         projector=projector,
         mission=SimpleNamespace(
@@ -371,15 +384,15 @@ def test_panel_mission_done_has_no_scm_writeback(monkeypatch):
         raise AssertionError("MISSION_DONE attempted an SCM subprocess")
 
     monkeypatch.setattr("subprocess.run", forbidden_subprocess)
+    projector.projected = []
+    projector.errors = []
     panel._run()
 
     controller.step.assert_called_once_with()
     assert projector.project_once.call_count == 2
-    assert panel.last_summary == {
-        "mission_id": "M-COMPETITION-DONE",
-        "final_state": "MISSION_DONE",
-        "stopped_by_user": False,
-    }
+    assert panel.last_summary["mission_id"] == "M-COMPETITION-DONE"
+    assert panel.last_summary["final_state"] == "MISSION_DONE"
+    assert panel.last_summary["stopped_by_user"] is False
     assert panel.errors == []
 
 

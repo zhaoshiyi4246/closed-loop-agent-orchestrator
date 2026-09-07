@@ -26,6 +26,8 @@ import urllib.request
 from pathlib import Path
 from typing import Dict, Iterator, List, Optional
 
+from .diagnostics import phase_call
+
 
 DEFAULT_AO_BASE_URL = "http://127.0.0.1:3001"
 
@@ -147,6 +149,7 @@ class AOAdapter:
         self.timeout = timeout
 
     # ------------------------------------------------------------------ REST
+    @phase_call("ao_read", role="observer")
     def _get_raw(self, path: str) -> str:
         url = self.base_url + path
         req = urllib.request.Request(url, headers={"Accept": "application/json"})
@@ -247,7 +250,13 @@ class AOAdapter:
 
     def get_worker_conversation(self, worker_id: str) -> Dict:
         """Conversation with turns, messages and the activities[] stream."""
-        return self._get("/api/v1/sessions/%s/conversation" % worker_id)
+        data = self._get("/api/v1/sessions/%s/conversation" % worker_id)
+        diag = getattr(self, "diagnostics", None)
+        if diag is not None and isinstance(data, dict) and data.get("sessionId") == worker_id:
+            reroute = data.get("modelReroute")
+            if isinstance(reroute, dict):
+                diag.worker_fact(worker_id, confirmed_model=reroute.get("toModel"))
+        return data
 
     def get_recent_events(self, project_id: str, since: int = 0) -> List[Dict]:
         """Raw AO items newer than a conversation-sequence cursor.

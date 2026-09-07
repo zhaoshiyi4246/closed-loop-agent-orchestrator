@@ -196,18 +196,30 @@ tests/**</textarea>
       <div id="lastAction" style="font-size:12px;color:var(--dim)">—</div>
     </div>
     <div class="card" style="margin-top:10px">
-      <h3>时间参数（秒，实时生效）</h3>
+      <h3>新任务默认设置（秒；保存后仅影响新任务）</h3>
       <div class="knobs">
-        <div><label>Observer 轮询</label><input id="k_poll" type="number" min="1"></div>
-        <div><label>Auditor 冷却</label><input id="k_idle" type="number" min="1"></div>
-        <div><label>审批卡死升级</label><input id="k_block" type="number" min="1"></div>
-        <div><label>L0 宽限</label><input id="k_grace" type="number" min="1"></div>
+        <div><label>Observer 轮询</label><input id="k_poll" type="number" min="0" step="any"></div>
+        <div><label>Auditor 冷却</label><input id="k_idle" type="number" min="0" step="any"></div>
+        <div><label>审批卡死升级</label><input id="k_block" type="number" min="0" step="any"></div>
+        <div><label>L0 宽限</label><input id="k_grace" type="number" min="0" step="any"></div>
       </div>
       <div style="margin-top:8px;text-align:right">
-        <button id="btnCfg">应用</button>
+        <button id="btnCfg">保存默认时间</button>
+        <details><summary>模型、Gate 与完整默认配置</summary>
+          <div>保存前整份校验；不修改当前 Mission。秒数可为小数，计数必须是整数。</div>
+          <textarea id="configJson" rows="10" spellcheck="false" aria-label="完整新任务默认配置"></textarea>
+          <button id="btnConfigAll" data-write-key="config">保存完整默认配置</button>
+          <pre id="defaultConfigInfo" class="diagnostic"></pre>
+        </details>
       </div>
     </div>
     <div class="card" style="margin-top:10px">
+      <h3>本次任务实际配置与阶段</h3>
+      <pre id="phaseStatus" class="diagnostic"></pre>
+      <pre id="modelStatus" class="diagnostic"></pre>
+      <pre id="timingStatus" class="diagnostic"></pre>
+      <details><summary>本次 Mission 冻结配置 / 来源 / 消费者</summary><pre id="missionConfig" class="diagnostic"></pre></details>
+      <details><summary>最近执行阶段</summary><pre id="phaseHistory" class="diagnostic"></pre></details>
       <h3>最近证据（Gate / Verifier）</h3>
       <div id="evidence" style="font-size:12px">—</div>
     </div>
@@ -271,9 +283,12 @@ function syncButtons(){
 async function writeAction(key,path,body,success){
   if(PENDING.has(key)) return;
   PENDING.add(key); syncButtons();
+  const requestStarted=performance.now();
   try{
     const response=await fetch(path,{method:"POST",headers:{"Content-Type":"application/json","X-Panel-Nonce":PANEL_NONCE},body:JSON.stringify(body)});
     const data=await response.json();
+    REQUEST_TIMING={key, round_trip_seconds:(performance.now()-requestStarted)/1000, ...data.request_timing};
+    renderTiming();
     if(!response.ok || !data.ok) throw new Error(data.error || "请求失败（HTTP "+response.status+"）");
     uiError(key,null); if(success) success(data);
   }catch(error){ uiError(key,error.message); toast(error.message); }
@@ -322,9 +337,13 @@ function renderGate(query){
     const overall=el("strong","overall="+text(run.overall));
     overall.style.color=run.overall==="pass"?"var(--green)":run.overall==="fail"?"var(--red)":"var(--amber)";
     row.append(overall);
+    if(run.output) for(const [stream,meta] of Object.entries(run.output)){
+      if(meta?.truncated) row.append(el("pre",stream+" 已截断：original="+text(meta.original_length)+" chars · limit="+text(meta.limit_chars)+" · SHA-256="+text(meta.sha256),"diagnostic"));
+    }
     for(const [label,reason] of [["integrity",run.integrity?.reason],["scope",run.scope?.reason]]){
       if(reason) row.append(el("pre",label+"："+text(reason),"diagnostic"));
     }
+    if(run.output?.error_category) row.append(el("div","command error="+text(run.output.error_category)+" · timeout="+text(run.output.timeout_seconds)+"s"));
     if(run.stdout || run.stderr){
       const details=el("details"); details.open=run.overall==="fail";
       details.append(el("summary","stdout / stderr"));
@@ -332,6 +351,51 @@ function renderGate(query){
     }
     box.append(row);
   }
+}
+let STREAM_EPOCH=null, STREAM_SEQ=-1, CONNECTED=false, RECEIVED_MONO=null, DISCONNECTED_MONO=null, REQUEST_TIMING=null;
+const OLD_EPOCHS=new Set();
+function acceptSnapshot(s){
+  const stream=s.stream;
+  if(stream){
+    if(OLD_EPOCHS.has(stream.epoch)) return false;
+    if(STREAM_EPOCH===stream.epoch && stream.sequence<=STREAM_SEQ) return false;
+    if(STREAM_EPOCH && STREAM_EPOCH!==stream.epoch) OLD_EPOCHS.add(STREAM_EPOCH);
+    STREAM_EPOCH=stream.epoch; STREAM_SEQ=stream.sequence;
+  }
+  RECEIVED_MONO=performance.now(); DISCONNECTED_MONO=null; CONNECTED=true; render(s); return true;
+}
+function configText(snapshot,fields){
+  if(!snapshot) return "unknown";
+  const lines=["revision="+text(snapshot.revision)];
+  function walk(node,prefix=""){
+    for(const [key,value] of Object.entries(node || {})){
+      const path=prefix+key;
+      if(value && typeof value==="object" && !Array.isArray(value)) walk(value,path+".");
+      else lines.push(path+" = "+JSON.stringify(value)+" · 来源="+text(snapshot.sources?.[path])+" · 类型="+text(fields?.[path]?.kind)+" · 范围="+text(fields?.[path]?.minimum ?? "n/a")+".."+text(fields?.[path]?.maximum ?? "n/a")+"（秒数下限不含） · 消费者="+text(fields?.[path]?.consumer));
+    }
+  }
+  walk(snapshot.values); return lines.concat(snapshot.warnings || []).join("\n");
+}
+function seconds(value){return value==null?"unknown":Number(value).toFixed(3)+"s";}
+function renderTiming(){
+  const t=REQUEST_TIMING, stream=LAST?.stream;
+  $("timingStatus").textContent=(t?"最近本地请求 "+t.key+"：浏览器往返="+seconds(t.round_trip_seconds)+" · HTTP处理="+seconds(t.handler_seconds)+"（包含处理，不等于模型耗时）\n":"")+
+    "状态快照生成="+text(stream?.generated_at ?? "unknown")+" · 查询/投影耗时="+seconds(stream?.snapshot_seconds)+" · 最近阶段记录至快照="+seconds(stream?.phase_record_to_snapshot_seconds)+" · seq="+text(stream?.sequence ?? "unknown")+
+    (CONNECTED?" · 已连接":" · 断连，保留最后已知状态");
+}
+function renderPhases(){
+  const query=LAST?.phases, records=query?.records || [];
+  const active=records.filter(p=>p.status==="running");
+  const elapsed=p=>p.elapsed_seconds==null?null:p.elapsed_seconds+((p.status==="running" && RECEIVED_MONO!=null)?((CONNECTED?performance.now():(DISCONNECTED_MONO ?? RECEIVED_MONO))-RECEIVED_MONO)/1000:0);
+  $("phaseStatus").textContent=active.length?active.map(p=>text(p.phase)+" · "+text(p.reason)+" · attempt="+text(p.attempt)+" · 已等待="+seconds(elapsed(p))).join("\n"):
+    records.length?"最近阶段 "+text(records[0].phase)+" · "+text(records[0].status)+" · "+text(records[0].reason):"阶段 "+text(query?.status || "unknown");
+  $("phaseHistory").textContent=records.map(p=>"#"+text(p.sequence)+" "+text(p.task_id || p.mission_id)+" · "+text(p.phase)+" · "+text(p.status)+" · attempt="+text(p.attempt)+" · elapsed="+seconds(elapsed(p))+" · result="+text(p.result ?? "unknown")+" · error="+text(p.error_category ?? "none")).join("\n");
+  $("modelStatus").textContent=["worker","planner","auditor","verifier"].map(role=>{
+    const p=query?.roles?.[role] || records.find(p=>p.role===role && ["model_request","spawn"].includes(p.phase));
+    return !p?role+"："+((LAST?.mission_config?.status==="ok" && ["ok","not_called"].includes(query?.status))?"未调用":"历史 unknown"):
+      role+"：请求="+text(p.requested_model ?? "unknown")+" · 传入="+text(p.passed_model ?? "unknown")+" · 外部确认="+text(p.confirmed_model ?? "unknown")+" · transport="+text(p.transport ?? "unknown")+" · attempt="+text(p.attempt)+" · 调用耗时="+seconds(elapsed(p))+" · usage="+text(p.usage ?? "unknown")+" · cost="+text(p.cost ?? "unknown");
+  }).join("\n") + (query?.workers || []).map(w=>"\nWorker "+text(w.session_id)+" · AO activity="+text(w.activity ?? "unknown")+" · 请求/传入="+text(w.requested_model ?? "unknown")+" · 外部确认="+text(w.confirmed_model ?? "unknown")+" · "+text(w.model_evidence ?? "无可确认模型事实")+" · 本次观察到该 activity 持续="+seconds(w.activity_elapsed_seconds)+"（非模型请求耗时） · 单次调用耗时 unknown").join("");
+  renderTiming();
 }
 function render(s){
   LAST=s;
@@ -349,6 +413,10 @@ function render(s){
   for(const [id,key] of [["k_poll","poll_seconds"],["k_idle","idle_audit_cooldown_seconds"],["k_block","blocked_escalation_seconds"],["k_grace","l0_nudge_grace_seconds"]]){
     if(document.activeElement!==$(id)) $(id).value=s.config?.[key] ?? "";
   }
+  if(s.default_config && document.activeElement!==$("configJson") && !$("configJson").dataset.dirty) $("configJson").value=JSON.stringify(s.default_config.values,null,2);
+  $("defaultConfigInfo").textContent=configText(s.default_config,s.config_fields);
+  $("missionConfig").textContent=s.mission_config?.status==="ok"?configText(s.mission_config.snapshot,s.config_fields):"本次配置："+text(s.mission_config?.status || "unknown")+"；不使用最新默认值伪造历史";
+  renderPhases();
   const missions=$("missionsList"); missions.replaceChildren();
   for(const item of (s.missions || []).slice(0,12)){
     const row=el("div",null,"mrow"), description=el("span",text(item.mission_id)+" ");
@@ -441,13 +509,18 @@ function loadProjects(){
 }
 $("f_project").onchange=showSelectedProject;
 $("btnProjects").onclick=loadProjects;
-$("btnNew").onclick=()=>{ if($("newMission").classList.toggle("open")) loadProjects(); };
+$("btnNew").onclick=()=>{ if($("newMission").classList.toggle("open")){ $("f_sub").value=LAST?.default_config?.values?.budgets?.max_subtasks ?? 1; loadProjects(); } };
 for(const [id,key] of [["btnStart","mission"],["btnStop","stop"],["btnCfg","config"],["btnSend","directive"]]) $(id).dataset.writeKey=key;
 $("btnStop").onclick=()=>writeAction("stop","/api/stop",{},()=>toast("已请求停止；实际状态见 Mission"));
 $("btnCfg").onclick=()=>writeAction("config","/api/config",{
   poll_seconds:+$("k_poll").value,idle_audit_cooldown_seconds:+$("k_idle").value,
   blocked_escalation_seconds:+$("k_block").value,l0_nudge_grace_seconds:+$("k_grace").value
 },()=>toast("设置已保存"));
+$("configJson").oninput=()=>{$("configJson").dataset.dirty="1";};
+$("btnConfigAll").onclick=()=>{
+  try{const values=JSON.parse($("configJson").value);writeAction("config","/api/config",values,()=>{delete $("configJson").dataset.dirty;toast("新任务默认配置已保存；当前任务保持冻结配置");});}
+  catch(error){uiError("config",error.message);}
+};
 $("btnStart").onclick=()=>writeAction("mission","/api/mission",{
   project_id:$("f_project").value,objective:$("f_obj").value,acceptance_criteria:$("f_ac").value,
   allowed_paths:$("f_paths").value,gate_commands:$("f_gate").value,
@@ -465,12 +538,17 @@ function resume(mid){ return writeAction("mission","/api/resume",{mission_id:mid
 function attach(mid){ return writeAction("mission","/api/attach",{mission_id:mid},()=>toast("已加载 "+mid)); }
 
 /* ---------------- live feed ---------------- */
+function disconnect(){
+  if(CONNECTED || DISCONNECTED_MONO===null) DISCONNECTED_MONO=performance.now();
+  CONNECTED=false; renderPhases();
+}
 function connect(){
   const stream=new EventSource("/api/stream");
-  stream.onmessage=event=>{ try{ render(JSON.parse(event.data)); uiError("状态连接",null); }catch(error){ uiError("状态连接",error.message); } };
-  stream.onerror=()=>{ uiError("状态连接","连接中断，正在重连；保留最后一次已知状态"); stream.close(); setTimeout(connect,4000); };
+  stream.onmessage=event=>{ try{ acceptSnapshot(JSON.parse(event.data)); uiError("状态连接",null); }catch(error){ uiError("状态连接",error.message); } };
+  stream.onerror=()=>{ disconnect(); uiError("状态连接","连接中断，正在重连；保留最后一次已知状态"); stream.close(); setTimeout(connect,4000); };
 }
 loadProjects(); connect();
+setInterval(()=>{if(LAST && CONNECTED) renderPhases();},250);
 setInterval(()=>{ if(ACTIVE_TAB==="mem"||ACTIVE_TAB==="proj") loadFile(ACTIVE_TAB==="mem"?"memory.md":"project.md"); },10000);
 </script>
 </body>

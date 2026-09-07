@@ -30,7 +30,10 @@ def panel(tmp_path, monkeypatch):
     mission = {"mission_id": "M-F04", "objective": "正常中文 objective"}
     store.record_mission("M-F04", {"state": "RUNNING", "mission": mission,
                                     "reason": "persistent Mission reason"})
-    state = server.PanelState()
+    config_path = root / "config" / "default.yaml"
+    config_path.parent.mkdir()
+    config_path.write_bytes((server.run_mission.ROOT / "config" / "default.yaml").read_bytes())
+    state = server.PanelState(config_path=config_path)
     state.rt = SimpleNamespace(runtime=runtime, mission=SimpleNamespace(mission_id="M-F04"),
                                mission_dict=mission, controller=SimpleNamespace(
                                    cfg={},
@@ -229,7 +232,7 @@ def test_same_origin_page_nonce_allows_normal_write(http_panel):
     assert "no-store" in headers["Cache-Control"]
     status, _, data = request(http_panel, "POST", "/api/config", {"poll_seconds": 7},
                               headers={"X-Panel-Nonce": nonce})
-    assert status == 200 and data["config"]["poll_seconds"] == 7
+    assert status == 200 and data["config"]["values"]["runner"]["poll_seconds"] == 7
     assert http_panel.state.live["poll_seconds"] == 7
     assert nonce not in json.dumps(server.snapshot())
     assert all(nonce.encode() not in p.read_bytes() for p in http_panel.runtime.iterdir() if p.is_file())

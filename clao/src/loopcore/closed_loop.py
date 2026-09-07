@@ -22,6 +22,9 @@ import json
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from time import time as _epoch_seconds
+from .diagnostics import phase_call, Diagnostics, note_error
+
 from .structured import ProtocolError, ContractConfigurationError
 from .mission_contracts import check_role, check_planner, check_verifier
 from .action_executor import ActionExecutor, ActionResult, ExternalOperationUnknown, operation_id
@@ -33,8 +36,7 @@ from .auditor import (AuditorProvider, ClaudeCliAuditorProvider,
 from .mission_contracts import (AuditDecision, AuditResult, PlannerAction,
                         PlannerActionType, ProjectState, TaskSpec,
                         is_legal_transition)
-from .event_normalizer import (EventNormalizer, now_iso, make_id, stable_id,
-                               _epoch_seconds)
+from .event_normalizer import EventNormalizer, now_iso, make_id, stable_id
 from .mission_gate import IntegrationGate
 from .event_observer import Observer
 from .planner_adapter import (FakePlannerProvider, PlannerProvider,
@@ -416,15 +418,19 @@ class ClosedLoop:
         try:
             conv = self.adapter.get_worker_conversation(
                 self.task.worker_session_id)
-        except Exception:
+        except Exception as exc:
+            self._waiting_for_approval = None
+            note_error(exc)
             return []
-        return pending_approvals(conv)
+        approvals = pending_approvals(conv)
+        self._waiting_for_approval = bool(approvals)
+        return approvals
 
     def _blocked_too_long(self) -> bool:
         """True when the worker has sat on unresolved approvals longer than
         observer.blocked_escalation_seconds (default 600). First blocked tick
         stamps the clock; returning False means 'still within grace'."""
-        limit = int(self.cfg.get("observer", {}).get(
+        limit = float(self.cfg.get("observer", {}).get(
             "blocked_escalation_seconds", 600) or 600)
         if limit <= 0:
             return False
@@ -434,8 +440,9 @@ class ClosedLoop:
         if not started:
             self.store.counter_set(key, now)
             return False
-        return (now - int(started)) > limit
+        return (now - float(started)) > limit
 
+    @phase_call("approval", role="observer")
     def _maybe_auto_approve(self) -> bool:
         """Apply the shared request-scoped policy, leaving other requests pending."""
         if self.dry_run or not self.task.worker_session_id:
@@ -447,7 +454,9 @@ class ClosedLoop:
             return False
         acted = False
         worktree = self._worktree_path() or ""
-        for activity in self._pending_approvals():
+        pending = self._pending_approvals()
+        unresolved = False
+        for activity in pending:
             decision = decide_approval(
                 activity, allowed_paths=self.task.allowed_paths,
                 forbidden_paths=self.task.forbidden_paths,
@@ -458,6 +467,11 @@ class ClosedLoop:
                     session_id=self.task.worker_session_id, store=self.store,
                     resolve=self.adapter.resolve_approval)
                 acted = acted or ok
+                unresolved = unresolved or not ok
+            else:
+                unresolved = True
+        if pending:
+            self._waiting_for_approval = unresolved
         return acted
 
     def _is_gate_command(self, cmd: str) -> bool:
@@ -495,7 +509,7 @@ class ClosedLoop:
         # nudging 20s in makes the mission fight its own workers. Anchored to
         # the worker's hatch time (separate from the watchdog's started_at,
         # which may predate the spawn on a resumed store).
-        grace = int(self.cfg.get("observer", {}).get(
+        grace = float(self.cfg.get("observer", {}).get(
             "l0_nudge_grace_seconds", 300) or 300)
         hatch_key = "hatched_at:" + self.task.task_id + ":" + \
             self.task.worker_session_id
@@ -503,7 +517,7 @@ class ClosedLoop:
         if not hatched:
             self.store.counter_set(hatch_key, _epoch_seconds())
             return False               # first poll after bind: wait
-        if (_epoch_seconds() - int(hatched)) < grace:
+        if (_epoch_seconds() - float(hatched)) < grace:
             return False
         sent = False
         for e in fresh_errors:
@@ -571,11 +585,11 @@ class ClosedLoop:
         # requires the existing observed-activity signal.
         if not events:
             return False
-        cooldown = int(self.cfg.get("observer", {}).get(
+        cooldown = float(self.cfg.get("observer", {}).get(
             "idle_audit_cooldown_seconds", 300) or 300)
         last = self.store.counter_get("last_audit_at:" + self.task.task_id)
         now = _epoch_seconds()
-        if last and (now - int(last)) < cooldown:
+        if last and (now - float(last)) < cooldown:
             return False
         self.store.counter_set("last_audit_at:" + self.task.task_id, now)
         self._completion_audit()
@@ -617,7 +631,7 @@ class ClosedLoop:
 
     # ----------------------------------------------------------- budgets
     def _runtime_exceeded(self) -> bool:
-        limit = int(self.task.budgets.get("max_runtime_seconds", 0) or 0)
+        limit = float(self.task.budgets.get("max_runtime_seconds", 0) or 0)
         if limit <= 0:
             return False
         started = self.store.counter_get("started_at:" + self.task.task_id)
@@ -632,7 +646,7 @@ class ClosedLoop:
             self.store.counter_set("started_at:" + self.task.task_id,
                                    _epoch_seconds())
             return False
-        return (_epoch_seconds() - int(started)) > limit
+        return (_epoch_seconds() - float(started)) > limit
 
     def _halt_budget(self, reason: str) -> None:
         """Transition to HUMAN on a budget/limit breach, stopping the worker."""
@@ -787,11 +801,11 @@ class ClosedLoop:
                     return
         # Wait period: pace audits (not the hard cap) so a fix has time to
         # land before the next audit cycle re-escalates.
-        cooldown = int(self.cfg.get("observer", {}).get(
+        cooldown = float(self.cfg.get("observer", {}).get(
             "audit_cooldown_seconds", 60) or 60)
         last = self.store.counter_get("last_audit_at:" + self.task.task_id)
         now = _epoch_seconds()
-        if last and (now - int(last)) < cooldown:
+        if last and (now - float(last)) < cooldown:
             return
         self.store.counter_set("last_audit_at:" + self.task.task_id, now)
         primary = self._primary_alert(fresh)
