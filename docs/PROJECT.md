@@ -1,6 +1,6 @@
 # CLAO 当前项目事实
 
-更新：2026-09-07（F04 分支实现完成，IN_REVIEW，待外部审计；F01/F02/F03 已合入 main）。本文件只记录已实现事实与已知限制；v0.3的设计见 [V03_PLAN.md](V03_PLAN.md)，不能把设计直接写成已完成能力。
+更新：2026-09-07（F04 外部审计 PASS 并合入 main；F01–F04 DONE，下一任务 F05 TODO）。本文件只记录已实现事实与已知限制；v0.3的设计见 [V03_PLAN.md](V03_PLAN.md)，不能把设计直接写成已完成能力。
 
 ## 1. 版本与基线
 
@@ -9,7 +9,7 @@
 | 产品 | CLAO / Closed-Loop Agent Orchestrator |
 | 已发布版本 | v0.2，Windows本地比赛版 |
 | 已发布源码 | 4d3e8e6b5e70bab868b2eef0d28c7742dea044ba |
-| 开发目标 | v0.3：F01 / F02 / F03 已合入 main（DONE）；F04 分支实现完成、IN_REVIEW，尚未合入 main；F05 TODO；GUI与模型切换等后续目标待实现 |
+| 开发目标 | v0.3：F01 / F02 / F03 / F04 已合入 main（DONE）；M1 IN_PROGRESS；下一任务 F05 TODO、未开始实现；GUI与模型切换等后续目标待实现 |
 | 主仓库 | zhaoshiyi4246/closed-loop-agent-orchestrator |
 | 产品源码路径 | `clao/`，当前唯一正式产品，内部 Python 包为 `src/loopcore/` |
 | 发布工具 | `packaging/build-release.ps1` 与 `packaging/release-manifest.txt` |
@@ -25,6 +25,8 @@ F01 已通过外部审计 PASS，[PR #32](https://github.com/zhaoshiyi4246/close
 F02 已通过外部审计 PASS、无需返修，[PR #33](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/33) rebase 合入 main `62f5851a72490074a6cb6030803275a9846d9f45`，状态 DONE。沿用既有 Windows 定向 200 passed / 1 skipped、compileall 证据；原生 symlink 用例因权限不足跳过，真实 junction 用例通过。合并收尾无新增产品修改，未重跑测试、打包或 live；详细证据及未运行项见 F02 卡。
 
 F03 已通过再次外部审计 PASS，[PR #34](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/34) rebase 合入 main `35a67d07ae196368434fbd83a95693b288c6bc6e`，状态 DONE；Worker 已提交 artifact 的交付缺口已闭环。沿用既有 Windows 定向 145 passed / 0 skipped 及此前 F03 证据；合并收尾无新增产品修改、未重跑测试或发布验证，详细边界见 F03 卡。
+
+F04 已通过外部审计 PASS、无需返修，[PR #35](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/35) rebase 合入 main `c51ccd155f7ab6c226454846c9e1f1fff146956d`，状态 DONE。沿用既有 Windows 定向 224 passed、追加 49 passed（分开报告，均 0 skipped）及浏览器/compileall 证据；合并收尾无新增产品修改、未重跑测试或发布验证，详细边界见 F04 卡。
 
 ## 2. 当前真实架构
 
@@ -72,7 +74,7 @@ AO executable通过CLAO_AO_BIN或PATH解析；runfile通过CLAO_AO_RUN_FILE或~/
 
 依据 [原审计](reference/CLAO_v0.2_audit_20260905.pdf)；F01 已补齐 A02 的完整契约与终局一致性及 A11 相关证据边界，F02 已修复 A01 的审批命令与路径包含性，F03 已修复 A03 的路径、artifact 和只读取证，支持边界见上文。其他卡继续保留：
 
-- A04/A05：F04 分支已实现 Gate 表专用只读 DTO 与 command/integrity/scope/overall 记录、历史 unknown/read_error 区分及常驻错误；本地写 API 校验 Host/Origin/JSON/会话 nonce，路径包含性与安全 DOM/pending 去重已补齐。当前 IN_REVIEW，待外部审计，尚未合入 main 或发布；验证和支持边界见 F04 卡。
+- A04/A05：F04 已实现 Gate 表专用只读 DTO 与 command/integrity/scope/overall 记录、历史 unknown/read_error 区分及常驻错误；本地写 API 校验 Host/Origin/JSON/会话 nonce，路径包含性与安全 DOM/pending 去重已补齐。外部审计 PASS、已合入 main（DONE），已发布 v0.2 不变；验证和支持边界见 F04 卡。
 - A06—A10：指令生效、外部动作未知、kill确认、停止恢复、基线/依赖和有效配置。
 - A11/A12 其余范围：多模型、后续 Git 取证边界、结果导出和普通用户使用体验；不因 F01 完成宣称所有证据路径或模型真实性已验收。
 
@@ -88,7 +90,7 @@ AO executable通过CLAO_AO_BIN或PATH解析；runfile通过CLAO_AO_RUN_FILE或~/
 | 模型 | Codex CLI与AO Codex | GLM/Kimi语义profile，Worker单独准入 |
 | 配置 | 有重复和未接线项 | 唯一effective config与Mission快照 |
 | 结果 | integration路径与日志 | 可独立应用的patch导出与证据摘要 |
-| 停止 | HUMAN与文案不一致 | 准确取消、崩溃恢复、关联attempt |
+| 停止 | HUMAN终态，停止确认尚待补齐 | 准确取消、崩溃恢复、关联attempt |
 
 ## 7. 文档职责与历史
 
