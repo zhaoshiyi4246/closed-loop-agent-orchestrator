@@ -178,7 +178,7 @@ G1=F01—F05；G2=R01—R02；G3=U01—U03；G4=P01—P02及P03有记录的支�
 
 ## V03-R01｜有效配置与阶段诊断
 
-- 状态：IN_REVIEW；base `d59dd8fd630fab573ea4dd80b005106cf7fde207`，分支 `codex/v03-r01-effective-config`；M0/M1 COMPLETE，M2 IN_PROGRESS，R02 TODO。
+- 状态：IN_REVIEW；base `d59dd8fd630fab573ea4dd80b005106cf7fde207`，分支 `codex/v03-r01-effective-config`；[PR #37](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/37)，实现提交 `38d474c`，等待外部审计；M0/M1 COMPLETE，M2 IN_PROGRESS，R02 TODO。
 - 对应：A10，支持A06/A11。落点：runtime/config、Gate、Adapter、Provider、Panel。
 - 工作：唯一effective config解析；model重复键迁移；Gate时间/输出真正接线；配置来源与revision；phase/attempt/error metrics；敏感项不落库。
 - 必测：保存值等于消费者值；非法范围拒绝；旧配置迁移/提示；运行中默认值改变不改当前Mission；unknown费用不填0；角色请求与实际确认模型分开。
