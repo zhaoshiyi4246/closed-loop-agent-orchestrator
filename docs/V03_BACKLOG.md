@@ -1,6 +1,6 @@
 # CLAO v0.3 任务与验收台账
 
-版本：0.3-plan-r1 · 2026-09-06。状态：已批准 / IN EFFECT。DOC-00、F01–F05、R01 已完成（DONE），M0 / M1 为 `COMPLETE`；当前下一任务 R02 为 `TODO`，M2 `IN_PROGRESS`；其余功能卡状态见下表，原报告的发现不等于已复现或已修复。
+版本：0.3-plan-r1 · 2026-09-06。状态：已批准 / IN EFFECT。DOC-00、F01–F05、R01 已完成（DONE），M0 / M1 为 `COMPLETE`；当前任务 R02 为 `IN_REVIEW`，M2 `IN_PROGRESS`；其余功能卡状态见下表，原报告的发现不等于已复现或已修复。
 
 设计以 [V03_PLAN.md](V03_PLAN.md) 为准。当前唯一任务由根目录 [PLANS.md](../PLANS.md) 指定。本文件保存每张卡的详细状态和证据，PLANS 不重复整张台账。
 
@@ -39,7 +39,7 @@
 | V03-F04 | M1 | Gate查询、本地API与安全渲染 | F01的结果字段约定 | DONE（PR #35 审计 PASS / merged） |
 | V03-F05 | M1 | 停止确认与未知外部动作保护 | DOC-00 | DONE（PR #36 再次审计 PASS / merged） |
 | V03-R01 | M2 | 有效配置与阶段诊断 | F01/F04 | DONE（PR #37 再次审计 PASS / merged） |
-| V03-R02 | M2 | 指令回执、取消恢复、固定基线 | F03/F05/R01 | TODO |
+| V03-R02 | M2 | 指令回执、取消恢复、固定基线 | F03/F05/R01 | IN_REVIEW |
 | V03-U01 | M3 | iPhone风格界面骨架与状态夹具 | G1；R01/R02字段设计 | TODO |
 | V03-U02 | M3 | 完整任务GUI与数据接线 | U01/R02/F04 | TODO |
 | V03-U03 | M3 | 结果中心与独立导出 | U02/F03 | TODO |
@@ -200,13 +200,21 @@ G1=F01—F05；G2=R01—R02；G3=U01—U03；G4=P01—P02及P03有记录的支�
 
 ## V03-R02｜指令回执、取消恢复、固定基线
 
-- 状态：TODO；当前下一任务，本轮仅推进指针，未开始实现。
+- 状态：IN_REVIEW；base `b748363b0173b725bc20fc65caeffe2180449df1`，分支 `codex/v03-r02-lifecycle-contract`。仅实施 R02，M2 IN_PROGRESS，R01 DONE，U01 TODO。
 - 对应：A06、A08、A09。落点：directives、Controller、Store、Panel和Git基线。
 - 工作：received/applied/rejected/unknown回执；final verifier notes真实消费；Worker prompt范围完整；取消中与已取消区分；崩溃恢复只读检查材料；终态新attempt关联；Mission固定source commit。
 - 必测：指令无消费者；入队与落盘失败；取消发生在Worker/语义角色/Gate；旧HUMAN不重新变running；旧记录字段缺失；source main/remote分歧；S2缺依赖代码。
 - 完成：取消/恢复文案与实现一致；不支持的dependent plan preflight明确拒绝，或有真实dependency commit交付测试；独立双任务保留有界支持。
 - 不做：新建完整暂停调度器；未经验证扩大并发。
-- 证据：待填。
+- 实现：同一 StateStore 的 directive_receipts 保存 command identity、received/applied/rejected/unknown 和分消费者时间/原因；同 identity 同内容复用、冲突拒绝。Planner 镜像不代表主目标消费；Worker applied 仅表示 F05 send 接受。Observer/Gate 明确拒绝。Final Verifier 的 user_notes 与消费回执使用同一组输入；晚到指令不假 applied。初始/replan prompt 包含 Task objective、AC、允许/禁止路径、Gate、原始 user instruction；超过 AO 4096 UTF-8 byte 限制明确拒绝，不截断范围。
+- 取消/恢复：receipt 先落盘、HTTP 及时返回；Controller 推进 requested/cancelling/cancelled/unknown，仅确认本地受控子进程和 AO Worker 已停止才 CANCELLED。实际 Codex CLI/Gate 子进程可取消，未知本地 PID 不猜测终止；旧 HUMAN 不迁移。非终态先只读验证配置/source/workspace/operation/Gate/verification；未通过不组装 runtime、不补建材料。历史 attach 使用只读 Store，无 AO/Provider/迁移。终态只能创建关联新 identity/快照；未知旧停止事实阻断新 attempt。
+- source/计划：只读比较 local branch、origin tracking 与 ls-remote，保存 exact source；后续 spawn 前再次核对，创建后用 Worker HEAD reflog 确认基线，integration 明确从冻结 commit 创建。AO 无 exact-commit spawn 参数时漂移前阻断；missing reflog/关联不明交人工。dependent plan 在 dispatch 前明确拒绝；两独立任务仍可运行。F03 artifact/只读 index、F05 UNKNOWN 和 R01 配置冻结保持。
+- Windows 验证（CPython 3.12.7、产品 venv；隔离 Git/SQLite/fake AO/本地 HTTP）：`pytest tests/test_r02_lifecycle.py tests/test_directive_channel.py tests/test_f03_git_evidence.py tests/test_final_gate_baseline.py` 加 F05 unknown-send 恢复、R01 真正消费者/旧快照、F04 浏览器节点的最终组合：**125 passed / 221.17s**。此前 Panel/恢复及修正节点组合 **148 passed / 60.02s**；F05 文件 **59 passed / 35.92s**。集合重叠不累计，不是全量回归。
+- 最后边界验证：实际 Planner/Auditor/Final Verifier 输入、晚到指令、旧本地进程 UNKNOWN 阻断新 attempt、durable channel 与 Edge 组合 **9 passed / 16.39s**；真实 HTTP 新 attempt→runtime→新 source/config（原记录不变）和 materialization 中取消阻断 integration **2 passed / 5.58s**。Edge 检查取消四状态、回执/历史 unknown、安全文本、禁用确定性目标、新 attempt 快速重复点击；沿用 F04 SSE/nonce/错误边界回归。
+- 静态/页面收尾：真实 Edge 历史 receipt unknown 展示复查 **1 passed / 12.03s**；compileall（src/panel/run_mission.py 与直接变更测试）、diff-check、5 个 Markdown 的 21 个本地链接 PASS；3 个新增薄 helper/测试文件由现有 manifest 前缀覆盖。依赖、发布映射、AGENTS 与设计主文档不变。
+- 夹具同步：旧内存 queue/drain 改为可重启 Store 收据断言；旧 Stop 立即 HUMAN 改为 receipt→Controller 停止事实；旧依赖计划成功夹具替换为明确拒绝负例，并保留独立双任务正例。未删除失败用例或绕开产品 schema 校验。
+- NOT_RUN：全量、clean install、打包、smoke、真实 AO Mission/模型、完整 GUI 视觉验收；无 tag/Release，未开始 U01/供应商/导出。M2 IN_PROGRESS，等待本卡外部审计后才能 COMPLETE。
+- 剩余边界：恢复检查为只读时点事实，不是跨 AO/Git 的原子事务；source 检查与 spawn 间仍可能外部竞态，创建基线不符即阻断交付。已中断本地进程/语义输入或不完整 Git/SQLite 材料保守交人工；无自动 UNKNOWN 解除或通用进程恢复。历史活跃 WAL 缺少必要共享内存材料时只读查看返回 unavailable，不写回修复。
 
 ## V03-U01｜iPhone风格界面骨架与状态夹具
 

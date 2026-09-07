@@ -171,7 +171,7 @@ def _validate_project_default_branch(
     return branch
 
 
-def mission_preflight(mission_dict: dict, cfg: dict) -> dict:
+def mission_preflight(mission_dict: dict, cfg: dict, *, freeze_source=True) -> dict:
     """Validate shared CLI/Panel Mission prerequisites before runtime state.
 
     This is deliberately capability-based and read-only: it never installs
@@ -258,7 +258,10 @@ def mission_preflight(mission_dict: dict, cfg: dict) -> dict:
     if missing:
         raise PreflightError("model configuration is missing: %s" % missing[0])
 
+    from loopcore.recovery import source_identity
+    source = source_identity(project_id, project_path, project_detail) if freeze_source else None
     return {
+        "source": source,
         "ao_bin": ao_bin,
         "ao_run_file": ao_run_file,
         "project_path": project_path,
@@ -365,53 +368,73 @@ class MissionRuntime:
             pass
 
 
+def inspect_runtime(mission_id):
+    """History handle, with no runtime assembly, AO, Provider or writable DB."""
+    from types import SimpleNamespace
+    runtime = ROOT / 'runtime' / mission_id
+    with_store = StateStore(runtime / 'state.db', readonly=True)
+    try:
+        row = with_store.mission_config(mission_id)
+        if not row or row.get('mission', {}).get('mission_id') != mission_id:
+            raise ValueError('historical Mission identity missing or mismatched')
+        mission = row['mission']
+    finally:
+        with_store.close()
+    return SimpleNamespace(runtime=runtime, mission_dict=mission,
+                           mission=SimpleNamespace(mission_id=mission_id), controller=None)
+
+
 def build_runtime(mission_dict: dict, cfg: dict, *, dry_run: bool = False,
                   require_ao: bool = True) -> MissionRuntime:
-    """Build a runtime; only read-only inspection may omit AO discovery."""
-    if not require_ao and not dry_run:
-        raise ValueError(
-            "require_ao=False is only valid for read-only inspection")
-    # Freeze configuration BEFORE any external/model call. Existing records
-    # never borrow today's defaults; legacy records remain inspectable only.
+    from loopcore.recovery import validate_checkpoint, RecoveryError
+    if not require_ao:
+        if not dry_run:
+            raise ValueError('require_ao=False is only valid for read-only inspection')
+        return inspect_runtime(mission_dict['mission_id'])
     mission_dict = copy.deepcopy(mission_dict)
-    cfg = resolve_config(cfg)
-    runtime = ROOT / "runtime" / mission_dict["mission_id"]
-    store = StateStore(runtime / "state.db")
-    diag = Diagnostics(store, mission_dict["mission_id"])
-    try:
-        previous = store.mission_config(mission_dict["mission_id"])
-        if previous:
-            saved = previous.get("effective_config")
-            if saved is None and require_ao:
-                raise ConfigError("historical Mission has no effective config snapshot; inspect only, configuration unknown")
-            if saved is not None:
-                cfg = restore_snapshot(saved)
-        else:
-            cfg = resolve_config(cfg, overrides={"budgets": mission_dict.get("budgets", {})})
-            for key in cfg.sources:
-                if cfg.sources[key] == "invocation override" and key.startswith("budgets."):
-                    cfg.sources[key] = "mission input"
-            mission_dict["budgets"] = copy.deepcopy(cfg["budgets"])
-            if require_ao:
-                saved = store.freeze_config(mission_dict["mission_id"], mission_dict, cfg.snapshot())
-                cfg = restore_snapshot(saved)
-        mission_dict["budgets"] = copy.deepcopy(cfg["budgets"])
-        if require_ao:
-            try:
-                store.interrupt_open_phases(mission_dict["mission_id"])
-            except Exception as exc:
-                diag.errors.append("diagnostic recovery unavailable: " + type(exc).__name__)
-            with diag.phase("preflight", reason="checking local tools and AO project readiness"):
+    runtime = ROOT / 'runtime' / mission_dict['mission_id']
+    db = runtime / 'state.db'
+    if db.exists():
+        store = StateStore(db, readonly=True)
+        try:
+            row = store.mission_config(mission_dict['mission_id'])
+            if not row or row.get('state') in MISSION_TERMINAL:
+                raise RecoveryError('terminal or missing Mission; inspect or create a new attempt')
+            if row.get('effective_config') is None:
+                raise ConfigError('historical Mission has no effective config snapshot; inspect only')
+            cfg = restore_snapshot(row['effective_config'])
+            mission_dict = copy.deepcopy(row['mission'])
+            checked = mission_preflight(mission_dict, cfg, freeze_source=False)
+            adapter = AOAdapter(base_url=cfg['ao']['base_url'], timeout=cfg['ao']['request_timeout_seconds'],
+                                run_file=checked['ao_run_file'])
+            validate_checkpoint(store, mission_dict['mission_id'], adapter)
+        finally:
+            store.close()
+    else:
+        cfg = resolve_config(cfg, overrides={'budgets': mission_dict.get('budgets', {})})
+        for key in cfg.sources:
+            if cfg.sources[key] == 'invocation override' and key.startswith('budgets.'):
+                cfg.sources[key] = 'mission input'
+        mission_dict['budgets'] = copy.deepcopy(cfg['budgets'])
+        store = StateStore(db)
+        try:
+            store.freeze_config(mission_dict['mission_id'], mission_dict, cfg.snapshot())
+            if mission_dict.get('previous_attempt'):
+                store.record_mission(mission_dict['mission_id'], {'previous_attempt': mission_dict['previous_attempt']})
+            diag = Diagnostics(store, mission_dict['mission_id'])
+            with diag.phase('preflight', reason='checking local tools, AO project and exact source'):
                 checked = mission_preflight(mission_dict, cfg)
-            ao_bin, ao_run_file = checked["ao_bin"], checked["ao_run_file"]
-        else:
-            ao_bin = "ao-unavailable-read-only"
-            ao_run_file = resolve_ao_run_file()
-        setup_environment(ao_run_file=ao_run_file if require_ao else None)
-    finally:
-        store.close()
-    rt = MissionRuntime(mission_dict, cfg, ao_bin=ao_bin, ao_run_file=ao_run_file, dry_run=dry_run)
-    rt.diagnostics.errors.extend(diag.errors)
+            if not checked.get('source'):
+                raise RecoveryError('preflight did not confirm an exact source')
+            store.record_mission(mission_dict['mission_id'], {'source': checked['source']})
+        finally:
+            store.close()
+    setup_environment(ao_run_file=checked['ao_run_file'])
+    rt = MissionRuntime(mission_dict, cfg, ao_bin=checked['ao_bin'], ao_run_file=checked['ao_run_file'], dry_run=dry_run)
+    try:
+        rt.store.interrupt_open_phases(mission_dict['mission_id'])
+    except Exception as exc:
+        rt.diagnostics.errors.append('diagnostic recovery unavailable: ' + type(exc).__name__)
     return rt
 
 
@@ -445,7 +468,7 @@ def run_loop(rt: MissionRuntime, *, cap_seconds: float | None = None,
             break
         if elapsed >= cap_seconds:
             break
-        if should_stop and should_stop():
+        if should_stop and should_stop() and not rt.store.mission_stop_requested(rt.mission.mission_id):
             break
         wait_phase = "retry_wait" if result.get("error") else "observation_wait"
         blocked = False
@@ -459,7 +482,7 @@ def run_loop(rt: MissionRuntime, *, cap_seconds: float | None = None,
             wait_phase = "approval_wait"
         with rt.diagnostics.phase(wait_phase, reason=("waiting for next poll; Worker may still be executing" if wait_phase == "observation_wait" else
                                                      "waiting for unresolved approval" if blocked else "bounded retry; no unknown effect is resent")):
-            time.sleep(poll_seconds)
+            rt.controller._stop_event.wait(poll_seconds)
     rt.projector.project_once()
     return {
         "mission_id": rt.mission.mission_id,
@@ -558,7 +581,7 @@ def main() -> int:
     setup_environment()
     try:
         rt = build_runtime(mission_dict, cfg, dry_run=False)
-    except (PreflightError, ConfigError) as exc:
+    except (PreflightError, ValueError) as exc:
         detail = str(exc).replace("\r", " ").replace("\n", " ")[:400]
         print("preflight failed: %s" % detail, file=sys.stderr)
         return 2

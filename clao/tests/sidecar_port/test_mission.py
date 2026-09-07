@@ -75,6 +75,15 @@ class _CountingVerifier:
         return FakeVerifierProvider().verify(inp, verify_id)
 
 
+class IndependentPlanner(FakePlannerProvider):
+    """R02 supported two-lane fixture; dependencies are tested as rejection."""
+    def plan_decompose(self, *args, **kwargs):
+        plan = super().plan_decompose(*args, **kwargs)
+        for sub in plan.subtasks:
+            sub.dependencies = []
+        return plan
+
+
 def _mc(tmp_path, *, dry=False, verifier=None, mission_data=None,
         planner=None):
     store = StateStore(tmp_path / "m.db")
@@ -87,7 +96,7 @@ def _mc(tmp_path, *, dry=False, verifier=None, mission_data=None,
     gate = IntegrationGate(store)
     mc = MissionController(
         mission=MissionSpec.from_dict(mission_data or MISSION), cfg=_cfg(),
-        planner=planner or FakePlannerProvider(), auditor=FakeAuditorProvider(),
+        planner=planner or IndependentPlanner(), auditor=FakeAuditorProvider(),
         verifier=verifier or FakeVerifierProvider(), executor=ex,
         adapter=adapter,
         gate=gate, store=store, dry_run=dry)
@@ -201,36 +210,14 @@ def test_decompose_creates_two_subtask_loops(tmp_path):
         assert callable(loop.board)
 
 
-def test_dispatch_respects_dependencies(tmp_path):
-    """Fake decompose makes S2 depend on S1: only S1 spawns first."""
-    mc, store = _mc(tmp_path)
-    mc.step()          # decompose
-    spawned = {}
-    def fake_spawn(task):
-        sid = "sess-" + task.task_id[-2:]
-        spawned[task.task_id] = sid
-        return sid
-    mc.adapter.get_session_workspace.return_value = str(tmp_path)
-    with patch.object(mc.executor, "spawn_initial_worker",
-                      side_effect=fake_spawn), \
-            patch("loopcore.mission.wt.freeze_base", return_value="BASE") as freeze:
-        mc.step()      # dispatch
-    s1 = [s for s in mc.plan.subtasks if not s.dependencies][0].subtask_id
-    s2 = [s for s in mc.plan.subtasks if s.dependencies][0].subtask_id
-    assert s1 in spawned
-    assert s2 not in spawned          # dep not DONE yet -> held
-    # mark S1 DONE -> S2 becomes dispatchable on the next step
-    store.record_transition(task_id=s1, from_state="WORKER_RUNNING",
-                            to_state="DONE", actor="t", reason="t",
-                            evidence={})
-    with patch.object(mc.executor, "spawn_initial_worker",
-                      side_effect=fake_spawn), \
-            patch("loopcore.mission.wt.freeze_base", return_value="BASE"):
-        mc.step()
-    assert s2 in spawned
-    assert freeze.call_args.args[0] == str(tmp_path)
-    assert mc.adapter.get_session_workspace.call_args_list[0].args == (
-        spawned[s1],)
+def test_dispatch_rejects_unsupported_dependencies(tmp_path):
+    mc, store = _mc(tmp_path, planner=FakePlannerProvider())
+    mc.executor.spawn_initial_worker = MagicMock()
+    mc.step()
+    assert mc.state == 'HUMAN' and 'dependent MissionPlan unsupported' in mc._read_state()['reason']
+    mc.executor.spawn_initial_worker.assert_not_called()
+    assert not mc.tasks
+
 
 
 def test_dispatch_workspace_failure_halts_mission(tmp_path):
@@ -494,14 +481,13 @@ def test_full_mission_to_done_with_merge(tmp_path):
         sid = "sess-" + task.task_id[-2:]
         spawned[task.task_id] = sid
         return sid
-    # Dispatch each dependency in order, then let each idle ClosedLoop discover
+    # Dispatch independent tasks together, then let each idle ClosedLoop discover
     # its real source change and take WORKER_RUNNING -> GATE_PENDING -> DONE.
     # The deterministic gate result is fake; no AO Worker/model is started.
     with patch.object(mc.executor, "spawn_initial_worker",
                       side_effect=fake_spawn):
-        mc.step()    # dispatch S1 only (S2 dep)
-    s1 = [s for s in mc.plan.subtasks if not s.dependencies][0].subtask_id
-    s2 = [s for s in mc.plan.subtasks if s.dependencies][0].subtask_id
+        mc.step()    # dispatch both independent Workers
+    s1, s2 = [s.subtask_id for s in mc.plan.subtasks]
     gate_ok = GateRun(ok=True, results=[
         {"command": "pytest", "stdout": "4 passed", "stderr": "", "exit_code": 0}])
     with patch.object(IntegrationGate, "run", return_value=gate_ok):
@@ -515,7 +501,7 @@ def test_full_mission_to_done_with_merge(tmp_path):
     with patch.object(mc.executor, "spawn_initial_worker",
                       side_effect=fake_spawn), \
             patch.object(IntegrationGate, "run", return_value=gate_ok):
-        mc.step()    # S2 dispatch; S1 merge happens
+        mc.step()    # S1 merge happens; S2 is already dispatched
     assert s1 in mc.merged, "S1 merged into integration worktree"
     with patch.object(IntegrationGate, "run", return_value=gate_ok):
         mc.loops[s2].step(injected_events=[ev(

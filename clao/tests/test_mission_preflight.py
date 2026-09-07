@@ -70,6 +70,10 @@ def _happy_environment(monkeypatch, tmp_path, default_branch="main"):
                     "defaultBranch": default_branch}
 
     monkeypatch.setattr(run_mission, "AOAdapter", Adapter)
+    # Existing capability probes remain isolated; exact source/remote equality
+    # is exercised against real Git by test_r02_lifecycle.
+    monkeypatch.setattr('loopcore.recovery.source_identity', lambda pid, path, detail:
+                        dict(project_id=pid, source_commit='a'*40, project_path=str(path)))
 
     def command(argv, **_kwargs):
         if argv[1:] == ["remote"]:
@@ -417,6 +421,7 @@ def test_preflight_happy_path(monkeypatch, tmp_path):
     project, run_file, executables = _happy_environment(monkeypatch, tmp_path)
     result = run_mission.mission_preflight(MISSION, CFG)
     assert result == {
+        "source": dict(project_id="project-a", source_commit="a"*40, project_path=str(project)),
         "ao_bin": executables["ao"],
         "ao_run_file": run_file,
         "project_path": project,

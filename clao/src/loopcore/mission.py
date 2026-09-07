@@ -50,7 +50,9 @@ from .state_store import StateStore
 from .verifier import VerifierInput, VerifierProvider
 from .event_normalizer import now_iso, make_id, stable_id
 
-MISSION_TERMINAL = ("MISSION_DONE", "HUMAN", "FAILED")
+from .execution_control import ExecutionControl, ExecutionCancelled, checkpoint
+
+MISSION_TERMINAL = ("MISSION_DONE", "HUMAN", "FAILED", "CANCELLED")
 
 
 def deterministic_single_task_plan(mission: MissionSpec) -> MissionPlan:
@@ -96,13 +98,14 @@ class MissionController:
         self.merged: List[str] = []                 # subtask ids merged
         self._shared_observer = Observer(cfg, state_store=store)
         # user directives posted mid-mission (web panel / operator UI);
-        # drained once per tick and routed to each target's real input.
+        # durable receipts are consumed at each target's actual input boundary.
         from .directives import DirectiveChannel
-        self.directives = DirectiveChannel()
+        self.directives = DirectiveChannel(store, mission.mission_id)
         # User-stop latch (panel /api/stop): set by request_stop(); every
         # controller checkpoint and every subtask loop (shared via
         # _build_loop) refuses to act once raised.
         self._stop_event = threading.Event()
+        self.control = ExecutionControl(self._stop_event, store, mission.mission_id)
         if self.store.mission_stop_requested(self.mission.mission_id):
             self._stop_event.set()
 
@@ -121,6 +124,8 @@ class MissionController:
         both pass the check and have the loser clobber the winner's terminal
         state. The first terminal write wins."""
         prev = self.state
+        if self.store.mission_stop_requested(self.mission.mission_id) and s not in ("CANCELLING", "CANCELLED", "HUMAN"):
+            return
         # Local pre-check keeps the common (non-racing) path cheap and lets us
         # skip worker cleanup when no transition actually occurs; the store's
         # atomic method is the source of truth under contention.
@@ -145,10 +150,13 @@ class MissionController:
             # a transition that did not land.
             self._mission_row = None  # force re-read from store next time
             return
+        self._mission_row = None  # Re-read the complete durable payload, including receipts.
         if s in MISSION_TERMINAL:
             self._stop_event.set()
         if s in MISSION_TERMINAL and prev != s and not self.dry_run:
-            self._stop_workers()
+            if s != "CANCELLED" and not self.store.mission_stop_requested(self.mission.mission_id):
+                self._stop_workers()
+            self.store.reject_pending_directives(self.mission.mission_id, "Mission terminated before target consumption")
 
     def _stop_workers(self) -> bool:
         """Persist cleanup facts, including a spawn that crashed before binding.
@@ -220,14 +228,32 @@ class MissionController:
 
     # ------------------------------------------------------------- stop
     def request_stop(self) -> None:
-        """Persist receipt before stopping; HUMAN does not claim termination."""
+        """Acknowledge only durable receipt; cleanup belongs to the runner."""
         self.store.request_mission_stop(self.mission.mission_id)
         self._stop_event.set()
         self._mission_row = None
-        if self.state not in MISSION_TERMINAL:
-            self._set_state("HUMAN", "stop requested by user")
-        else:
-            self._stop_workers()
+
+    def _advance_cancel(self):
+        mid = self.mission.mission_id
+        self._stop_event.set()
+        self._mission_row = None
+        self.store.record_mission(mid, {'cancellation': dict(status='cancelling', at=now_iso(),
+            reason='request received; confirming local execution and AO Worker termination')})
+        self._set_state('CANCELLING', 'cancellation in progress')
+        stopped = self._stop_workers()
+        local_unknown = sorted(self.control.unconfirmed)
+        local = (self.store.mission_config(mid) or {}).get('local_execution', {})
+        if local.get('status') in ('running', 'unknown') and local.get('pid') not in local_unknown:
+            local_unknown.append(local.get('pid'))
+        confirmed = stopped and not local_unknown
+        self.store.record_mission(mid, {'cancellation': dict(
+            status='cancelled' if confirmed else 'unknown', at=now_iso(),
+            reason='all controlled execution confirmed stopped' if confirmed else 'stop confirmation unavailable; human reconciliation required',
+            local_unconfirmed=local_unknown)})
+        self.store.reject_pending_directives(mid, 'cancelled before target consumption')
+        self._set_state('CANCELLED' if confirmed else 'HUMAN',
+                        'cancellation confirmed' if confirmed else 'cancellation stop facts UNKNOWN')
+        return {'state': self.state, 'acted': True}
 
     # ------------------------------------------------------------- step
     # Consecutive mission-tick exceptions tolerated before halting to HUMAN
@@ -244,9 +270,16 @@ class MissionController:
         failures the mission halts to HUMAN instead of retrying forever (a
         successful tick resets the streak)."""
         try:
-            result = self._step_impl()
+            if self.store.mission_stop_requested(self.mission.mission_id) and self.state not in MISSION_TERMINAL:
+                return self._advance_cancel()
+            with self.control.bind():
+                result = self._step_impl()
+                if self.state not in MISSION_TERMINAL:
+                    checkpoint()
             self._loop_error_streak = 0
             return result
+        except ExecutionCancelled:
+            return self._advance_cancel()
         except ExternalOperationUnknown as exc:
             self._set_state("HUMAN", str(exc))
             return {"state": self.state, "acted": True, "error": str(exc)}
@@ -285,18 +318,9 @@ class MissionController:
 
     def _step_impl(self) -> Dict:
         result = {"state": self.state, "acted": False}
-        if self.store.mission_stop_requested(self.mission.mission_id):
-            self._stop_event.set()
-            if self.state not in MISSION_TERMINAL:
-                self._set_state("HUMAN", "stop requested by user")
         if self.state in MISSION_TERMINAL:
-            self._stop_workers()
-            result["state"] = self.state
             return result
-        # User stop: receipt and cleanup facts are already durable; an
-        # in-flight tick unwinds without assuming cleanup has succeeded.
-        if self._stop_event.is_set():
-            return result
+        checkpoint()
         if not self.dry_run:
             self.executor.reconcile_pending(self.mission.mission_id)
         # mission runtime watchdog
@@ -332,7 +356,11 @@ class MissionController:
         if self._stop_event.is_set():
             result["state"] = self.state
             return result
-        # dispatch newly-ready subtasks (deps satisfied)
+        failed_before_dispatch = [sid for sid in self.tasks if self._subtask_state(sid) == ProjectState.FAILED]
+        if failed_before_dispatch:
+            self._set_state('FAILED', 'subtask(s) FAILED: ' + ', '.join(failed_before_dispatch))
+            return dict(state=self.state, acted=True)
+        # Dispatch independent subtasks only while the Mission can still succeed.
         self._dispatch_ready()
         if self._stop_event.is_set():
             result["state"] = self.state
@@ -400,6 +428,8 @@ class MissionController:
             if not plan_d or not plan_d.get("subtasks"):
                 return False
             self.plan = MissionPlan.from_dict(plan_d)
+            if any(sub.dependencies for sub in self.plan.subtasks):
+                raise ValueError("dependent MissionPlan is unsupported")
             self._mission_row = d
             # Restore the merged-subtask list so _all_done+merged can re-fire
             # final verify after a crash. Without this, merged==[] on resume;
@@ -447,6 +477,7 @@ class MissionController:
             dry_run=self.dry_run,
             instruct=self.mission.user_instruction,
             stop_event=self._stop_event)
+        loop.directives = self.directives
         loop.diagnostics = getattr(self, "diagnostics", None)
         loop.board = self._progress_board
         loop.hold_spawn = True
@@ -458,9 +489,11 @@ class MissionController:
             if max_subtasks == 1:
                 plan = deterministic_single_task_plan(self.mission)
             else:
-                plan = self.planner.plan_decompose(
-                    self.mission.to_dict(),
-                    "DECOMP-%s" % self.mission.mission_id)
+                with self.directives.consume('planner', 'planner:decomposition') as notes:
+                    spec = self.mission.to_dict()
+                    spec['user_instruction'] = '\n'.join([self.mission.user_instruction] + notes)
+                    plan = self.planner.plan_decompose(spec, "DECOMP-%s" % self.mission.mission_id)
+                checkpoint()
             check_role(plan.to_dict(), "mission-plan", mission_id=self.mission.mission_id)
         except ProtocolError:
             raise
@@ -468,8 +501,11 @@ class MissionController:
             self._set_state("HUMAN", "new mission decomposition rejected: %s" % e)
             return
         # Stopped while the planner was thinking: drop the plan entirely and
-        # keep the HUMAN row untouched — the next resume re-decomposes.
+        # keep the cancellation receipt authoritative; do not materialize a plan.
         if self._stop_event.is_set():
+            return
+        if any(sub.dependencies for sub in plan.subtasks):
+            self._set_state('HUMAN', 'dependent MissionPlan unsupported: downstream Worker has no verified upstream code delivery')
             return
         self.plan = plan
         self.store.record_mission(self.mission.mission_id, {
@@ -522,11 +558,9 @@ class MissionController:
                                             ProjectState.HUMAN,
                                             ProjectState.FAILED):
                 continue
-            deps_ok = all(
-                self._subtask_state(d) == ProjectState.DONE
-                for d in task.dependencies)
-            if not deps_ok:
-                continue
+            if task.dependencies:
+                self._set_state("HUMAN", "dependent MissionPlan unsupported: missing upstream code delivery")
+                return
             if self.dry_run:
                 continue
             # 簇五: bounded spawn retries — a task whose worker cannot be
@@ -546,7 +580,6 @@ class MissionController:
                 task.worker_session_id = new_sid
                 self.store.record_task(task.task_id, task.to_dict())
                 if self._stop_event.is_set() or self.store.mission_stop_requested(self.mission.mission_id):
-                    self._stop_workers()
                     return
                 # freeze the per-worker diff base AT DISPATCH — before the
                 # worker can commit. Freezing lazily (first gate/audit) loses
@@ -561,7 +594,8 @@ class MissionController:
                         "AO workspace unavailable after spawning %s" % new_sid)
                     return
                 base = wt.freeze_base(worktree, self.store,
-                                      task.task_id, scope=new_sid)
+                                      task.task_id, scope=new_sid,
+                                      expected=(self.store.mission_config(self.mission.mission_id) or {}).get("source", {}).get("source_commit"))
                 if not base:
                     self._set_state(
                         "HUMAN",
@@ -570,46 +604,33 @@ class MissionController:
 
     # ------------------------------------------------------------ events
     def _apply_directives(self) -> None:
-        """Drain pending user directives and route each to its target's
-        real input path (see directives.py for the routing table).
-        Owner-ruled visibility: non-planner directives are ALWAYS mirrored
-        into the planner's instruct as well."""
-        def _append_instruct(loop, line):
-            # Bound the accumulated instruct so a long mission with many panel
-            # directives does not grow the Planner prompt without limit (which
-            # would slow every planner call and could exceed the CLI length
-            # cap). Keep the most recent 20 directive lines.
-            parts = (loop.instruct + "\n" + line).splitlines()
-            loop.instruct = "\n".join(parts[-20:]).strip()
-
-        for d in self.directives.drain():
-            target, text = d.target, d.text
-            stamp = "[用户指令 %s] %s" % (d.at[:19], text)
-            if target == "planner":
-                for loop in self.loops.values():
-                    _append_instruct(loop, stamp)
+        # Semantic notes are read from durable receipts at actual input boundaries.
+        # Only Worker delivery needs an action here, with the F05 stable identity.
+        for row in self.directives.records():
+            if not row['target'].startswith('worker:') or row['status'] not in ('received', 'unknown'):
                 continue
-            if target.startswith("worker:"):
-                sid = target.split(":", 1)[1]
-                if sid and not self.dry_run:
-                    self.executor.nudge_worker(sid, stamp,
-                        identity=operation_id("send-directive", self.mission.mission_id, sid, d.at, text),
-                        owner_id=self.mission.mission_id)
-                # mirror to planner (visibility rule)
-                for loop in self.loops.values():
-                    _append_instruct(loop, "[镜像·发给 %s] %s" % (target, stamp))
-                continue
-            if target in ("auditor", "verifier"):
-                for loop in self.loops.values():
-                    dq = loop.role_directives[target]
-                    dq.append(stamp)
-                    del dq[:-20]
-                    _append_instruct(loop, "[镜像·发给 %s] %s" % (target, stamp))
-                continue
-            # observer / gate: deterministic programs, no semantic input —
-            # planner visibility only.
-            for loop in self.loops.values():
-                _append_instruct(loop, "[镜像·发给 %s] %s" % (target, stamp))
+            checkpoint()
+            session = row['target'][7:]
+            identity = operation_id('send-directive', self.mission.mission_id, row['command_id'])
+            prior = self.store.operation(identity)
+            if row['status'] == 'unknown' and prior is None:
+                raise ExternalOperationUnknown('directive delivery unknown: ' + row['command_id'])
+            self.store.directive_consumer(row['command_id'], 'ao:send:' + session, 'unknown',
+                                          'AO acceptance not yet confirmed')
+            try:
+                ok = self.executor.nudge_worker(session, self.directives.text(row, row['target']),
+                    identity=identity, owner_id=self.mission.mission_id) if not self.dry_run else False
+            except ExternalOperationUnknown:
+                pending_op = self.store.operation(identity)
+                if pending_op and pending_op['status'] == 'NOT_STARTED':
+                    self.store.directive_consumer(row['command_id'], 'ao:send:' + session, 'received', 'CLI not started; bounded retry pending')
+                    continue
+                raise
+            op = self.store.operation(identity)
+            status = 'applied' if ok else 'received' if op and op['status'] == 'NOT_STARTED' else 'rejected'
+            self.store.directive_consumer(row['command_id'], 'ao:send:' + session, status,
+                'AO accepted message; Worker execution NOT confirmed' if ok else
+                'AO process not started; bounded retry pending' if status == 'received' else 'send rejected or confirmed failed')
 
     @phase_call("observation", role="observer")
     def _collect_all_events(self) -> None:
@@ -689,6 +710,11 @@ class MissionController:
             self, source_worktree: Optional[str] = None) -> Optional[str]:
         integ = Path(self.store.path).parent / "integration"
         if integ.exists():
+            row = self.store.mission_config(self.mission.mission_id) or {}
+            if row.get('source') and (
+                    wt._read_base_sidecar(str(integ), self.mission.mission_id + ':integration') != row['source']['source_commit']
+                    or wt._current_head(str(integ)) != row.get('integration_head')):
+                return None
             return str(integ) if wt._current_head(str(integ)) else None
 
         # A caller that already resolved a live Worker workspace supplies it.
@@ -707,16 +733,17 @@ class MissionController:
             return None
         out = wt.add_integration_worktree(src, "integration-%s"
                                           % self.mission.mission_id,
-                                          str(integ))
+                                          str(integ), source_commit=(self.store.mission_config(self.mission.mission_id) or {}).get("source", {}).get("source_commit"))
         if out:
             # freeze the mission base NOW — at integration-worktree creation,
             # BEFORE any subtask merge lands — so the final mission diff shows
             # what the whole mission delivered (freezing after the merges
             # would yield an empty diff vs the merge commits themselves).
             if not wt.freeze_base(out, self.store, self.mission.mission_id,
-                                  scope="integration"):
+                                  scope="integration", expected=(self.store.mission_config(self.mission.mission_id) or {}).get("source", {}).get("source_commit")):
                 self._set_state("HUMAN", "integration frozen base unavailable")
                 return None
+            self.store.record_mission(self.mission.mission_id, {"integration_head": wt._current_head(out)})
             if not self.merged:
                 # Baseline failure set on the PRISTINE tree: pre-existing red
                 # tests are recorded here so the final gate can separate them
@@ -751,6 +778,7 @@ class MissionController:
             acceptance_criteria=self.mission.acceptance_criteria,
             gate_commands=list(self.mission.gate_commands))
         run = self.gate.run(task, integ, require_clean=True, phase="baseline")
+        checkpoint()
         failures = sorted({failure for result in run.results
                            if result.get("exit_code") != 0
                            for failure in result.get("failure_ids", extract_failure_ids(
@@ -842,11 +870,13 @@ class MissionController:
                     "unable to commit Worker workspace for %s: %s"
                     % (sid, detail))
                 return
+            checkpoint()
             integ = self._integration_wt(source_worktree=worktree)
             if not integ:
                 self._set_state("HUMAN",
                                 "integration worktree unavailable for %s" % sid)
                 return
+            checkpoint()
             diag = getattr(self, "diagnostics", None)
             if isinstance(diag, Diagnostics):
                 with diag.phase("merge", task_id=sid, reason="merging materialized commit into integration") as fact:
@@ -859,7 +889,7 @@ class MissionController:
                 # Persist merged so a crash-resume can re-fire final verify
                 # even if this subtask's worktree is later cleaned up.
                 self.store.record_mission(self.mission.mission_id,
-                                          {"merged": list(self.merged)})
+                                          {"merged": list(self.merged), "integration_head": wt._current_head(integ)})
             elif r.status == wt.MergeOutcome.CONFLICT:
                 # deterministic conflict -> human escalation (bounded)
                 self._set_state("HUMAN",
@@ -899,6 +929,7 @@ class MissionController:
             acceptance_criteria=self.mission.acceptance_criteria,
             gate_commands=list(self.mission.gate_commands))
         run = self.gate.run(final_task, integ, require_clean=True, phase="final")
+        checkpoint()
         integrity_value = getattr(run, "integrity_ok", True)
         integrity_ok = integrity_value \
             if isinstance(integrity_value, bool) else True
@@ -960,12 +991,14 @@ class MissionController:
         # The trusted caller supplies this mapping explicitly.
         final_spec = final_task.to_dict()
         final_spec["mission_id"] = self.mission.mission_id
+        directive_rows = self.directives.for_role("verifier")
         inp = VerifierInput(
             task_spec=final_spec,
             diff=wt.git_diff_text(integ, base, limit=None),
             gate_output=gate_output,
             changed_paths=changed,
-            deterministic_findings=findings)
+            deterministic_findings=findings,
+            user_notes=[self.directives.text(row, "verifier") for row in directive_rows])
         vid = stable_id("VERIFY-MISSION", self.mission.mission_id, base, length=16)
         validation = inp.validation_record(vid)
         prior = self.store.latest_verification(self.mission.mission_id)
@@ -976,7 +1009,9 @@ class MissionController:
                                     evidence=validation["evidence"])
             res = VerifierResult.from_dict(prior)
         else:
-            res = self.verifier.verify(inp, vid)
+            with self.directives.consume('verifier', 'verifier:mission-final', rows=directive_rows):
+                res = self.verifier.verify(inp, vid)
+            checkpoint()
             payload = res.to_dict()
             check_verifier(payload, vid, final_spec)
             res = VerifierResult.from_dict(payload)

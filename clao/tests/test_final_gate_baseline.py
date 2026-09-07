@@ -104,15 +104,14 @@ def _seed_done_mission(tmp_path):
         return "sess-" + task.task_id[-2:]
     with patch.object(mc.executor, "spawn_initial_worker",
                       side_effect=fake_spawn):
-        mc.step()  # dispatch S1
-    s1 = [s for s in mc.plan.subtasks if not s.dependencies][0].subtask_id
-    s2 = [s for s in mc.plan.subtasks if s.dependencies][0].subtask_id
+        mc.step()  # dispatch both independent tasks
+    s1, s2 = [s.subtask_id for s in mc.plan.subtasks]
     store.record_transition(task_id=s1, from_state="WORKER_RUNNING",
                             to_state="DONE", actor="t", reason="t",
                             evidence={})
     with patch.object(mc.executor, "spawn_initial_worker",
                       side_effect=fake_spawn):
-        mc.step()  # dispatch S2 + merge S1
+        mc.step()  # merge S1; S2 was independently dispatched
     store.record_transition(task_id=s2, from_state="WORKER_RUNNING",
                             to_state="DONE", actor="t", reason="t",
                             evidence={})

@@ -113,12 +113,21 @@ CREATE TABLE IF NOT EXISTS external_operations (
   evidence_json TEXT NOT NULL DEFAULT '[]',
   updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS directive_receipts (
+  command_id TEXT PRIMARY KEY,
+  mission_id TEXT NOT NULL,
+  payload_json TEXT NOT NULL
+);
 """
 
 
 class StateStore:
-    def __init__(self, db_path: str | Path):
+    def __init__(self, db_path: str | Path, *, readonly=False):
         self.path = str(db_path)
+        self._lock = threading.RLock()
+        if readonly:
+            self._conn = self.read_connection(self.path, check_same_thread=False)
+            return
         Path(self.path).parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         # check_same_thread=False: the store is shared by poll + SSE threads.
@@ -131,6 +140,21 @@ class StateStore:
         if "output_json" not in columns:
             self._conn.execute("ALTER TABLE gate_runs ADD COLUMN output_json TEXT")
         self._conn.commit()
+
+    @staticmethod
+    def read_connection(path, **kwargs):
+        path = Path(path).resolve()
+        wal = Path(str(path) + '-wal')
+        # A closed/checkpointed historical WAL-mode DB otherwise creates new
+        # -wal/-shm files simply by SELECTing. Immutable is only used when no
+        # WAL content can be omitted; active databases retain normal WAL reads.
+        has_wal = wal.exists() and wal.stat().st_size > 0
+        if has_wal and not Path(str(path) + '-shm').exists():
+            raise sqlite3.OperationalError('historical WAL lacks shared-memory recovery material; read-only inspection unavailable')
+        uri = path.as_uri() + '?mode=ro' + ('' if has_wal else '&immutable=1')
+        conn = sqlite3.connect(uri, uri=True, **kwargs)
+        conn.execute('PRAGMA query_only=ON')
+        return conn
 
     def close(self) -> None:
         with self._lock:
@@ -156,6 +180,56 @@ class StateStore:
         with self._lock:
             row = self._conn.execute("SELECT payload_json FROM missions WHERE mission_id=?", (mission_id,)).fetchone()
             return json.loads(row[0]) if row else None
+
+    @staticmethod
+    def query_directives(conn, mission_id):
+        if not conn.execute("SELECT 1 FROM sqlite_master WHERE name='directive_receipts'").fetchone():
+            return {"status": "historical_unknown", "records": []}
+        return {"status": "ok", "records": [json.loads(r[0]) for r in conn.execute(
+            "SELECT payload_json FROM directive_receipts WHERE mission_id=? ORDER BY rowid", (mission_id,))]}
+
+    def directives(self, mission_id):
+        with self._lock:
+            return self.query_directives(self._conn, mission_id)["records"]
+
+    def receive_directive(self, mission_id, command_id, target, text, rejection=None):
+        with self._lock, self._conn:
+            self._conn.execute('BEGIN IMMEDIATE')
+            row = self._conn.execute('SELECT mission_id,payload_json FROM directive_receipts WHERE command_id=?', (command_id,)).fetchone()
+            if row:
+                previous = json.loads(row[1])
+                if row[0] != mission_id or previous['target'] != target or previous['text'] != text:
+                    raise ValueError('command_id conflicts with an existing receipt')
+                return previous
+            mission = self.mission_config(mission_id) or {}
+            if mission.get('stop_request') or mission.get('state') in self._MISSION_TERMINAL:
+                rejection = 'Mission is stopping or terminal; no directive consumer'
+            receipt = dict(command_id=command_id, mission_id=mission_id, target=target, text=text,
+                           at=now_iso(), status='rejected' if rejection else 'received',
+                           reason=rejection or 'durably received; awaiting target input', consumers={})
+            self._conn.execute('INSERT INTO directive_receipts VALUES(?,?,?)',
+                               (command_id, mission_id, json.dumps(receipt, ensure_ascii=False)))
+            return receipt
+
+    def directive_consumer(self, command_id, consumer, status, reason, *, primary=True):
+        with self._lock, self._conn:
+            self._conn.execute('BEGIN IMMEDIATE')
+            row = self._conn.execute('SELECT payload_json FROM directive_receipts WHERE command_id=?', (command_id,)).fetchone()
+            value = json.loads(row[0])
+            old = value['consumers'].get(consumer, {})
+            if old.get('status') == 'applied':
+                return value
+            value['consumers'][consumer] = dict(status=status, reason=reason, at=now_iso(), primary=primary)
+            if primary:
+                value.update(status=status, reason=reason)
+            self._conn.execute('UPDATE directive_receipts SET payload_json=? WHERE command_id=?',
+                               (json.dumps(value, ensure_ascii=False), command_id))
+            return value
+
+    def reject_pending_directives(self, mission_id, reason):
+        for receipt in self.directives(mission_id):
+            if receipt['status'] == 'received':
+                self.directive_consumer(receipt['command_id'], 'controller', 'rejected', reason)
 
     def freeze_config(self, mission_id, mission, config):
         """Insert once, under the same SQLite write lock as Mission state."""
@@ -282,7 +356,7 @@ class StateStore:
                 mission = self._conn.execute("SELECT payload_json FROM missions WHERE mission_id=?",
                                              (op["owner_id"],)).fetchone()
                 payload = json.loads(mission[0]) if mission else {}
-                if payload.get("stop_request") or payload.get("state") in ("HUMAN", "FAILED", "MISSION_DONE"):
+                if payload.get("stop_request") or payload.get("state") in self._MISSION_TERMINAL:
                     return False
                 other = self._conn.execute(
                     "SELECT 1 FROM external_operations WHERE owner_id=? AND operation_id<>? "
@@ -332,7 +406,13 @@ class StateStore:
             row = self._conn.execute("SELECT payload_json FROM missions WHERE mission_id=?",
                                      (mission_id,)).fetchone()
             payload = json.loads(row[0]) if row else {}
+            if payload.get('state') in self._MISSION_TERMINAL:
+                if payload.get('stop_request'):
+                    return  # Duplicate receipt query must not migrate old HUMAN history.
+                raise ValueError('terminal Mission is read-only; create a new attempt')
             payload.setdefault("stop_request", {"requested_at": now_iso(), "source": "user"})
+            payload.setdefault('cancellation', {'status': 'requested', 'at': now_iso(),
+                                                'reason': 'durably received; stop not yet confirmed'})
             self._conn.execute(
                 "INSERT INTO missions(mission_id,payload_json,recorded_at) VALUES(?,?,?) "
                 "ON CONFLICT(mission_id) DO UPDATE SET payload_json=excluded.payload_json,recorded_at=excluded.recorded_at",
@@ -491,7 +571,7 @@ class StateStore:
             self._conn.commit()
 
     # Terminal states that must never be overwritten by a different state.
-    _MISSION_TERMINAL = frozenset({"MISSION_DONE", "HUMAN", "FAILED"})
+    _MISSION_TERMINAL = frozenset({"MISSION_DONE", "HUMAN", "FAILED", "CANCELLED"})
 
     def record_mission_state_atomic(self, mission_id: str, state: str,
                                     payload: Dict) -> bool:
@@ -521,7 +601,7 @@ class StateStore:
             cur_state = merged.get("state")
             if cur_state in self._MISSION_TERMINAL and cur_state != state:
                 return False
-            if merged.get("stop_request") and state != "HUMAN":
+            if merged.get("stop_request") and state not in ("CANCELLING", "CANCELLED", "HUMAN"):
                 return False
             merged.update(payload)
             merged["state"] = state

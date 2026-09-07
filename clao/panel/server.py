@@ -84,7 +84,7 @@ def _saved_mission(mid):
         raise ClientError("找不到该任务的运行存档: " + mid)
     conn = _ro_conn(db)
     try:
-        rows = _rows(conn, "SELECT payload_json FROM missions LIMIT 1")
+        rows = _rows(conn, "SELECT payload_json FROM missions WHERE mission_id=?", (mid,))
         mission = json.loads(rows[0][0]).get("mission") if rows else None
     finally:
         conn.close()
@@ -180,42 +180,28 @@ class PanelState:
                 received = False
             if not received:
                 raise ClientError("无法确认停止请求已持久接收: %s" % e, 503) from e
+        rt.controller._stop_event.set()
         self.stop_flag.set()
-        return {"ok": True, "stop_requested": True}
+        with self.lock:
+            if not self.thread or not self.thread.is_alive():
+                self.thread = threading.Thread(target=self._run, daemon=True, name='mission-cancel')
+                self.thread.start()
+        return {"ok": True, "stop_requested": True, "cancellation_status": "requested"}
 
     def running(self) -> bool:
-        # Once a stop is requested the mission does no further work (stop
-        # checkpoints + absorbing terminal state); report stopped immediately
-        # rather than wait for an in-flight agent call to unwind.
-        return bool(self.thread and self.thread.is_alive()
-                    and not self.stop_flag.is_set())
+        # A receipt is not termination: keep the runner visible while cancelling.
+        return bool(self.thread and self.thread.is_alive())
 
     # ---- directive channel
-    def post_directive(self, target: str, text: str) -> dict:
-        target, text = (target or "").strip(), (text or "").strip()
-        if not target or not text:
-            raise RuntimeError("target 和 text 都不能为空")
+    def post_directive(self, target, text, command_id=None) -> dict:
+        from dataclasses import asdict
         with self.lock:
-            if not self.rt:
-                raise RuntimeError("没有已加载的任务")
-            d = self.rt.controller.directives.post(target, text)
-            # Capture the log path under the lock (rt may be torn down), then
-            # do the disk write OUTSIDE the lock — a slow/full disk must not
-            # stall snapshot/start/stop/set_config, which all need the lock.
-            log = self.rt.runtime / "bus_traffic.jsonl"
-        # 真实投递走上面的 DirectiveChannel（内核 _apply_directives 消费）。
-        # LoopBus 按设计拒绝 user 端点（"no handler for endpoint"），不经过它。
-        # 流量记录由面板自己直写 bus_traffic.jsonl：每条用户指令必须落盘，
-        # 写失败必须冒泡成 API 错误——绝不返回假成功（PV 缺陷 D4）。
-        kind = MessageKind.USER_DIRECTIVE.value
-        with open(log, "a", encoding="utf-8") as f:
-            f.write(json.dumps(
-                {"at": now_iso(), "kind": kind,
-                 "sender": "user", "receiver": target,
-                 "payload": {"directive": text}},
-                ensure_ascii=False) + "\n")
-        return {"target": d.target, "text": d.text, "at": d.at,
-                "mirrored_to_planner": target != "planner"}
+            if not self.rt or self.rt.controller is None:
+                raise ClientError('历史查看没有指令消费者；请先恢复或创建新 attempt', 409)
+            directive = self.rt.controller.directives.post(target, text, command_id)
+        if directive.status == 'rejected':
+            raise ClientError(directive.reason + ' (command_id=' + directive.command_id + ')', 422)
+        return dict(asdict(directive), mirrored_to_planner=target != 'planner')
 
     # ---- persisted defaults (never mutate active runtime)
     def set_config(self, updates: dict) -> dict:
@@ -249,9 +235,7 @@ def _load_ao_projects() -> list[dict]:
 
 # --------------------------------------------------------------- snapshot
 def _ro_conn(db_path: Path) -> sqlite3.Connection:
-    conn = sqlite3.connect(db_path.resolve().as_uri() + "?mode=ro", uri=True,
-                           timeout=3)
-    return conn
+    return StateStore.read_connection(db_path, timeout=3)
 
 
 def _rows(conn, sql, args=(), retries=3):
@@ -279,7 +263,7 @@ def list_missions() -> list:
                 continue
             conn = _ro_conn(db)
             try:
-                r = _rows(conn, "SELECT payload_json FROM missions LIMIT 1")
+                r = _rows(conn, "SELECT payload_json FROM missions WHERE mission_id=?", (d.name,))
                 state, objective = "?", ""
                 if r:
                     payload = json.loads(r[0][0])
@@ -380,6 +364,7 @@ def _snapshot() -> dict:
                                   "snapshot": read("Mission configuration", lambda: restore_snapshot(saved).snapshot(), None) if saved is not None else None}
         if (saved is not None and snap["mission_config"]["snapshot"] is None) or any(e["source"] == "mission" for e in snap["read_errors"]):
             snap["mission_config"]["status"] = "read_error"
+        snap['directive_receipts'] = read('directive receipts', lambda: StateStore.query_directives(conn, rt.mission.mission_id), {'status': 'read_error', 'records': []})
         snap["phases"] = StateStore.query_phases(conn, rt.mission.mission_id, active=active)
         if snap["phases"]["status"] == "read_error":
             snap["read_errors"].append({"source": "phases", "error": snap["phases"]["error"]})
@@ -420,6 +405,12 @@ def _snapshot() -> dict:
                 "id": rt.mission.mission_id,
                 "state": mstate,
                 "reason": mission_payload.get("reason", ""),
+                "cancellation": mission_payload.get('cancellation', {'status': 'historical_unknown'}),
+                "stop_request": mission_payload.get('stop_request'),
+                "worker_stop": mission_payload.get('worker_stop'),
+                "source": mission_payload.get('source'),
+                "previous_attempt": mission_payload.get('previous_attempt'),
+                "inspection_only": rt.controller is None,
                 "objective": rt.mission_dict.get("objective", ""),
             },
             "subtasks": sorted(tasks, key=lambda t: t["task_id"]),
@@ -643,6 +634,9 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/mission":
                 self._json(self._start_mission(body))
                 return
+            if path == '/api/new-attempt':
+                self._json(self._new_attempt(body))
+                return
             if path == "/api/resume":
                 self._json(self._resume(body))
                 return
@@ -653,8 +647,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(PANEL.stop())
                 return
             if path == "/api/directive":
-                d = PANEL.post_directive(str(body.get("target") or ""),
-                                         str(body.get("text") or ""))
+                d = PANEL.post_directive(body.get("target"), body.get("text"), body.get("command_id"))
                 self._json({"ok": True, "directive": d})
                 return
             if path == "/api/config":
@@ -730,13 +723,30 @@ class Handler(BaseHTTPRequestHandler):
         with PANEL.lock:
             if PANEL.running() or PANEL.loading:
                 raise RuntimeError("任务运行中，先停止再查看其它存档")
-            run_mission.setup_environment()
-            cfg = run_mission.load_config()
-            PANEL.rt = run_mission.build_runtime(
-                mission, cfg, dry_run=True, require_ao=False)
+            PANEL.rt = run_mission.inspect_runtime(mid)
             PANEL.last_summary = None
             PANEL.started_mono = None
         return {"ok": True, "mission_id": mid, "attached": True}
+
+    def _new_attempt(self, body):
+        mid = _mission_id(body.get('mission_id'))
+        mission = _saved_mission(mid)
+        store = StateStore(_runtime_dir(mid) / 'state.db', readonly=True)
+        try:
+            row = store.mission_config(mid)
+            if row.get('state') not in MISSION_TERMINAL:
+                raise ClientError('非终态应通过材料检查后恢复，不创建替代 attempt', 409)
+            tasks = [store.load_task(t) or {} for t in store.all_task_ids()]
+            ops = store.operations(mid)
+            if ((any(t.get('worker_session_id') for t in tasks) or any(op['kind'] == 'spawn' for op in ops)) and row.get('worker_stop', {}).get('status') != 'CONFIRMED'
+                    or row.get('cancellation', {}).get('status') == 'unknown'
+                    or row.get('local_execution', {}).get('status') in ('running', 'unknown')):
+                raise ClientError('旧 attempt 的停止事实未确认，不能启动替代 Worker', 409)
+            mission = dict(mission, mission_id='MISSION-ATTEMPT-' + secrets.token_hex(12), previous_attempt=mid)
+        finally:
+            store.close()
+        PANEL.start_mission(mission)
+        return {'ok': True, 'mission_id': mission['mission_id'], 'previous_attempt': mid}
 
     # -- SSE
     def _sse(self):
