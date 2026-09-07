@@ -7,7 +7,7 @@
 ## 当前唯一执行指针
 
 - 当前阶段：**M2 IN_PROGRESS**；M0 / M1 COMPLETE。
-- 当前唯一执行指针：**V03-R01 — 有效配置与阶段诊断**，IN_REVIEW；base `d59dd8fd630fab573ea4dd80b005106cf7fde207`，分支 `codex/v03-r01-effective-config`。
+- 当前唯一执行指针：**V03-R01 — 有效配置与阶段诊断**，IN_REVIEW；base `d59dd8fd630fab573ea4dd80b005106cf7fde207`，分支 `codex/v03-r01-effective-config`；[PR #37](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/37) 已提交，等待外部审计。
 - 最近完成：**V03-F05 — 停止确认与未知外部动作保护**，DONE；[PR #36](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/36) 再次外部审计 PASS、无其他返修；2026-09-07 已 rebase merge 到 main `1e1401f7b55ff71617c0e3ef4ab277490b916cff`，合入 tree 与已审计 head `9620adced463f479a693f67667e90397a9521ef7` 完全相同。
 - F01 / F02 / F03 / F04 保持 DONE；[PR #32](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/32) / [PR #33](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/33) / [PR #34](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/34) / [PR #35](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/35) 均已审计 PASS 并合入，历史证据仍有效，详见对应卡。
 - F05 已实现：同一 StateStore 持久 intent / IN_FLIGHT / confirmed result / UNKNOWN；spawn 精确随机标记对账、普通 send 未确认不重发、kill 需 AO Session 终止事实。Stop 先持久接收，HTTP 回执反映 receipt 保存事实；未知停止阻断 replan 和 materialization，不扩展 Mission 生命周期。
