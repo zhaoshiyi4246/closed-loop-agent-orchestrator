@@ -133,6 +133,8 @@ HTTP 接收/响应、浏览器往返、状态快照查询耗时分别展示，�
 
 ### R02 指令、取消恢复与来源（本分支 IN_REVIEW）
 
+[PR #38](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/38) 已提交，等待外部审计；产品提交 `a7f65070a51554ee367f7f83af1851183095d6be`，尚未合入。
+
 StateStore 的 `directive_receipts` 是指令回执权威；稳定 `command_id` 重试复用原记录，
 冲突拒绝，落盘失败不产生待消费队列。`received` 只表示持久接收；`applied` 对应实际
 Planner/Auditor/Mission Final Verifier 输入调用，Worker 则对应 F05 的 AO send 接受，
