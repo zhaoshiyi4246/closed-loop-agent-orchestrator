@@ -1,6 +1,6 @@
 # CLAO 当前项目事实
 
-更新：2026-09-07（R01 再次外部审计 PASS 并合入 main，状态 DONE；F01–F05 DONE；M0 / M1 COMPLETE；M2 IN_PROGRESS，下一任务 R02 TODO）。本文件只记录已实现事实与已知限制；v0.3的设计见 [V03_PLAN.md](V03_PLAN.md)，不能把设计直接写成已完成能力。
+更新：2026-09-07（R01 再次外部审计 PASS 并合入 main，状态 DONE；F01–F05 DONE；M0 / M1 COMPLETE；M2 IN_PROGRESS；本分支 R02 实现与定向验证完成，IN_REVIEW 等待外部审计，U01 TODO）。本文件只记录已实现事实与已知限制；v0.3的设计见 [V03_PLAN.md](V03_PLAN.md)，不能把设计直接写成已完成能力。
 
 ## 1. 版本与基线
 
@@ -9,7 +9,7 @@
 | 产品 | CLAO / Closed-Loop Agent Orchestrator |
 | 已发布版本 | v0.2，Windows本地比赛版 |
 | 已发布源码 | 4d3e8e6b5e70bab868b2eef0d28c7742dea044ba |
-| 开发目标 | v0.3：F01–F05、R01 已合入 main（DONE）；M0 / M1 COMPLETE，M2 IN_PROGRESS；下一任务 R02 TODO；GUI与模型切换等后续目标待实现 |
+| 开发目标 | v0.3：F01–F05、R01 已合入 main（DONE）；M0 / M1 COMPLETE，M2 IN_PROGRESS；R02 本分支 IN_REVIEW；GUI与模型切换等后续目标待实现 |
 | 主仓库 | zhaoshiyi4246/closed-loop-agent-orchestrator |
 | 产品源码路径 | `clao/`，当前唯一正式产品，内部 Python 包为 `src/loopcore/` |
 | 发布工具 | `packaging/build-release.ps1` 与 `packaging/release-manifest.txt` |
@@ -28,7 +28,7 @@ F03 已通过再次外部审计 PASS，[PR #34](https://github.com/zhaoshiyi4246
 
 F04 已通过外部审计 PASS、无需返修，[PR #35](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/35) rebase 合入 main `c51ccd155f7ab6c226454846c9e1f1fff146956d`，状态 DONE。沿用既有 Windows 定向 224 passed、追加 49 passed（分开报告，均 0 skipped）及浏览器/compileall 证据；合并收尾无新增产品修改、未重跑测试或发布验证，详细边界见 F04 卡。
 
-F05 已通过再次外部审计 PASS，[PR #36](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/36) rebase 合入 main `1e1401f7b55ff71617c0e3ef4ab277490b916cff`，状态 DONE。同一 StateStore 持久 operation intent 与结果，ACK 丢失后对账或 UNKNOWN；Stop 请求与 Worker 停止事实分开记录，HTTP 成功回执以持久 receipt 为准。沿用既有定向故障恢复与返修验证，合并收尾无新增产品修改、未重跑测试或发布验证；AO v0.12.9 契约边界见 F05 卡。M1 COMPLETE；R01 已合入，实现见下文，R02 尚未开始。
+F05 已通过再次外部审计 PASS，[PR #36](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/36) rebase 合入 main `1e1401f7b55ff71617c0e3ef4ab277490b916cff`，状态 DONE。同一 StateStore 持久 operation intent 与结果，ACK 丢失后对账或 UNKNOWN；Stop 请求与 Worker 停止事实分开记录，HTTP 成功回执以持久 receipt 为准。沿用既有定向故障恢复与返修验证，合并收尾无新增产品修改、未重跑测试或发布验证；AO v0.12.9 契约边界见 F05 卡。M1 COMPLETE；R01 已合入，R02 本分支候选实现见下文，尚未审计合入。
 
 ## 2. 当前真实架构
 
@@ -58,13 +58,13 @@ F02 让 ClosedLoop 生产审批与 AutoApprover 共用范围策略：文件按�
 
 审批使用 AO requestId 和实际提供的单次允许选项，原因与人工处理标记沿用既有记录；未获批请求保留人工入口，不因此立即判整任务失败。未知/畸形请求、复杂 shell 及 AO v0.12.9 未暴露完整目标的 Codex fileChange 审批留人工；路径检查只保证审批时的解析结果，不承诺跨 AO 执行的原子文件系统保证。
 
-当前L0是确定性程序消息，用户directive也能经受控路径发给Worker；不能写成所有消息都由Planner LLM生成。当前Stop是终态HUMAN，不是暂停；attach不启动runner但仍存在组装副作用，A08要求进一步只读化。现有SSE已存在，v0.3不是从零新增实时更新。
+当前L0是确定性程序消息，用户directive也能经受控路径发给Worker；不能写成所有消息都由Planner LLM生成。本分支 R02 将取消请求、停止确认与取消终态分开；历史 attach 不再组装 runtime。旧 HUMAN 保持原义，不解释成暂停或已取消。现有SSE已存在，v0.3不是从零新增实时更新。
 
 成果保留在runtime/<mission-id>/integration，不自动写回target main/master，不自动push。artifact-aware clean可以忽略正常cache，不等于原始git status为空。runtime linked worktree依赖Git common dir，不能当独立可搬运项目。
 
 F03 共用严格 NUL 路径事实，覆盖 frozen base 之后 committed、staged、unstaged/untracked 的改动，rename/copy 保留双端点、删除保留原路径；无法可靠取证时不当 clean。artifact 按目录段与明确文件规则过滤；untracked diff 使用仓库外临时 index/objects，不修改真实 index。baseline 复用 Gate 完整性检查，Final scope 的确定性违规不能被模型 PASS 覆盖。
 
-materialization 保留正常用户净改动及原有暂存 cache；新交付树将 artifact 精确恢复为 frozen base 的 blob/mode，Mission 合并返回的明确 SHA，使 Worker 已提交的新 cache 不进入最终 integration 树。原 Worker 历史及基线内容保留，不改 ignore/exclude；构造失败进入 HUMAN。该过滤步骤不移动 Worker ref 或修改真实 index，多次 Git 采样仍不承诺并发写入下的原子快照；F05 已将 AO Session 明确终止事实设为 materialization 前置条件，未知停止进入 HUMAN；完整 R02 生命周期仍待实施。
+materialization 保留正常用户净改动及原有暂存 cache；新交付树将 artifact 精确恢复为 frozen base 的 blob/mode，Mission 合并返回的明确 SHA，使 Worker 已提交的新 cache 不进入最终 integration 树。原 Worker 历史及基线内容保留，不改 ignore/exclude；构造失败进入 HUMAN。该过滤步骤不移动 Worker ref 或修改真实 index，多次 Git 采样仍不承诺并发写入下的原子快照；F05 已将 AO Session 明确终止事实设为 materialization 前置条件，未知停止进入 HUMAN；本分支 R02 增加明确取消/恢复契约，见下文。
 
 ### R01 有效配置与阶段诊断（DONE）
 
@@ -78,7 +78,7 @@ CLI / Panel 共用 `loopcore.effective_config`，优先级为内置缺省值 < `
 
 新 Mission 在现有 missions payload 中冻结无密钥快照，再做只读 preflight；准备失败仍
 有可查记录。已有快照恢复时严格校验并复用，缺失字段不借用新默认值；历史无快照只显示
-缺失并拒绝执行续跑。旧 attach 的组装副作用不在本卡扩展成 R02 完整恢复设计。
+缺失并拒绝执行续跑。R01 未处理的 attach 组装副作用由本分支 R02 只读入口替代，缺快照仍不可恢复。
 
 | 配置组 / 键 | 当前实际消费者与单位 |
 |---|---|
@@ -131,6 +131,49 @@ Panel 沿用 F04 的 Host/Origin/JSON/nonce 与 textContent 安全渲染；显�
 携带 mission_id，重连发送完整快照替换；旧/重复顺序不再应用，不累计事件或重提交动作。
 HTTP 接收/响应、浏览器往返、状态快照查询耗时分别展示，不用这些数据宣称模型更快。
 
+### R02 指令、取消恢复与来源（本分支 IN_REVIEW）
+
+StateStore 的 `directive_receipts` 是指令回执权威；稳定 `command_id` 重试复用原记录，
+冲突拒绝，落盘失败不产生待消费队列。`received` 只表示持久接收；`applied` 对应实际
+Planner/Auditor/Mission Final Verifier 输入调用，Worker 则对应 F05 的 AO send 接受，
+不代表 Worker 已执行。每个消费者保留主目标/Planner 镜像、时间和原因；未确定输入
+完成或 send 结果为 `unknown`，不盲重发。Observer/Gate 没有语义消费者，API 拒绝、页面禁用。
+Final Verifier 输入与回执冻结同一组 notes，构造输入期间后来到达的指令不误记已消费。
+
+取消 API 先保存 `stop_request` 和 `cancellation.status=requested`，立即确认请求接收；
+Controller 再推进 `cancelling`。当前 Codex CLI/各 Gate 的受控本地子进程可被终止，
+取消后返回的结果不能继续推进 Mission。只有本地执行与 AO Worker 停止都已确认，才
+记录 `cancelled` / `CANCELLED`；否则是 `unknown` / `HUMAN`。后者不是取消成功。
+旧 HUMAN 不迁移；F05 未知动作不重发、未确认停止不 materialize。既有 Git 操作不会
+被当成通用可抢占进程；取消后在下一检查点停止，已发生的 Git 事实保留供核对。
+
+CLI/Panel 对既有非终态先打开只读 Store：校验冻结配置/source、当前需要的 Worker
+Session/workspace/base、integration commit/clean、未决 operation 和保存的验证关联。
+检查没有模型/spawn/send/kill 或 Store 写入，成功后才组装 runtime。UNKNOWN send、
+中断的本地过程/语义输入、缺失或关联不符的证据仍拒绝恢复。已合入 integration 的
+Worker 不要求保留无用的旧 workspace；integration 本身及 Worker 停止事实仍须成立。
+
+历史 attach 不连接 AO、不构造 Provider、不迁移 schema/补写快照或阶段，仅查询原库；
+字段缺失显示 historical unknown/unavailable。无 WAL 内容的历史库以 immutable 只读
+方式打开，不产生 WAL/SHM；活跃 WAL 缺必要共享内存材料时明确不可读取，不改库修复。
+终态 `MISSION_DONE` / `FAILED` / `HUMAN` / `CANCELLED` 禁止 resume；
+`/api/new-attempt` 创建新 identity 与 `previous_attempt`，保留原任务输入、使用自己的
+新配置/source/执行历史，旧记录只读。旧 Worker 或本地执行停止仍未知时拒绝新 attempt。
+
+Mission preflight 比较 AO 项目的本地来源分支、origin tracking ref 和 `ls-remote`，
+不一致时拒绝，保存 project/ref/policy/exact commit。每个新 spawn 前复查漂移；创建后
+根据 Worker HEAD reflog 的创建基线确认，缺失不猜测。integration 直接从冻结 commit
+创建，F03 的 Worker/integration frozen diff base 必须与它一致。AO 当前 spawn 接口未
+传入 exact commit，读检查与创建不是原子事务；发生竞态导致创建基线不符时阻断交付，
+不自动重写 branch 或 Git 历史。当前明确拒绝 dependencies 非空的 MissionPlan；
+两个独立子任务的有界支持保留。
+
+Worker 初始/replan prompt 包含实际 objective、AC、allowed/forbidden paths、Gate 与
+原 user instruction。固定 AO 的 [spawn Prompt 上限](https://github.com/Untrivial-ai/agent-orchestrator/blob/4cbb4b6ced1ad93f79641a2347d2342f1ffd218a/backend/internal/httpd/controllers/sessions.go)
+为 4096 UTF-8 bytes；完整内容超限直接拒绝，不静默裁掉范围。模型/用量/费用 unknown
+和 R01 冻结配置规则不变。Windows 定向 Git/SQLite/fake AO/HTTP 与 Edge 证据见 R02 卡，
+未运行全量、安装、打包、smoke、真实 AO/模型或完整 GUI 视觉验收；M2 尚未 COMPLETE。
+
 ## 4. 已验证外部前提
 
 Windows、CPython3.12、Git、AO Desktop0.12.9、Codex CLI0.150.1及ChatGPT登录是v0.2的已验证组合。bootstrap只管理本地Python venv，不安装Python/Git/AO/Codex。
@@ -143,7 +186,7 @@ AO executable通过CLAO_AO_BIN或PATH解析；runfile通过CLAO_AO_RUN_FILE或~/
 
 - A04/A05：F04 已实现 Gate 表专用只读 DTO 与 command/integrity/scope/overall 记录、历史 unknown/read_error 区分及常驻错误；本地写 API 校验 Host/Origin/JSON/会话 nonce，路径包含性与安全 DOM/pending 去重已补齐。外部审计 PASS、已合入 main（DONE），已发布 v0.2 不变；验证和支持边界见 F04 卡。
 - A07：F05 使用精确持久随机标记对账 spawn；普通 send 无唯一公开回执则保持 UNKNOWN、不重发；kill 需同一 Session 的 isTerminated=true / status=terminated。逻辑终止依赖 AO 公共契约，不承诺 OS 级证明或 exactly-once；再次外部审计 PASS、已合入 main（DONE）。
-- A10：R01 已接通有效配置与阶段诊断，再次外部审计 PASS 并合入（DONE）；A06 / A08 / A09 的完整指令生效、停止恢复和基线/依赖仍待 R02。
+- A10：R01 已接通有效配置与阶段诊断，再次外部审计 PASS 并合入（DONE）；A06 / A08 / A09 的 R02 指令、取消恢复与 source/依赖候选已在本分支实现，IN_REVIEW；尚无外部审计 PASS 或合入结论。
 - A11/A12 其余范围：多模型、后续 Git 取证边界、结果导出和普通用户使用体验；不因 F01 完成宣称所有证据路径或模型真实性已验收。
 
 状态与证据等级请查 [V03_BACKLOG.md](V03_BACKLOG.md)。不能因为历史R5 COMPLETE把这些问题写成RESOLVED。
@@ -156,9 +199,9 @@ AO executable通过CLAO_AO_BIN或PATH解析；runfile通过CLAO_AO_RUN_FILE或~/
 |---|---|---|
 | GUI | 技术拓扑＋任务表单＋SSE | 四入口、iPhone风格层级、任务/结果中心 |
 | 模型 | Codex CLI与AO Codex | GLM/Kimi语义profile，Worker单独准入 |
-| 配置 | R01 已实现：唯一解析、原子保存默认值、Mission 快照与来源/阶段诊断 | R02 恢复生命周期等后续契约 |
+| 配置 | R01 已合入；本分支 R02 恢复先验证冻结材料 | 新 GUI 的配置旅程 |
 | 结果 | integration路径与日志 | 可独立应用的patch导出与证据摘要 |
-| 停止 | F05 已实现：HUMAN 接收停止请求；持久 operation / worker_stop 区分确认与 UNKNOWN | 准确取消、崩溃恢复、关联attempt |
+| 停止 | F05 已合入；本分支 R02 明确取消状态、只读历史/恢复检查、关联新 attempt（IN_REVIEW） | 新 GUI 的操作与错误体验 |
 
 ## 7. 文档职责与历史
 
@@ -170,4 +213,4 @@ AGENTS=规则；PROJECT=事实；PLANS=当前指针；V03_PLAN=目标设计；V0
 - [v0.2原PLANS](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/blob/4d3e8e6b5e70bab868b2eef0d28c7742dea044ba/PLANS.md)
 - [v0.2Release](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/releases/tag/v0.2)
 
-以后本文件仅按已合入代码与验收更新，不复制完整PR流水账；旧治理文件的目标性措辞不再凌驾于本文件和v0.3批准设计。
+以后本文件仅按已合入代码或明确标注待审计的分支实现与验收更新，不复制完整PR流水账；旧治理文件的目标性措辞不再凌驾于本文件和v0.3批准设计。

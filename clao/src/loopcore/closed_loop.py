@@ -17,6 +17,9 @@ planner action; each action executed once. Process restart resumes.
 """
 from __future__ import annotations
 
+from contextlib import nullcontext
+from .execution_control import checkpoint
+
 import hashlib
 import json
 from pathlib import Path
@@ -823,7 +826,14 @@ class ClosedLoop:
         self._to_planner(audit)
 
     def _checked_audit(self, bundle, audit_id):
-        result = self.auditor.audit(bundle, audit_id)
+        channel = getattr(self, 'directives', None)
+        context = channel.consume('auditor', 'auditor:' + self.task.task_id) if channel else nullcontext([])
+        with context as notes:
+            if channel:
+                bundle.history['user_directives'] = notes
+            checkpoint()
+            result = self.auditor.audit(bundle, audit_id)
+        checkpoint()
         check_role(result.to_dict(), "audit-result", audit_id=audit_id,
                    task_id=self.task.task_id)
         if result.decision == "PASS":
@@ -1000,11 +1010,15 @@ class ClosedLoop:
         action_id = stable_id("ACTION", audit.audit_id, length=16)
         board = self.board() if callable(getattr(self, "board", None)) \
             else None
-        pa = self.planner.plan(audit, self.task.to_dict(), action_id,
-            target_session_id=self.task.worker_session_id,
-            remaining_replans=max(0, self.task.budgets.get("max_replans", 1)
-                                   - self.executor.replans),
-            instruct=self.instruct, board=board)
+        channel = getattr(self, 'directives', None)
+        context = channel.consume('planner', 'planner:' + self.task.task_id) if channel else nullcontext([])
+        with context as notes:
+            checkpoint()
+            pa = self.planner.plan(audit, self.task.to_dict(), action_id,
+                target_session_id=self.task.worker_session_id,
+                remaining_replans=max(0, self.task.budgets.get("max_replans", 1) - self.executor.replans),
+                instruct='\n'.join([self.instruct] + notes), board=board)
+        checkpoint()
         check_planner(pa.to_dict(), action_id, self.task.task_id, self.task.worker_session_id)
         self.store.record_action(action_id, self.task.task_id, pa.to_dict())
         self._execute(pa, audit)
@@ -1035,6 +1049,11 @@ class ClosedLoop:
         if res.new_worker_session_id:
             self.task.worker_session_id = res.new_worker_session_id
             self.store.record_task(self.task.task_id, self.task.to_dict())
+            source = (self.store.mission_config(self.task.subtask_of) or {}).get('source') if self.task.subtask_of else None
+            if source:
+                wt.freeze_base(self._worktree_path(), self.store, self.task.task_id,
+                               scope=res.new_worker_session_id, expected=source['source_commit'])
+        checkpoint()
         # candidate done -> gate
         if pa.action == PlannerActionType.CANDIDATE_DONE and res.ok:
             self._run_gate()
@@ -1214,7 +1233,9 @@ class ClosedLoop:
         else:
             if verifier is None:
                 raise ContractConfigurationError("historical task Verifier is not configured")
+            checkpoint()
             result = verifier.verify(inp, verify_id)
+            checkpoint()
             payload = result.to_dict()
             check_verifier(payload, verify_id, self.task.to_dict())
             result = VerifierResult.from_dict(payload)

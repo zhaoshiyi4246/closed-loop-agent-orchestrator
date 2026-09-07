@@ -38,7 +38,9 @@ def panel(tmp_path, monkeypatch):
                                mission_dict=mission, controller=SimpleNamespace(
                                    cfg={},
                                    directives=SimpleNamespace(pending_count=lambda: 0),
-                                   request_stop=MagicMock()))
+                                   request_stop=MagicMock(side_effect=lambda: store.request_mission_stop("M-F04")),
+                                   _stop_event=threading.Event()))
+    state._run = lambda: None  # HTTP boundary fixture has no product execution thread.
     monkeypatch.setattr(server, "ROOT", root)
     monkeypatch.setattr(server, "PANEL", state)
     yield SimpleNamespace(root=root, runtime=runtime, store=store, state=state)
@@ -393,15 +395,16 @@ def test_real_browser_text_rendering_nonce_and_pending_writes(http_panel, monkey
     document.getElementById('d_text').value='普通中文 directive';
     await twice('btnSend','directive');
     await twice('btnStop','stop');
-    check(document.getElementById('toast').textContent.includes('已请求停止'),'missing accepted Stop message');
+    check(document.getElementById('toast').textContent.includes('取消请求已持久接收'),'missing accepted Stop message');
     await twice('btnStop','stop');
     check(document.getElementById('clientErrors').textContent.includes('STOP_RECEIPT_NOT_SAVED'),'lost Stop receipt error');
-    check(!document.getElementById('toast').textContent.includes('已请求停止'),'failed Stop displayed as accepted');
+    check(!document.getElementById('toast').textContent.includes('取消请求已持久接收'),'failed Stop displayed as accepted');
     document.getElementById('f_obj').value='normal objective';
     document.getElementById('f_ac').value='works';
     document.getElementById('newMission').classList.add('open');
     await twice('btnStart','mission');
-    for(const [mid,label] of [['M-ATTACH','查看'],['M-RESUME','续跑']]){
+    render({...LAST,running:false});
+    for(const [mid,label] of [['M-ATTACH','查看'],['M-RESUME','检查并恢复']]){
       const find=()=>[...document.querySelectorAll('#missionsList button')].find(b=>b.textContent===label && b.closest('.mrow').textContent.includes(mid));
       find().click(); render(LAST); find().click(); await waitFor(()=>!PENDING.has('mission'));
     }

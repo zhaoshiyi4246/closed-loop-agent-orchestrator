@@ -102,7 +102,7 @@ cap 是 runner 的循环边界检查，不是抢占中断或确认所有 Worker 
 `gate.timeout_seconds` 限制 Task/baseline/Final Gate 的每条命令；
 `gate.output_limit_chars` 分别限制每条命令 stdout/stderr 的持久化和后续证据正文，
 截断标记另计。原长度、SHA-256 和超时类别可查询；失败编号在截断前提取。
-进程捕获仍使用现有 `subprocess.run`，这不是进程内存上限。截断片段无法通过
+进程输出仍捕获在内存中，这不是进程内存上限。截断片段无法通过
 F01 的完整证据校验，不能因此假装 Gate 或 Verifier 已通过。
 
 页面显示准备、AO 调用、观察/审批等待、语义角色、各 Gate、materialization/merge
@@ -111,6 +111,25 @@ F01 的完整证据校验，不能因此假装 Gate 或 Verifier 已通过。
 resolved model、conversation 后续 reroute 各自显示来源；缺字段不从配置猜测，也不把
 Session 或 reroute 事实当成单次 provider 请求模型/精确耗时。SSE 断连保留最后状态，重连以顺序化
 完整快照替换，不重放写请求。HTTP 处理耗时和状态快照耗时不等于模型调用耗时。
+
+## 指令、取消与恢复（v0.3 R02 本分支待审计）
+
+指令发送成功表示 receipt 已持久接收；页面显示 received/applied/rejected/unknown，
+以及实际消费者、时间与原因。Worker applied 仅表示 AO 接受消息；Planner 镜像单列，
+不代表 Auditor/Verifier/Worker 主目标已消费。Observer/Gate 是确定性程序，不能接受
+语义指令。Final Verifier 实际读取面向 verifier 的 notes；同 command 重试不重复发送。
+
+“取消本次执行”先接收请求，再确认当前本地 Codex/Gate 子进程与 AO Worker 停止；
+requested/cancelling 不等于 cancelled，unknown 表示需人工核对。未知停止不继续交付。
+历史查看不连接 AO、也不修改原库；非终态“检查并恢复”必须验证原配置/source、当前
+所需 Git/workspace/Session/operation/证据。缺材料不自动补造；终态只可创建有关联的新
+attempt，具有独立 identity/config/source/历史，原记录不变。旧停止未知时也不能开替代 attempt。
+
+每次新 Mission 要求 AO 来源分支的 local/origin tracking/真实 remote commit 一致，
+用只读查询冻结 exact source；需要访问已配置 origin。CLAO 不代为 fetch 或同步分支。
+后续来源漂移会阻断新 Worker spawn，integration 保持原 source。缺少 Worker 创建基线
+证据时交人工；不承诺跨 AO/Git 的原子创建。最多两个独立子任务保持可用；本版明确拒绝
+有 dependencies 的计划，避免下游 Worker 在没有上游代码的基线上执行。
 
 ## 结果与 SCM 边界
 

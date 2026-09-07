@@ -392,8 +392,10 @@ def test_stop_receipt_survives_crash_and_unknown_cleanup_restarts(tmp_path, ao):
     ao.session("w1")
     ao.fault, ao.terminate = "crash", False
     ao.before = lambda args: assert_stop_received(store, mc.mission.mission_id)
+    mc.request_stop()
+    assert not ao.calls
     with pytest.raises(Crash):
-        mc.request_stop()
+        mc.step()
     store.close()
     ao.before = None
     for _ in range(3):
@@ -402,7 +404,7 @@ def test_stop_receipt_survives_crash_and_unknown_cleanup_restarts(tmp_path, ao):
         row = mc._read_state()
         assert row["stop_request"]["source"] == "user"
         assert row["worker_stop"]["status"] == "UNKNOWN"
-        assert "stop requested" in row["reason"]
+        assert row["cancellation"]["status"] == "unknown"
         store.close()
     assert len(ao.calls) == 1
 
@@ -422,6 +424,7 @@ def test_stop_after_unbound_spawn_crash_reconciles_and_cleans_existing_worker(tm
     assert not next(iter(mc.tasks.values())).worker_session_id
     ao.fault = None
     mc.request_stop()
+    mc.step()
     assert ao.sessions["worker-0"]["isTerminated"] is True
     assert mc._read_state()["worker_stop"]["status"] == "CONFIRMED"
     assert [a[0] for a in ao.calls] == ["spawn", "session"]
@@ -491,12 +494,14 @@ def test_panel_stop_flag_follows_persisted_receipt(tmp_path, ao, monkeypatch):
     mc, store = mission_with_ao(tmp_path, ao)
     panel = PanelState()
     panel.rt = SimpleNamespace(controller=mc)
+    panel._run = lambda: mc.step()
     original = store.request_mission_stop
     def checked_receipt(mid):
         assert not panel.stop_flag.is_set()
         original(mid)
     monkeypatch.setattr(store, "request_mission_stop", checked_receipt)
-    assert panel.stop() == {"ok": True, "stop_requested": True}
+    assert panel.stop() == {"ok": True, "stop_requested": True, "cancellation_status": "requested"}
+    panel.thread.join(timeout=5)
     assert panel.stop_flag.is_set()
     assert store.mission_stop_requested(mc.mission.mission_id)
     assert mc._read_state()["worker_stop"]["status"] == "CONFIRMED"
@@ -509,6 +514,7 @@ def test_panel_failed_receipt_does_not_claim_stop(tmp_path, ao, monkeypatch):
     mc, store = mission_with_ao(tmp_path, ao)
     panel = PanelState()
     panel.rt = SimpleNamespace(controller=mc)
+    panel._run = lambda: mc.step()
     monkeypatch.setattr(store, "request_mission_stop", MagicMock(side_effect=OSError("disk full")))
     with pytest.raises(ClientError, match="disk full") as error:
         panel.stop()
@@ -533,6 +539,7 @@ def test_http_stop_acknowledges_durable_receipt_not_worker_termination(
     ao.terminate = False
     ao.fault = "timeout" if failure == "kill_timeout" else "false"
     http_panel.state.rt = SimpleNamespace(controller=mc)
+    http_panel.state._run = lambda: mc.step()
     kill = MagicMock(wraps=mc.executor.kill_worker)
     monkeypatch.setattr(mc.executor, "kill_worker", kill)
     if failure == "receipt":
@@ -545,6 +552,8 @@ def test_http_stop_acknowledges_durable_receipt_not_worker_termination(
         monkeypatch.setattr(mc, "request_stop", cleanup_error)
     try:
         status, _, data = request(http_panel, "POST", "/api/stop", {})
+        if http_panel.state.thread:
+            http_panel.state.thread.join(timeout=5)
         if failure == "receipt":
             assert status == 503 and data["ok"] is False
             assert "disk full" in data["error"]
@@ -603,7 +612,8 @@ def test_stop_during_spawn_adopts_late_ack_only_for_cleanup(tmp_path, ao):
         mc.request_stop()
     ao.before = stop_before_ack
     mc._dispatch_ready()
-    assert mc.state == "HUMAN"
+    mc.step()
+    assert mc.state == "CANCELLED"
     assert ao.sessions["worker-0"]["isTerminated"] is True
     assert mc._read_state()["worker_stop"]["status"] == "CONFIRMED"
     mc.adapter.get_session_workspace.assert_not_called()

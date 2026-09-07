@@ -20,6 +20,7 @@ import hashlib
 from contextlib import nullcontext
 import shlex
 import subprocess
+from .execution_control import run as controlled_run, checkpoint
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional
@@ -116,7 +117,9 @@ class IntegrationGate:
         context = self.diagnostics.phase(phase + "_gate", task_id=task.task_id,
                                         reason="running configured Gate and repository integrity checks") if isinstance(self.diagnostics, Diagnostics) else nullcontext({})
         with context as fact:
+            checkpoint()
             run = self._run(task, worktree_path, require_clean=require_clean, phase=phase)
+            checkpoint()
             fact["result"] = "pass" if run.ok else "fail"
             return run
 
@@ -164,7 +167,7 @@ class IntegrationGate:
                     "gate command unparseable as argv (shell is disabled)"
             else:
                 try:
-                    proc = subprocess.run(argv, shell=False, cwd=str(cwd),
+                    proc = controlled_run(argv, shell=False, cwd=str(cwd),
                                           capture_output=True, text=True,
                                           timeout=self.timeout_seconds, encoding="utf-8",
                                           errors="replace")

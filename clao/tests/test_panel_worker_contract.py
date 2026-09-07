@@ -302,10 +302,10 @@ def test_historical_resume_keeps_stored_project_id(monkeypatch, tmp_path):
     db.parent.mkdir(parents=True)
     conn = sqlite3.connect(db)
     try:
-        conn.execute("CREATE TABLE missions (payload_json TEXT NOT NULL)")
+        conn.execute("CREATE TABLE missions (mission_id TEXT PRIMARY KEY, payload_json TEXT NOT NULL)")
         conn.execute(
-            "INSERT INTO missions(payload_json) VALUES (?)",
-            (json.dumps({"mission": mission}),),
+            "INSERT INTO missions(mission_id,payload_json) VALUES (?,?)",
+            (mission_id, json.dumps({"mission": mission})),
         )
         conn.commit()
     finally:

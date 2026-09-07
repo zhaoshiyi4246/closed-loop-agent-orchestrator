@@ -156,17 +156,20 @@ class ActionExecutor:
                 "summary": reason, "requires_human": True})
         return saved
 
+    @staticmethod
+    def _fact(status, reason, *, result=None, **evidence):
+        return dict(status=status, evidence=dict(reason=reason, **evidence), result=result)
+
     @phase_call("reconciliation", role="worker")
-    def _reconcile(self, op, counters=()):
+    def reconciliation_fact(self, op):
         """AO 0.12.9 public reads only. Absence is NEVER proof of non-execution."""
-        counters = op["request"].get("success_counters", counters)
         try:
             if op["kind"] == "spawn":
                 req = op["request"]
                 matches = [s for s in self.adapter.operation_sessions()
                            if s.get("displayName") == req["marker"]]
                 if len(matches) != 1:
-                    return self._observe(op, "UNKNOWN", "spawn correlation is absent or ambiguous",
+                    return self._fact("UNKNOWN", "spawn correlation is absent or ambiguous",
                                          matches=len(matches))
                 candidate = matches[0]
                 sid = candidate.get("id")
@@ -177,24 +180,30 @@ class ActionExecutor:
                         "projectId": op["target"], "displayName": req["marker"],
                         "harness": req["harness"], "kind": "worker", "mode": "chat"}.items()):
                     raise ValueError("correlated Session fields do not match intent")
-                return self._observe(op, "SUCCEEDED", "exact persisted spawn marker identifies one Session",
-                                     result={"session_id": sid}, counters=counters,
+                return self._fact("SUCCEEDED", "exact persisted spawn marker identifies one Session",
+                                     result={"session_id": sid},
                                      isTerminated=fact["isTerminated"])
             if op["kind"] == "kill":
                 fact = self.adapter.operation_session(op["target"])
                 if fact["isTerminated"] is True and fact["status"] == "terminated":
-                    return self._observe(op, "SUCCEEDED", "AO Session confirms termination",
+                    return self._fact("SUCCEEDED", "AO Session confirms termination",
                                          result={"session_id": op["target"]},
                                          isTerminated=True, session_status="terminated")
                 # A current live fact also invalidates an old stop result after
                 # an external restore. Never re-kill that new episode blindly.
-                return self._observe(op, "UNKNOWN", "AO Session has not confirmed termination",
+                return self._fact("UNKNOWN", "AO Session has not confirmed termination",
                                      isTerminated=fact["isTerminated"], session_status=fact["status"])
             conversation = self.adapter.operation_conversation(op["target"])
-            return self._observe(op, "UNKNOWN", "ao send exposes no caller correlation key; conversation cannot prove this delivery",
+            return self._fact("UNKNOWN", "ao send exposes no caller correlation key; conversation cannot prove this delivery",
                                  observed_messages=len(conversation["messages"]))
         except Exception as exc:
-            return self._observe(op, "UNKNOWN", "AO reconciliation unavailable: " + type(exc).__name__)
+            return self._fact("UNKNOWN", "AO reconciliation unavailable: " + type(exc).__name__)
+
+    def _reconcile(self, op, counters=()):
+        fact = self.reconciliation_fact(op)
+        evidence = dict(fact['evidence'])
+        return self._observe(op, fact['status'], evidence.pop('reason'), result=fact['result'],
+                             counters=op['request'].get('success_counters', counters), **evidence)
 
     @staticmethod
     def _require_known(op):
@@ -279,11 +288,27 @@ class ActionExecutor:
                    # 120-bit marker is correlation, NOT an AO idempotency key.
                    "marker": secrets.token_urlsafe(15)}
         op = self.store.ensure_operation(identity, "spawn", owner_id, project_id, request)
+        if op['status'] == 'NOT_STARTED':
+            source = (self.store.mission_config(owner_id) or {}).get('source')
+            if source:
+                from .recovery import check_spawn_source
+                check_spawn_source(source, self.adapter)
         op = self._effect(op, self._spawn_args(project_id, harness, op["request"]["marker"], prompt),
                           timeout=self.spawn_timeout_seconds, counters=counters, max_attempts=self.max_spawn_attempts)
         if op["status"] in ("UNKNOWN", "IN_FLIGHT"):
             self._require_known(op)
         if op["status"] == "SUCCEEDED":
+            mission = self.store.mission_config(owner_id) or {}
+            source = mission.get('source')
+            if source:
+                from .recovery import worker_source
+                session = op['result']['session_id']
+                fact = worker_source(source, self.adapter.get_session_workspace(session))
+                workspaces = dict(mission.get('workspaces', {}))
+                if session in workspaces and workspaces[session] != fact:
+                    raise ValueError('spawn workspace/source changed')
+                workspaces[session] = fact
+                self.store.record_mission(owner_id, {'workspaces': workspaces})
             self._last_spawn_error = self._last_spawn_classification = ""
             return op["result"]["session_id"]
         self._last_spawn_error = (op["evidence"][-1]["fact"]["reason"] if op["evidence"]
@@ -414,6 +439,23 @@ class ActionExecutor:
         next_at = self.store.counter_get("spawn_next_at:" + task_id)
         return bool(next_at) and _epoch_seconds() < next_at
 
+    def worker_prompt(self, task, replacement=None):
+        from .structured import ProtocolError
+        spec = task.to_dict()
+        spec.update(replacement or {})
+        mission = self.store.mission_config(task.subtask_of) if task.subtask_of else None
+        instruction = (mission or {}).get('mission', {}).get('user_instruction', '')
+        prompt = ('Task: ' + spec['objective'] + '\n\nAcceptance criteria:\n' +
+            json.dumps(spec['acceptance_criteria'], ensure_ascii=False) + '\nAllowed paths:\n' +
+            json.dumps(spec['allowed_paths'], ensure_ascii=False) + '\nForbidden paths:\n' +
+            json.dumps(spec['forbidden_paths'], ensure_ascii=False) + '\nGate commands:\n' +
+            json.dumps(spec['gate_commands'], ensure_ascii=False) + '\nUser instruction:\n' + instruction +
+            '\nYour working directory is your private worktree; paths are relative to it. '
+            'Follow the allowed/forbidden scope. Run the Gate when ready; reply DONE and stop.')
+        if len(prompt.encode("utf-8")) > 4096:
+            raise ProtocolError('EVIDENCE_MISSING', 'complete Worker task prompt exceeds AO 4096-byte limit')
+        return prompt
+
     def spawn_initial_worker(self, task: TaskSpec) -> Optional[str]:
         """Spawn the first worker for a task (no prior worker_session_id).
 
@@ -433,28 +475,7 @@ class ActionExecutor:
                 self.spawn_cap_reached(task.task_id) or self._spawn_backoff_pending(task.task_id)):
             return None
         harness = getattr(task, "worker_harness", "codex") or "codex"
-        gate = "; ".join(task.gate_commands or [])
-        prompt = ("Task: %s\n\nAcceptance criteria:\n%s\n\n"
-                  "Work within allowed paths only. Do not modify tests or "
-                  "forbidden paths. Run the gate command when ready.\n\n"
-                  "Environment (do NOT waste turns exploring):\n"
-                  "- Your working directory IS your private worktree; all "
-                  "paths above are relative to it. Do not cd elsewhere.\n"
-                  "- python and pytest are installed and on PATH. Use "
-                  "`python -m pytest ...` directly.\n"
-                  "- Create/edit files with the Write/Edit tools directly; "
-                  "no need for ls/cat/command -v probing.\n"
-                  "- The gate command for this task: %s\n"
-                  "- If python/pytest turns out to be unavailable in YOUR "
-                  "shell, do NOT probe the environment (no which/where/"
-                  "python -c exploration): just complete the file edits and "
-                  "reply DONE — an external deterministic gate runs the "
-                  "tests authoritatively.\n"
-                  "- When the gate is green, reply DONE and stop."
-                  % (task.objective,
-                     "\n".join("- %s: %s" % (ac.id, ac.description)
-                               for ac in task.acceptance_criteria),
-                     gate or "(none)"))
+        prompt = self.worker_prompt(task)
         sid = self._spawn(task.project_id, harness,
                           ("worker-%s" % task.task_id)[:20], prompt,
                           identity=identity, owner_id=task.subtask_of or task.task_id)
@@ -569,7 +590,7 @@ class ActionExecutor:
         else:
             mission_replan_key = None
         spec = action.replacement_task_spec or {}
-        prompt = spec.get("objective", task.objective)
+        prompt = self.worker_prompt(task, spec)
         harness = getattr(task, "worker_harness", "codex") or "codex"
         # Stop the old worker before spawning a new one (re-route, not fork).
         # `ao session kill` terminates the session cleanly; the worktree is kept.

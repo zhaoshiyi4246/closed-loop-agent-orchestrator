@@ -38,8 +38,17 @@ def runtime_root(tmp_path, monkeypatch):
     monkeypatch.setattr(run_mission, "ROOT", root)
     monkeypatch.setattr(server, "ROOT", root)
     monkeypatch.setattr(run_mission, "setup_environment", lambda **kw: None)
-    monkeypatch.setattr(run_mission, "mission_preflight", lambda *a: {
-        "ao_bin": "fake-ao", "ao_run_file": root / "no-runfile", "project_path": root})
+    from tests.test_r02_lifecycle import repository
+    from loopcore.recovery import source_identity
+    repo = repository(tmp_path)
+    source = source_identity('P', repo, {'defaultBranch': 'main'})
+    from loopcore.ao_adapter import AOAdapter
+    class ProjectAdapter(AOAdapter):
+        def get_project(self, project_id):
+            return dict(id='P', path=str(repo), defaultBranch='main')
+    monkeypatch.setattr(run_mission, 'AOAdapter', ProjectAdapter)
+    monkeypatch.setattr(run_mission, "mission_preflight", lambda *a, **kw: {
+        "ao_bin": "fake-ao", "ao_run_file": root / "no-runfile", "project_path": repo, 'source': source})
     return root
 
 
@@ -137,8 +146,10 @@ def test_current_recovery_does_not_fabricate_legacy_config(runtime_root):
     with pytest.raises(config.ConfigError, match="no effective config snapshot"):
         run_mission.build_runtime(m, run_mission.load_config())
     rt = run_mission.build_runtime(m, run_mission.load_config(), dry_run=True, require_ao=False)
-    assert "effective_config" not in rt.store.mission_config(m["mission_id"])
-    rt.close()
+    assert rt.controller is None
+    reader = StateStore(rt.runtime / 'state.db', readonly=True)
+    assert "effective_config" not in reader.mission_config(m["mission_id"])
+    reader.close()
 
 
 @pytest.mark.parametrize("phase", ["task", "baseline", "final"])
@@ -281,7 +292,7 @@ def test_fractional_runner_poll_consumed_and_snapshot_sequence(runtime_root, mon
     results = iter([{"state": "RUNNING"}, {"state": "HUMAN"}])
     monkeypatch.setattr(rt.controller, "step", lambda: next(results))
     pauses = []
-    monkeypatch.setattr(run_mission.time, "sleep", pauses.append)
+    monkeypatch.setattr(rt.controller._stop_event, "wait", pauses.append)
     run_mission.run_loop(rt)
     assert pauses == [0.125]
     a, b = server.snapshot(), server.snapshot()
@@ -420,6 +431,8 @@ def test_effect_timeouts_reach_existing_spawn_send_kill_boundary(runtime_root, m
         return SimpleNamespace(returncode=0, stdout="spawned session w1 (worker)" if args[0] == "spawn" else "", stderr="")
     monkeypatch.setattr(rt.executor, "_run", invoke)
     monkeypatch.setattr(rt.adapter, "operation_session", lambda sid: {"id": sid, "isTerminated": bool(calls and calls[-1][0] == "session"), "status": "terminated" if calls and calls[-1][0] == "session" else "working"})
+    source = rt.store.mission_config('M-EFFECT-TIMEOUT')['source']
+    monkeypatch.setattr(rt.adapter, 'get_session_workspace', lambda sid: source['project_path'])
     assert rt.executor._spawn("P", "codex", "ignored", "secret prompt", identity="spawn-once", owner_id="M-EFFECT-TIMEOUT") == "w1"
     assert rt.executor._send("send-once", "M-EFFECT-TIMEOUT", "w1", "secret message")["status"] == "SUCCEEDED"
     assert rt.executor.kill_worker("w1", owner_id="M-EFFECT-TIMEOUT") is True

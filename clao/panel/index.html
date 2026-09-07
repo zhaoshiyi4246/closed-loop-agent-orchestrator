@@ -91,7 +91,7 @@
   <span id="elapsed" style="color:var(--dim);font-size:12px"></span>
   <span style="flex:1"></span>
   <button id="btnNew">＋ 新建任务</button>
-  <button id="btnStop" class="danger" disabled>■ 停止</button>
+  <button id="btnStop" class="danger" disabled>■ 取消本次执行</button>
 </header>
 <div class="card" style="margin:10px 16px"><pre id="diagnostics" class="diagnostic" role="status"></pre><pre id="clientErrors" class="diagnostic" role="alert"></pre></div>
 
@@ -134,7 +134,7 @@ tests/**</textarea>
   <!-- 左：任务与子任务 -->
   <div>
     <div class="card">
-      <h3>历史任务（可续跑/查看）</h3>
+      <h3>历史任务（查看 / 检查恢复 / 新 attempt）</h3>
       <div class="missions-list" id="missionsList"><span style="color:var(--dim)">无</span></div>
     </div>
     <div class="card" style="margin-top:10px">
@@ -246,8 +246,8 @@ tests/**</textarea>
     <option value="planner">Planner（仅其可见）</option>
     <option value="auditor">Auditor（同步 Planner）</option>
     <option value="verifier">Verifier（同步 Planner）</option>
-    <option value="observer">Observer（同步 Planner）</option>
-    <option value="gate">Gate（同步 Planner）</option>
+    <option value="observer" disabled>Observer（确定性程序，无指令消费者）</option>
+    <option value="gate" disabled>Gate（确定性程序，无指令消费者）</option>
   </select>
   <input id="d_text" placeholder="对所选 agent 下达指令…（发给非 Planner 的指令会自动同步 Planner）">
   <button class="primary" id="btnSend">发送</button>
@@ -267,7 +267,7 @@ function el(tag, value, cls){
   if(cls) node.className=cls;
   return node;
 }
-const STATES=new Set(["RUNNING","MISSION_READY","MISSION_DONE","DONE","HUMAN","FAILED","WORKER_RUNNING","WORKER_RETRYING"]);
+const STATES=new Set(["RUNNING","MISSION_READY","MISSION_DONE","DONE","HUMAN","FAILED","CANCELLING","CANCELLED","WORKER_RUNNING","WORKER_RETRYING"]);
 function badge(state){ return el("span", state, "badge"+(STATES.has(state)?" "+state:"")); }
 function toast(msg){ const node=$("toast"); node.textContent=msg; node.style.display="block";
   setTimeout(()=>node.style.display="none",2600); }
@@ -277,7 +277,8 @@ function uiError(source,error){
 }
 function syncButtons(){
   document.querySelectorAll("[data-write-key]").forEach(b=>b.disabled=PENDING.has(b.dataset.writeKey));
-  $("btnStop").disabled=PENDING.has("stop") || !LAST?.running;
+  $("btnStop").disabled=PENDING.has("stop") || !LAST?.running || !!LAST?.mission?.stop_request;
+  $("btnSend").disabled=PENDING.has("directive") || !LAST?.running || !!LAST?.mission?.stop_request || !!LAST?.mission?.inspection_only;
   $("btnStart").disabled=PENDING.has("mission") || $("f_project").disabled || !PROJECTS.length;
 }
 async function writeAction(key,path,body,success){
@@ -414,6 +415,12 @@ function render(s){
   $("runDot").className="dot"+(s.running?" on":"");
   $("elapsed").textContent=s.elapsed!=null?"已运行 "+text(s.elapsed)+"s":"";
   const diagnostics=[];
+  if(m?.cancellation) diagnostics.push("取消状态："+text(m.cancellation.status)+" · "+text(m.cancellation.reason || "历史字段未提供")+" · Worker stop="+text(m.worker_stop?.status ?? "unknown"));
+  if(m?.source) diagnostics.push("冻结 source："+text(m.source.source_ref)+" @ "+text(m.source.source_commit));
+  else if(m) diagnostics.push("冻结 source：historical unknown / unavailable");
+  if(m?.previous_attempt) diagnostics.push("前一 attempt："+text(m.previous_attempt));
+  if(m && s.directive_receipts?.status!=="ok") diagnostics.push("指令回执："+text(s.directive_receipts?.status ?? "historical unknown / unavailable"));
+  for(const r of s.directive_receipts?.records || []) diagnostics.push("指令 "+text(r.command_id)+" → "+text(r.target)+" · "+text(r.status)+" · "+text(r.reason)+"\n消费者："+text(r.consumers));
   if(m?.reason) diagnostics.push("Mission reason："+text(m.reason));
   if(m?.error) diagnostics.push("Mission read_error："+text(m.error));
   for(const error of s.panel_errors || []) diagnostics.push("Panel runner/error："+text(error));
@@ -432,7 +439,8 @@ function render(s){
     description.title=text(item.objective); description.append(badge(item.state)); row.append(description);
     const actions=el("span");
     if(m && m.id===item.mission_id) actions.append(el("em","当前"));
-    else if(!["MISSION_DONE","HUMAN","FAILED"].includes(item.state)) actions.append(actionButton("续跑","mission",()=>resume(item.mission_id)));
+    if(["MISSION_DONE","HUMAN","FAILED","CANCELLED"].includes(item.state)) actions.append(actionButton("新 attempt","mission",()=>newAttempt(item.mission_id)));
+    else if(!s.running) actions.append(actionButton("检查并恢复","mission",()=>resume(item.mission_id)));
     actions.append(actionButton("查看","mission",()=>attach(item.mission_id))); row.append(actions);
     if(item.error) row.append(el("pre","read_error："+text(item.error),"diagnostic"));
     missions.append(row);
@@ -520,7 +528,7 @@ $("f_project").onchange=showSelectedProject;
 $("btnProjects").onclick=loadProjects;
 $("btnNew").onclick=()=>{ if($("newMission").classList.toggle("open")){ $("f_sub").value=LAST?.default_config?.values?.budgets?.max_subtasks ?? 1; loadProjects(); } };
 for(const [id,key] of [["btnStart","mission"],["btnStop","stop"],["btnCfg","config"],["btnSend","directive"]]) $(id).dataset.writeKey=key;
-$("btnStop").onclick=()=>writeAction("stop","/api/stop",{},()=>toast("已请求停止；实际状态见 Mission"));
+$("btnStop").onclick=()=>writeAction("stop","/api/stop",{},()=>toast("取消请求已持久接收；正在确认停止，详见 Mission"));
 $("btnCfg").onclick=()=>writeAction("config","/api/config",{
   poll_seconds:+$("k_poll").value,idle_audit_cooldown_seconds:+$("k_idle").value,
   blocked_escalation_seconds:+$("k_block").value,l0_nudge_grace_seconds:+$("k_grace").value
@@ -537,13 +545,17 @@ $("btnStart").onclick=()=>writeAction("mission","/api/mission",{
 },d=>{ toast("已启动 "+d.mission_id); $("newMission").classList.remove("open"); });
 $("btnSend").onclick=()=>{
   const target=$("d_target").value, message=$("d_text").value.trim(); if(!message) return;
-  writeAction("directive","/api/directive",{target,text:message},d=>{
-    toast(d.directive.mirrored_to_planner?"已发送，并同步 Planner":"已发送（仅 Planner 可见）");
+  const signature=target+"\n"+message;
+  if(!window.directiveDraft || window.directiveDraft.signature!==signature) window.directiveDraft={signature,command_id:"CMD-"+crypto.randomUUID()};
+  writeAction("directive","/api/directive",{target,text:message,command_id:window.directiveDraft.command_id},d=>{
+    toast("指令已持久接收："+d.directive.command_id+"；消费结果见回执");
+    window.directiveDraft=null;
     if($("d_text").value.trim()===message) $("d_text").value="";
   });
 };
 $("d_text").addEventListener("keydown",e=>{ if(e.key==="Enter") $("btnSend").click(); });
-function resume(mid){ return writeAction("mission","/api/resume",{mission_id:mid},()=>toast("已续跑 "+mid)); }
+function newAttempt(mid){ return writeAction("mission","/api/new-attempt",{mission_id:mid},d=>toast("已创建关联 attempt "+d.mission_id)); }
+function resume(mid){ return writeAction("mission","/api/resume",{mission_id:mid},()=>toast("检查通过，已恢复 "+mid)); }
 function attach(mid){ return writeAction("mission","/api/attach",{mission_id:mid},()=>toast("已加载 "+mid)); }
 
 /* ---------------- live feed ---------------- */

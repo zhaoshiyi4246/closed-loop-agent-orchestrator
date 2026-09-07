@@ -47,7 +47,7 @@ def _current_head(worktree: str) -> Optional[str]:
     return out.strip() or None
 
 
-def freeze_base(worktree: str, store, task_id: str, scope: str = "") -> str:
+def freeze_base(worktree: str, store, task_id: str, scope: str = "", *, expected: Optional[str] = None) -> str:
     """Return the base commit for this task, freezing HEAD on first call.
 
     The SHA is kept in a JSON sidecar OUTSIDE the worktree (worker edits cannot
@@ -68,8 +68,9 @@ def freeze_base(worktree: str, store, task_id: str, scope: str = "") -> str:
         # the two writes used to leave base "" (fail-open); write order is
         # now sidecar-first, and an unreadable sidecar returns "" so callers
         # escalate instead of diffing against nothing.
-        return _read_base_sidecar(worktree, tag)
-    head = _current_head(worktree)
+        saved = _read_base_sidecar(worktree, tag)
+        return saved if expected is None or saved == expected else ""
+    head = expected or _current_head(worktree)
     if not head:
         return ""
     _write_base_sidecar(worktree, tag, head)
@@ -695,7 +696,7 @@ def _main_head(repo_path: str) -> Optional[str]:
 
 
 def add_integration_worktree(repo_path: str, branch: str,
-                             target_path: str) -> Optional[str]:
+                             target_path: str, *, source_commit: Optional[str] = None) -> Optional[str]:
     """Create (or reuse) an integration worktree for a mission.
 
     The new branch starts at the MAIN worktree's HEAD — never at a worker
@@ -704,16 +705,18 @@ def add_integration_worktree(repo_path: str, branch: str,
     mission diff showed only the LAST merged subtask (root cause of
     MISSION-QUICK-010's phantom 'square missing' verdict).
     """
-    start = _main_head(repo_path)
+    start = source_commit or _main_head(repo_path)
     if not start:
         return None
     Path(target_path).mkdir(parents=True, exist_ok=True)
-    args = ["worktree", "add", "--checkout", "-B", branch, target_path]
+    args = ["worktree", "add", "--checkout", "-b", branch, target_path]
     if start:
         args.append(start)
     ok, out = _git_check(repo_path, *args)
     if ok:
         return target_path
+    if source_commit is not None:
+        return None  # Never reuse an unrelated branch as a frozen Mission source.
     # "already exists" variants: try plain add (branch exists), then reuse
     ok, _ = _git_check(repo_path, "worktree", "add", target_path, branch)
     if ok:

@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+from .execution_control import run as controlled_run, checkpoint
 import tempfile
 from pathlib import Path
 from typing import Optional, Union
@@ -93,7 +94,7 @@ def run_codex_json(
         ]
         with model_attempt(model) as fact:
             try:
-                completed = subprocess.run(
+                completed = controlled_run(
                     command,
                     input=prompt,
                     cwd=workdir,
