@@ -6,21 +6,22 @@
 
 ## 当前唯一执行指针
 
-- 当前阶段：**M2 IN_PROGRESS**；M0 / M1 COMPLETE。
-- 当前唯一执行指针：**V03-R02 — 指令回执、取消恢复、固定基线**，IN_REVIEW；base `b748363b0173b725bc20fc65caeffe2180449df1`，分支 `codex/v03-r02-lifecycle-contract`；实现与定向验证完成，[PR #38](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/38) 已提交等待外部审计；产品提交 `a7f65070a51554ee367f7f83af1851183095d6be`；不合并、不开始 U01。
-- 最近完成：**V03-R01 — 有效配置与阶段诊断**，DONE；[PR #37](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/37) 再次外部审计 PASS、无其他返修；2026-09-07 已 rebase merge 到 main `551f7f49198e033b1331ec341ff0d352553bacb1`，合入 tree 与已审计 head `e88c698a211ee5cd179709701ada1a7aa3079d3a` 完全相同。
+- 当前阶段：**M2 COMPLETE**；M0 / M1 COMPLETE；M3 TODO。
+- 当前唯一执行指针：**V03-U01 — iPhone 风格界面骨架与状态夹具**，TODO；仅作为下一任务，尚未开始实现。
+- 最近完成：**V03-R02 — 指令回执、取消恢复、固定基线**，DONE；[PR #38](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/38) 外部审计 PASS、无返修，2026-09-07 已 rebase merge 到 main `2377dd03c172461c63d26835e23abe7171e883a9`；合入 tree 与已审计 head `7d91443cd10b95d8238b5febdee4dfa59026e28e` 完全相同。
+- R01 保持完成：**V03-R01 — 有效配置与阶段诊断**，DONE；[PR #37](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/37) 再次外部审计 PASS、无其他返修；2026-09-07 已 rebase merge 到 main `551f7f49198e033b1331ec341ff0d352553bacb1`，合入 tree 与已审计 head `e88c698a211ee5cd179709701ada1a7aa3079d3a` 完全相同。
 - F01 / F02 / F03 / F04 / F05 保持 DONE；[PR #32](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/32) / [PR #33](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/33) / [PR #34](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/34) / [PR #35](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/35) / [PR #36](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/36) 均已审计 PASS 并合入，历史证据仍有效，详见对应卡。
 - F05 已实现：同一 StateStore 持久 intent / IN_FLIGHT / confirmed result / UNKNOWN；spawn 精确随机标记对账、普通 send 未确认不重发、kill 需 AO Session 终止事实。Stop 先持久接收，HTTP 回执反映 receipt 保存事实；未知停止阻断 replan 和 materialization，不扩展 Mission 生命周期。
 - 沿用 F05 既有验证：Windows operation/预算定向 **114 passed / 79.75s**、ClosedLoop 恢复入口 **9 passed / 29.08s**（集合重叠不累计）；Stop receipt 返修 F05/Panel 定向 **122 passed / 44.87s**，含真实 HTTP 与浏览器错误提示。compileall 等详细证据及 AO 契约边界见 F05 卡。
 - R01 当前实现：CLI/Panel 共用严格配置解析与原子默认设置保存；Mission 快照冻结；模型、AO/轮询与各 Gate 参数接到真实消费者；同一 StateStore 记录在途阶段与请求计时，SSE 用有序完整快照恢复。配置迁移、消费者及剩余边界见 PROJECT / R01 卡。
 - 沿用 R01 定向证据（本轮未重跑）：Windows 配置/Panel/角色/契约集合 311 passed；最终 R01 37 passed，含 Edge 配置与 SSE 交互；补充 F05/Gate/审批及 AO 适配复查见 R01 卡，重叠不累计。compileall、diff-check、21 个本地链接及现有发布映射前缀检查通过。NOT_RUN：全量、安装、打包、smoke、真实 AO/模型、GUI 视觉重设计验收。
 - R01 审计返修：复用正常 Session/详情读取中的公开 `model`，记录独立 spawn-resolved 事实；conversation reroute 单列，缺失不猜测，旧 reroute 不重标为 spawn。Windows R01/AO/Panel 定向 **184 passed / 37.84s**，含 Edge 模型来源/安全渲染/SSE；compileall、diff-check、本地链接通过，未重跑 311 项大集合或 live。
-- R01 剩余边界：历史缺配置快照仅查看；完整恢复属于 R02；无法确认的模型、用量和费用保持 unknown，不伪造历史事实。
-- 本轮仅实施 R02；集中定向 Windows / 浏览器验证后提交 PR，不自行合并，不开始 U01 或模型扩展，不创建 tag/Release。
+- R01 剩余边界：历史缺配置快照仅查看；R02 已补齐受支持的恢复检查；无法确认的模型、用量和费用保持 unknown，不伪造历史事实。
+- 本轮收尾仅同步五个背景文件，未追加产品功能或重跑测试；不开始 U01/模型扩展，不创建 tag/Release。
 
-- R02 本分支：StateStore durable directive receipt 与真实角色/Worker 消费记录；取消 requested/cancelling/cancelled/unknown 与 F05 停止事实分开；历史只读，非终态先检查真实恢复材料，终态关联新 attempt；冻结 Mission source、漂移阻断新 spawn，明确拒绝 dependent plan，保留两个独立子任务。
-- R02 Windows 定向复查：125 passed；Panel/恢复相关复查 148 passed；F05 59 passed；最后输入/attempt 边界 9 passed、materialization/新快照 2 passed（集合重叠，不累计）。含隔离 Git/SQLite、真实本地 HTTP 与 Edge；具体命令、静态检查及边界见 R02 卡。
-- R02 剩余边界：AO 无 exact-commit spawn 参数，漂移前阻断并检查 Worker 创建基线；无法确认的 operation/本地进程/历史材料仍交人工。无自动历史补建、无暂停调度器，未知模型/用量/费用不伪造。NOT_RUN：全量、安装、打包、smoke、真实 AO/模型、完整 GUI 视觉验收。
+- R02 已合入：StateStore durable directive receipt 与真实角色/Worker 消费记录；取消 requested/cancelling/cancelled/unknown 与 F05 停止事实分开；历史只读，非终态先检查真实恢复材料，终态关联新 attempt；冻结 Mission source、漂移阻断新 spawn，明确拒绝 dependent plan，保留两个独立子任务。
+- 沿用 R02 Windows 定向证据（本轮未重跑）：125 passed；Panel/恢复相关复查 148 passed；F05 59 passed；最后输入/attempt 边界 9 passed、materialization/新快照 2 passed（集合重叠，不累计）。含隔离 Git/SQLite、真实本地 HTTP 与 Edge；具体命令、静态检查及边界见 R02 卡。
+- R02 剩余边界：AO 当前没有 exact-commit spawn 参数，source 检查与 AO 创建不是原子事务；漂移/创建基线不匹配继续 fail closed，不宣称 exactly-once；无法确认的 operation/本地进程/历史材料仍交人工。无自动历史补建、无暂停调度器，未知模型/用量/费用不伪造。NOT_RUN：全量、安装、打包、smoke、真实 AO/模型、完整 GUI 视觉验收。
 
 ## 快速查询
 
@@ -35,7 +36,7 @@
 |---|---|---|
 | M0 基线与目录整理 | COMPLETE（DOC-00 / LAYOUT DONE） | 规划已批准入库；纯路径迁移验证；副本分类整理含保留项；人工审计 PASS |
 | M1 修复冻结 | COMPLETE（F01–F05 DONE，均已审计 PASS 并合入） | F01—F05负例与正常路径通过 |
-| M2 使用契约 | IN_PROGRESS（R01 DONE；R02 IN_REVIEW） | 配置、回执、取消恢复、基线可追溯 |
+| M2 使用契约 | COMPLETE（R01 / R02 DONE，均已审计 PASS 并合入） | 配置、回执、取消恢复、基线可追溯 |
 | M3 GUI与交付体验 | TODO | 四入口＋任务旅程＋结果导出＋浏览器验收 |
 | M4 模型扩展 | TODO | GLM与Kimi语义profile；Worker明确支持/拒绝决策 |
 | M5 发布候选 | TODO | 最终ZIP、Windows、真实模型/GUI/恢复与来源证据 |

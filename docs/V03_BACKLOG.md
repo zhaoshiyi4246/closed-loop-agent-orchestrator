@@ -1,6 +1,6 @@
 # CLAO v0.3 任务与验收台账
 
-版本：0.3-plan-r1 · 2026-09-06。状态：已批准 / IN EFFECT。DOC-00、F01–F05、R01 已完成（DONE），M0 / M1 为 `COMPLETE`；当前任务 R02 为 `IN_REVIEW`，M2 `IN_PROGRESS`；其余功能卡状态见下表，原报告的发现不等于已复现或已修复。
+版本：0.3-plan-r1 · 2026-09-06。状态：已批准 / IN EFFECT。DOC-00、F01–F05、R01 / R02 已完成（DONE），M0 / M1 / M2 为 `COMPLETE`；当前唯一下一任务 U01 为 `TODO`，M3 `TODO`；其余功能卡状态见下表，原报告的发现不等于已复现或已修复。
 
 设计以 [V03_PLAN.md](V03_PLAN.md) 为准。当前唯一任务由根目录 [PLANS.md](../PLANS.md) 指定。本文件保存每张卡的详细状态和证据，PLANS 不重复整张台账。
 
@@ -39,7 +39,7 @@
 | V03-F04 | M1 | Gate查询、本地API与安全渲染 | F01的结果字段约定 | DONE（PR #35 审计 PASS / merged） |
 | V03-F05 | M1 | 停止确认与未知外部动作保护 | DOC-00 | DONE（PR #36 再次审计 PASS / merged） |
 | V03-R01 | M2 | 有效配置与阶段诊断 | F01/F04 | DONE（PR #37 再次审计 PASS / merged） |
-| V03-R02 | M2 | 指令回执、取消恢复、固定基线 | F03/F05/R01 | IN_REVIEW |
+| V03-R02 | M2 | 指令回执、取消恢复、固定基线 | F03/F05/R01 | DONE（PR #38 审计 PASS / merged） |
 | V03-U01 | M3 | iPhone风格界面骨架与状态夹具 | G1；R01/R02字段设计 | TODO |
 | V03-U02 | M3 | 完整任务GUI与数据接线 | U01/R02/F04 | TODO |
 | V03-U03 | M3 | 结果中心与独立导出 | U02/F03 | TODO |
@@ -200,7 +200,7 @@ G1=F01—F05；G2=R01—R02；G3=U01—U03；G4=P01—P02及P03有记录的支�
 
 ## V03-R02｜指令回执、取消恢复、固定基线
 
-- 状态：IN_REVIEW；base `b748363b0173b725bc20fc65caeffe2180449df1`，分支 `codex/v03-r02-lifecycle-contract`。[PR #38](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/38) 已提交，产品提交 `a7f65070a51554ee367f7f83af1851183095d6be`；仅实施 R02，M2 IN_PROGRESS，R01 DONE，U01 TODO。
+- 状态：DONE；[PR #38](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/38) 外部审计 PASS、无需返修，2026-09-07 已 rebase merge 到 main `2377dd03c172461c63d26835e23abe7171e883a9`；已审计 head `7d91443cd10b95d8238b5febdee4dfa59026e28e`。原 base `b748363b0173b725bc20fc65caeffe2180449df1`，分支 `codex/v03-r02-lifecycle-contract`；R01 / R02 DONE，M2 COMPLETE，下一任务 U01 TODO，未开始实现。
 - 对应：A06、A08、A09。落点：directives、Controller、Store、Panel和Git基线。
 - 工作：received/applied/rejected/unknown回执；final verifier notes真实消费；Worker prompt范围完整；取消中与已取消区分；崩溃恢复只读检查材料；终态新attempt关联；Mission固定source commit。
 - 必测：指令无消费者；入队与落盘失败；取消发生在Worker/语义角色/Gate；旧HUMAN不重新变running；旧记录字段缺失；source main/remote分歧；S2缺依赖代码。
@@ -213,11 +213,13 @@ G1=F01—F05；G2=R01—R02；G3=U01—U03；G4=P01—P02及P03有记录的支�
 - 最后边界验证：实际 Planner/Auditor/Final Verifier 输入、晚到指令、旧本地进程 UNKNOWN 阻断新 attempt、durable channel 与 Edge 组合 **9 passed / 16.39s**；真实 HTTP 新 attempt→runtime→新 source/config（原记录不变）和 materialization 中取消阻断 integration **2 passed / 5.58s**。Edge 检查取消四状态、回执/历史 unknown、安全文本、禁用确定性目标、新 attempt 快速重复点击；沿用 F04 SSE/nonce/错误边界回归。
 - 静态/页面收尾：真实 Edge 历史 receipt unknown 展示复查 **1 passed / 12.03s**；compileall（src/panel/run_mission.py 与直接变更测试）、diff-check、5 个 Markdown 的 21 个本地链接 PASS；3 个新增薄 helper/测试文件由现有 manifest 前缀覆盖。依赖、发布映射、AGENTS 与设计主文档不变。
 - 夹具同步：旧内存 queue/drain 改为可重启 Store 收据断言；旧 Stop 立即 HUMAN 改为 receipt→Controller 停止事实；旧依赖计划成功夹具替换为明确拒绝负例，并保留独立双任务正例。未删除失败用例或绕开产品 schema 校验。
-- NOT_RUN：全量、clean install、打包、smoke、真实 AO Mission/模型、完整 GUI 视觉验收；无 tag/Release，未开始 U01/供应商/导出。M2 IN_PROGRESS，等待本卡外部审计后才能 COMPLETE。
-- 剩余边界：恢复检查为只读时点事实，不是跨 AO/Git 的原子事务；source 检查与 spawn 间仍可能外部竞态，创建基线不符即阻断交付。已中断本地进程/语义输入或不完整 Git/SQLite 材料保守交人工；无自动 UNKNOWN 解除或通用进程恢复。历史活跃 WAL 缺少必要共享内存材料时只读查看返回 unavailable，不写回修复。
+- NOT_RUN：全量、clean install、打包、smoke、真实 AO Mission/模型、完整 GUI 视觉验收；无 tag/Release，未开始 U01/供应商/导出。实施阶段未运行项保持不变，沿用既有定向证据。
+- 剩余边界：恢复检查为只读时点事实，不是跨 AO/Git 的原子事务；AO 当前没有 exact-commit spawn 参数，source 检查与 AO 创建间仍可能外部竞态；创建基线不符继续 fail closed，不宣称 exactly-once。已中断本地进程/语义输入或不完整 Git/SQLite 材料保守交人工；无自动 UNKNOWN 解除或通用进程恢复。历史活跃 WAL 缺少必要共享内存材料时只读查看返回 unavailable，不写回修复。
+- 合并收尾（2026-09-07）：合入 tree 与已审计 head 完全相同；本地 main 正常 fast-forward 同步。仅最小更新 PLANS、BACKLOG、PROJECT、根 README 与 clao/README；文档链接/路径、diff-check、产品实现 blob 未变检查通过。未重跑定向测试、全量、安装、打包、smoke、真实 AO/模型或完整 GUI 验收；无 tag/Release。M0 / M1 / M2 COMPLETE，M3 TODO；唯一下一任务 U01 TODO，未实施。
 
 ## V03-U01｜iPhone风格界面骨架与状态夹具
 
+- 状态：TODO；当前唯一下一任务，M3 TODO；本轮未开始实现。
 - 对应：GUI新设计，A12。依赖：G1已通过；G2字段约定确定。
 - 工作：四入口、浅/深主题、响应式、分组卡片、渐进表单、键盘焦点；拓扑降为高级诊断。先用状态夹具展示完整/失败/取消/断连/审批/空记录。
 - 完成：负责人审核1440/1366/768/390宽截图与键盘流程；不把mock原型写成真实功能；无字体/图标许可遗漏。

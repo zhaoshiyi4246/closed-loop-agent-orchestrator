@@ -112,7 +112,7 @@ resolved model、conversation 后续 reroute 各自显示来源；缺字段不�
 Session 或 reroute 事实当成单次 provider 请求模型/精确耗时。SSE 断连保留最后状态，重连以顺序化
 完整快照替换，不重放写请求。HTTP 处理耗时和状态快照耗时不等于模型调用耗时。
 
-## 指令、取消与恢复（v0.3 R02 本分支待审计）
+## 指令、取消与恢复（v0.3 R02 已审计 PASS 并合入）
 
 指令发送成功表示 receipt 已持久接收；页面显示 received/applied/rejected/unknown，
 以及实际消费者、时间与原因。Worker applied 仅表示 AO 接受消息；Planner 镜像单列，
@@ -128,7 +128,8 @@ attempt，具有独立 identity/config/source/历史，原记录不变。旧停�
 每次新 Mission 要求 AO 来源分支的 local/origin tracking/真实 remote commit 一致，
 用只读查询冻结 exact source；需要访问已配置 origin。CLAO 不代为 fetch 或同步分支。
 后续来源漂移会阻断新 Worker spawn，integration 保持原 source。缺少 Worker 创建基线
-证据时交人工；不承诺跨 AO/Git 的原子创建。最多两个独立子任务保持可用；本版明确拒绝
+证据时交人工；AO 当前没有 exact-commit spawn 参数，source 检查与 AO 创建不是原子事务，
+不匹配继续 fail closed，不宣称 exactly-once。最多两个独立子任务保持可用；本版明确拒绝
 有 dependencies 的计划，避免下游 Worker 在没有上游代码的基线上执行。
 
 ## 结果与 SCM 边界
