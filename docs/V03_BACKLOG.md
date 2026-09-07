@@ -200,7 +200,7 @@ G1=F01—F05；G2=R01—R02；G3=U01—U03；G4=P01—P02及P03有记录的支�
 
 ## V03-R02｜指令回执、取消恢复、固定基线
 
-- 状态：IN_REVIEW；base `b748363b0173b725bc20fc65caeffe2180449df1`，分支 `codex/v03-r02-lifecycle-contract`。仅实施 R02，M2 IN_PROGRESS，R01 DONE，U01 TODO。
+- 状态：IN_REVIEW；base `b748363b0173b725bc20fc65caeffe2180449df1`，分支 `codex/v03-r02-lifecycle-contract`。[PR #38](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/38) 已提交，产品提交 `a7f65070a51554ee367f7f83af1851183095d6be`；仅实施 R02，M2 IN_PROGRESS，R01 DONE，U01 TODO。
 - 对应：A06、A08、A09。落点：directives、Controller、Store、Panel和Git基线。
 - 工作：received/applied/rejected/unknown回执；final verifier notes真实消费；Worker prompt范围完整；取消中与已取消区分；崩溃恢复只读检查材料；终态新attempt关联；Mission固定source commit。
 - 必测：指令无消费者；入队与落盘失败；取消发生在Worker/语义角色/Gate；旧HUMAN不重新变running；旧记录字段缺失；source main/remote分歧；S2缺依赖代码。
