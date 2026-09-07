@@ -1,6 +1,6 @@
 # CLAO v0.3 任务与验收台账
 
-版本：0.3-plan-r1 · 2026-09-06。状态：已批准 / IN EFFECT。DOC-00、F01–F05、R01 / R02 已完成（DONE），M0 / M1 / M2 为 `COMPLETE`；当前唯一下一任务 U01 为 `TODO`，M3 `TODO`；其余功能卡状态见下表，原报告的发现不等于已复现或已修复。
+版本：0.3-plan-r1 · 2026-09-06。状态：已批准 / IN EFFECT。DOC-00、F01–F05、R01 / R02 已完成（DONE），M0 / M1 / M2 为 `COMPLETE`；当前任务 U01 为 `IN_REVIEW`，M3 `IN_PROGRESS`；其余功能卡状态见下表，原报告的发现不等于已复现或已修复。
 
 设计以 [V03_PLAN.md](V03_PLAN.md) 为准。当前唯一任务由根目录 [PLANS.md](../PLANS.md) 指定。本文件保存每张卡的详细状态和证据，PLANS 不重复整张台账。
 
@@ -40,7 +40,7 @@
 | V03-F05 | M1 | 停止确认与未知外部动作保护 | DOC-00 | DONE（PR #36 再次审计 PASS / merged） |
 | V03-R01 | M2 | 有效配置与阶段诊断 | F01/F04 | DONE（PR #37 再次审计 PASS / merged） |
 | V03-R02 | M2 | 指令回执、取消恢复、固定基线 | F03/F05/R01 | DONE（PR #38 审计 PASS / merged） |
-| V03-U01 | M3 | iPhone风格界面骨架与状态夹具 | G1；R01/R02字段设计 | TODO |
+| V03-U01 | M3 | iPhone风格界面骨架与状态夹具 | G1；R01/R02字段设计 | IN_REVIEW |
 | V03-U02 | M3 | 完整任务GUI与数据接线 | U01/R02/F04 | TODO |
 | V03-U03 | M3 | 结果中心与独立导出 | U02/F03 | TODO |
 | V03-P01 | M4 | 模型配置／凭据与GLM语义后端 | F01/R01/F04 | TODO |
@@ -219,12 +219,30 @@ G1=F01—F05；G2=R01—R02；G3=U01—U03；G4=P01—P02及P03有记录的支�
 
 ## V03-U01｜iPhone风格界面骨架与状态夹具
 
-- 状态：TODO；当前唯一下一任务，M3 TODO；本轮未开始实现。
+- 状态：IN_REVIEW；M3 IN_PROGRESS，base `89f1e1e475ea46246f9a6f9307d50ccb71b4995f`，分支 `codex/v03-u01-workbench-shell`；U02/U03 TODO。
 - 对应：GUI新设计，A12。依赖：G1已通过；G2字段约定确定。
 - 工作：四入口、浅/深主题、响应式、分组卡片、渐进表单、键盘焦点；拓扑降为高级诊断。先用状态夹具展示完整/失败/取消/断连/审批/空记录。
 - 完成：负责人审核1440/1366/768/390宽截图与键盘流程；不把mock原型写成真实功能；无字体/图标许可遗漏。
 - 不做：iPhone外框、网页远程手机接入、大面积模糊/发光、换框架。
-- 证据：待填。
+- 实现：同一页面四入口、12 个本地 Lucide 符号、浅/深/系统主题、响应式分组卡片；四步新建表单保留输入，原始状态/拓扑移至高级详情。真实接口/状态权威不变，默认设置仅影响新任务；现有历史/指令/取消/恢复入口保留，UNKNOWN 不画为成功。
+- 预览：`/?preview=empty|running|approval|success|failure|cancelling|cancelled|stop_unknown|disconnected|gate_read_error`（选其中一个值）；使用真实组件，明确样例标识，零项目/文件/SSE 读取、统一阻断写 API。正常模式无样例回填。[正常启动与预览说明](../clao/README.md#工作台与状态预览v03-u01-开发分支)；保留后端启动时完整 preflight/source 检查，未提前实施 U02。
+- Windows 定向命令（产品 venv、src/PATH 环境）：`python -m pytest tests/test_u01_panel.py tests/test_f04_panel_boundaries.py tests/test_panel_worker_contract.py tests/test_r01_effective_config.py::test_browser_config_phases_and_sse_reconnect_are_safe tests/test_r01_effective_config.py::test_http_defaults_restart_fractional_atomic_failure tests/test_r02_lifecycle.py::test_real_edge_r02_status_receipts_and_new_attempt_pending -q` → **166 passed / 29.07s**。保留原负例/副作用计数，更新测试以操作新详情/渐进表单；增加 UNKNOWN 禁止新 attempt 的 UI 负例。
+- 最终窄屏修正后：`python -m pytest tests/test_u01_panel.py::test_edge_workbench_preview_keyboard_themes_and_actual_200_percent_zoom -q -s` → **1 passed / 8.68s，实际 Edge 184 项断言**；图标精确子集/完整许可复查 **1 passed / 1.15s**。与上列集合重叠，不累计为额外产品用例。
+- 浏览器覆盖：1440×900、1366×768、768×1024、390×844 浅/深主题与四入口；实际 browser zoom=200%（临时隔离 profile/测试扩展，非 CSS zoom）；语义文本对比度 ≥4.5:1、主要操作高度 ≥44px；键盘弹层/焦点恢复、字段错误/草稿保留、长文本/XSS、断连保留/SSE 去重、预览零 API 请求。正常 `panel/server.py --no-browser` 启动方式已打开四入口预览，未创建真实任务。
+- 静态检查：compileall、Node JS 语法、diff-check、本地文档路径及既有 `panel/` manifest 前缀覆盖检查通过；Python 仅增加五个固定静态资源路径，不扩大文件访问或 CSP 脚本权限。
+- 截图：以下 **19 张实际 Edge 截图**由实现直接产生，已逐张自查并修正空图标与模型页窄屏挤压；代码与视觉最终结论 **PENDING，等待负责人审计**。不把自动化检查或截图生成写成视觉 PASS。
+
+| 主界面尺寸 | 浅色 | 深色 |
+|---|---|---|
+| 1440×900 | [查看](assets/u01/overview-1440-light.png) | [查看](assets/u01/overview-1440-dark.png) |
+| 1366×768 | [查看](assets/u01/overview-1366-light.png) | [查看](assets/u01/overview-1366-dark.png) |
+| 768×1024 | [查看](assets/u01/overview-768-light.png) | [查看](assets/u01/overview-768-dark.png) |
+| 390×844 | [查看](assets/u01/overview-390-light.png) | [查看](assets/u01/overview-390-dark.png) |
+
+代表性页面：[任务](assets/u01/tasks-light.png)、[模型](assets/u01/models-light.png)、[设置](assets/u01/settings-light.png)、[审批等待](assets/u01/overview-approval-light.png)、[范围失败](assets/u01/detail-failure-light.png)、[停止未知](assets/u01/detail-stop_unknown-light.png)、[Gate read_error](assets/u01/detail-gate_read_error-light.png)、[确认表单/特殊字符](assets/u01/form-confirm-light.png)、[200% 缩放操作可达](assets/u01/form-200-percent-light.png)、[390 深色模型页](assets/u01/models-390-dark.png)、[390 深色表单](assets/u01/form-390-dark.png)。
+
+- NOT_RUN：全量回归、clean install、打包、smoke、真实 AO Mission/收费模型、完整 U02 任务旅程与负责人最终视觉验收。没有 GLM/Kimi 接入、结果导出、Controller/Store 重构、tag 或 Release。
+- 下一步：仅等待本 PR 的代码与视觉审计；M0/M1/M2 COMPLETE，M3 IN_PROGRESS，U02/U03 TODO。
 
 ## V03-U02｜完整任务GUI与数据接线
 

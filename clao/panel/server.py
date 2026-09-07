@@ -26,6 +26,15 @@ from pathlib import Path
 from types import SimpleNamespace
 
 PANEL_DIR = Path(__file__).resolve().parent
+# Exact public assets only. Never turn a request path into a filesystem path.
+PANEL_ASSETS = {
+    "/" + name: (PANEL_DIR / name, mime)
+    for name, mime in (
+        ("app.css", "text/css"), ("app.js", "text/javascript"),
+        ("fixtures.js", "text/javascript"), ("icons.svg", "image/svg+xml"),
+        ("icons-LICENSE.txt", "text/plain"),
+    )
+}
 ROOT = PANEL_DIR.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
@@ -568,6 +577,17 @@ class Handler(BaseHTTPRequestHandler):
 
     def _get(self):
         path = urllib.parse.urlparse(self.path).path
+        if path in PANEL_ASSETS:
+            resource, mime = PANEL_ASSETS[path]
+            content = resource.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", mime + "; charset=utf-8")
+            self.send_header("Content-Length", str(len(content)))
+            self.send_header("Cache-Control", "no-store")
+            self._security_headers()
+            self.end_headers()
+            self.wfile.write(content)
+            return
         if path == "/" or path == "/index.html":
             html = (PANEL_DIR / "index.html").read_text(encoding="utf-8").replace(
                 "__PANEL_NONCE__", self.server.panel_nonce).encode("utf-8")

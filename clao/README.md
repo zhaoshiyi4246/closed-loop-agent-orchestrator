@@ -52,12 +52,51 @@ bootstrap 只管理本目录的 Python 环境，不连接 AO，也不调用模�
 
 1. 启动 AO Desktop；
 2. 双击 `启动CLAO.bat`；
-3. 在 Project selector 中选择已注册的 AO Git Project；
-4. 填写目标、允许路径、验收条件和 Gate 命令；
-5. 保持默认 `max_subtasks=1`，只有确有独立并行收益时才选择 2；
-6. 启动 Mission，并在页面中查看 Task、Gate、Verifier 和 timeline。
+3. 选择“新建任务”，明确选择已注册的 AO Git Project；
+4. 依次填写目标与验收、允许路径与 Gate 命令；
+5. 在确认页检查现有默认模型与预算，保持默认单 Worker；只有确有独立子任务时选择 2；
+6. 确认启动后，在“任务”详情查看当前阶段、待处理事项和验收证据。
 
-Panel 不会构造 demo Project，也不会替用户注册或修改 AO Project。
+真实模式不会构造 demo Project，也不会替用户注册或修改 AO Project。
+模型与默认参数在“设置”中修改，只影响后续新任务；原始事实位于高级详情。
+
+## 工作台与状态预览（v0.3 U01 开发分支）
+
+本节描述 U01 分支实现，等待代码与视觉审计，尚未发布到 v0.2。
+概览、任务、模型、设置四个入口共用桌面侧栏与窄屏底部导航。主题支持浅色、深色和
+跟随系统，刷新后保留。新建任务为四步弹层，前进、返回、编辑与关闭后重开均保留草稿；
+只有现有 API 确认成功才提示已启动。取消请求接收与 Worker 停止未知仍明确区分。
+完整就绪检查/source 核对在后端启动边界进行，不把项目列表可读解释成全面就绪。
+
+正常启动后点击“状态预览”，或直接打开：
+
+```text
+http://127.0.0.1:7100/?preview=running
+```
+
+无需创建真实任务即可预览。已有 venv 的开发环境也可从产品目录运行：
+
+```powershell
+.\.venv\Scripts\python.exe .\panel\server.py --no-browser
+```
+
+| 参数 | 可复现状态 |
+|---|---|
+| `empty` / `running` / `approval` | 空记录、正常运行、等待审批 |
+| `success` / `failure` | 成功、失败（命令退出 0 但 scope 失败） |
+| `cancelling` / `cancelled` / `stop_unknown` | 取消中、已取消、停止未知 |
+| `disconnected` / `gate_read_error` | 断连、Gate 读取错误 |
+
+预览明确显示样例标识，并使用真实页面的同一套组件；不连接 SSE、不查询 AO 或真实
+任务文件、不发送写 API。返回根路径 `/` 才重新读取真实状态。没有样例补全真实空记录。
+主题仅是浏览器外观偏好，不涉及 Mission 配置。GLM/Kimi 标为待接入，Observer/Gate
+不是模型角色；结果导出与完整新任务旅程仍属后续任务。
+
+视觉参考：[Framework7 分组列表](https://framework7.io/docs/list-view)、
+[Konsta iOS 列表](https://konstaui.com/react/list)；没有引入这些框架。
+图标采用 [Lucide](https://lucide.dev/) 的 12 个本地 SVG 符号，固定上游提交
+`3859eb20fabe7fd95652fcd4395843b6c0bcdd01`，完整 [ISC / Feather MIT 许可](panel/icons-LICENSE.txt)
+随资源提供，来源见[官方许可](https://lucide.dev/license)。不使用 Emoji、远程字体或 Apple 素材。
 
 ## 使用 CLI
 
@@ -163,3 +202,10 @@ $env:PYTHONPATH = (Resolve-Path ".\src").Path
 .\.venv\Scripts\python.exe -m pytest .\tests -q
 .\.venv\Scripts\python.exe -m compileall -q .\src .\panel .\run_mission.py
 ```
+
+U01 定向浏览器开发检查使用本机 Edge 和开发环境的 Node/Playwright。设置 `U01_NODE`
+为开发 Node 可执行文件、`NODE_PATH` 指向含 Playwright 的开发依赖目录，然后运行
+`python -m pytest tests/test_u01_panel.py -q -s`。未提供开发 Node 时明确 SKIP；缺少
+Playwright 时不能视作浏览器通过。`U01_SCREENSHOTS` 可指定截图输出目录，默认在隔离
+测试临时目录。200% 检查使用临时隔离浏览器扩展设置真实 browser zoom，结束后清理，
+不安装到用户浏览器；产品运行不依赖 Node、Playwright 或该测试扩展。
