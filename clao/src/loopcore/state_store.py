@@ -95,6 +95,18 @@ CREATE TABLE IF NOT EXISTS counters (
   name TEXT PRIMARY KEY,
   value INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS external_operations (
+  operation_id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  owner_id TEXT NOT NULL,
+  target TEXT NOT NULL,
+  request_json TEXT NOT NULL,
+  status TEXT NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  result_json TEXT NOT NULL DEFAULT '{}',
+  evidence_json TEXT NOT NULL DEFAULT '[]',
+  updated_at TEXT NOT NULL
+);
 """
 
 
@@ -115,6 +127,125 @@ class StateStore:
     def close(self) -> None:
         with self._lock:
             self._conn.close()
+
+    # --------------------------------------------------- external effects
+    def operation(self, operation_id: str) -> Optional[Dict]:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT operation_id,kind,owner_id,target,request_json,status,attempts,"
+                "result_json,evidence_json,updated_at FROM external_operations WHERE operation_id=?",
+                (operation_id,)).fetchone()
+            if row is None:
+                return None
+            out = dict(zip(("operation_id", "kind", "owner_id", "target", "request",
+                            "status", "attempts", "result", "evidence", "updated_at"), row))
+            for key in ("request", "result", "evidence"):
+                out[key] = json.loads(out[key])
+            return out
+
+    def operations(self, owner_id: Optional[str] = None) -> List[Dict]:
+        with self._lock:
+            sql = "SELECT operation_id FROM external_operations"
+            rows = self._conn.execute(sql + (" WHERE owner_id=?" if owner_id else ""),
+                                      (owner_id,) if owner_id else ()).fetchall()
+            return [self.operation(row[0]) for row in rows]
+
+    def ensure_operation(self, operation_id: str, kind: str, owner_id: str,
+                         target: str, request: Dict) -> Dict:
+        """Commit intent before invocation. A reused identity cannot change its input.
+
+        request contains hashes/correlation metadata, never the prompt/message.
+        """
+        with self._lock, self._conn:
+            self._conn.execute(
+                "INSERT OR IGNORE INTO external_operations(operation_id,kind,owner_id,target,"
+                "request_json,status,updated_at) VALUES(?,?,?,?,?,'NOT_STARTED',?)",
+                (operation_id, kind, owner_id, target,
+                 json.dumps(request, sort_keys=True), now_iso()))
+        old = self.operation(operation_id)
+        # A random correlation token is chosen by the first committed intent.
+        expected = {k: v for k, v in request.items() if k != "marker"}
+        actual = {k: v for k, v in old["request"].items() if k != "marker"}
+        if (old["kind"], old["owner_id"], old["target"], actual) != (kind, owner_id, target, expected):
+            raise ValueError("external operation identity/input conflict: " + operation_id)
+        return old
+
+    def operation_claim(self, operation_id: str, max_attempts: int = 3) -> bool:
+        """Single durable claimant even with another Store/process on the same DB.
+
+        IN_FLIGHT is written BEFORE invoking AO. A crash on either side of the
+        invocation is intentionally ambiguous; no lease expiry authorizes retry.
+        """
+        with self._lock, self._conn:
+            self._conn.execute("BEGIN IMMEDIATE")
+            op = self.operation(operation_id)
+            if op["status"] != "NOT_STARTED" or op["attempts"] >= max_attempts:
+                return False
+            if op["kind"] != "kill":
+                mission = self._conn.execute("SELECT payload_json FROM missions WHERE mission_id=?",
+                                             (op["owner_id"],)).fetchone()
+                payload = json.loads(mission[0]) if mission else {}
+                if payload.get("stop_request") or payload.get("state") in ("HUMAN", "FAILED", "MISSION_DONE"):
+                    return False
+                other = self._conn.execute(
+                    "SELECT 1 FROM external_operations WHERE owner_id=? AND operation_id<>? "
+                    "AND status IN ('IN_FLIGHT','UNKNOWN') LIMIT 1",
+                    (op["owner_id"], operation_id)).fetchone()
+                if other:
+                    return False
+            cur = self._conn.execute(
+                "UPDATE external_operations SET status='IN_FLIGHT',attempts=attempts+1,updated_at=? "
+                "WHERE operation_id=? AND status='NOT_STARTED'", (now_iso(), operation_id))
+            return cur.rowcount == 1
+
+    def operation_observe(self, operation_id: str, status: str, evidence: Dict,
+                          result: Optional[Dict] = None, success_counters=()) -> Dict:
+        if status not in ("NOT_STARTED", "IN_FLIGHT", "SUCCEEDED", "FAILED", "UNKNOWN"):
+            raise ValueError("invalid external operation status")
+        with self._lock, self._conn:
+            self._conn.execute("BEGIN IMMEDIATE")
+            old = self.operation(operation_id)
+            # A late, weaker reconciliation cannot erase an acknowledged
+            # spawn/send. Kill is different: a later AO restore invalidates
+            # its current stop precondition and must be recorded as unknown.
+            if old["kind"] != "kill" and old["status"] == "SUCCEEDED":
+                return old
+            history = old["evidence"]
+            # Repeated identical read-only observations do not grow the record.
+            if not history or history[-1]["fact"] != evidence:
+                history.append({"at": now_iso(), "fact": evidence})
+            values = old["result"] if result is None else result
+            if status == "SUCCEEDED" and not old["result"].get("counters_applied"):
+                for key in success_counters:
+                    self._conn.execute(
+                        "INSERT INTO counters(name,value) VALUES(?,1) "
+                        "ON CONFLICT(name) DO UPDATE SET value=value+1", (key,))
+                values["counters_applied"] = True
+            elif old["result"].get("counters_applied"):
+                values["counters_applied"] = True
+            self._conn.execute(
+                "UPDATE external_operations SET status=?,result_json=?,evidence_json=?,updated_at=? "
+                "WHERE operation_id=?", (status, json.dumps(values), json.dumps(history), now_iso(), operation_id))
+        return self.operation(operation_id)
+
+    def request_mission_stop(self, mission_id: str) -> None:
+        """Receipt is durable before any in-memory latch or external kill."""
+        with self._lock, self._conn:
+            self._conn.execute("BEGIN IMMEDIATE")
+            row = self._conn.execute("SELECT payload_json FROM missions WHERE mission_id=?",
+                                     (mission_id,)).fetchone()
+            payload = json.loads(row[0]) if row else {}
+            payload.setdefault("stop_request", {"requested_at": now_iso(), "source": "user"})
+            self._conn.execute(
+                "INSERT INTO missions(mission_id,payload_json,recorded_at) VALUES(?,?,?) "
+                "ON CONFLICT(mission_id) DO UPDATE SET payload_json=excluded.payload_json,recorded_at=excluded.recorded_at",
+                (mission_id, json.dumps(payload), now_iso()))
+
+    def mission_stop_requested(self, mission_id: str) -> bool:
+        with self._lock:
+            row = self._conn.execute("SELECT payload_json FROM missions WHERE mission_id=?",
+                                     (mission_id,)).fetchone()
+            return bool(row and json.loads(row[0]).get("stop_request"))
 
     # ------------------------------------------------------------ tasks
     def record_task(self, task_id: str, spec_json: Dict) -> None:
@@ -292,6 +423,8 @@ class StateStore:
                     merged = {}
             cur_state = merged.get("state")
             if cur_state in self._MISSION_TERMINAL and cur_state != state:
+                return False
+            if merged.get("stop_request") and state != "HUMAN":
                 return False
             merged.update(payload)
             merged["state"] = state

@@ -1,6 +1,6 @@
 # CLAO 当前项目事实
 
-更新：2026-09-07（F04 外部审计 PASS 并合入 main；F01–F04 DONE，下一任务 F05 TODO）。本文件只记录已实现事实与已知限制；v0.3的设计见 [V03_PLAN.md](V03_PLAN.md)，不能把设计直接写成已完成能力。
+更新：2026-09-07（F04 外部审计 PASS 并合入 main；F01–F04 DONE；F05 候选 IN_REVIEW、未合入）。本文件只记录已实现事实与已知限制；v0.3的设计见 [V03_PLAN.md](V03_PLAN.md)，不能把设计直接写成已完成能力。
 
 ## 1. 版本与基线
 
@@ -9,7 +9,7 @@
 | 产品 | CLAO / Closed-Loop Agent Orchestrator |
 | 已发布版本 | v0.2，Windows本地比赛版 |
 | 已发布源码 | 4d3e8e6b5e70bab868b2eef0d28c7742dea044ba |
-| 开发目标 | v0.3：F01 / F02 / F03 / F04 已合入 main（DONE）；M1 IN_PROGRESS；下一任务 F05 TODO、未开始实现；GUI与模型切换等后续目标待实现 |
+| 开发目标 | v0.3：F01 / F02 / F03 / F04 已合入 main（DONE）；M1 IN_PROGRESS；F05 候选 IN_REVIEW、待外部审计；GUI与模型切换等后续目标待实现 |
 | 主仓库 | zhaoshiyi4246/closed-loop-agent-orchestrator |
 | 产品源码路径 | `clao/`，当前唯一正式产品，内部 Python 包为 `src/loopcore/` |
 | 发布工具 | `packaging/build-release.ps1` 与 `packaging/release-manifest.txt` |
@@ -27,6 +27,8 @@ F02 已通过外部审计 PASS、无需返修，[PR #33](https://github.com/zhao
 F03 已通过再次外部审计 PASS，[PR #34](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/34) rebase 合入 main `35a67d07ae196368434fbd83a95693b288c6bc6e`，状态 DONE；Worker 已提交 artifact 的交付缺口已闭环。沿用既有 Windows 定向 145 passed / 0 skipped 及此前 F03 证据；合并收尾无新增产品修改、未重跑测试或发布验证，详细边界见 F03 卡。
 
 F04 已通过外部审计 PASS、无需返修，[PR #35](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/35) rebase 合入 main `c51ccd155f7ab6c226454846c9e1f1fff146956d`，状态 DONE。沿用既有 Windows 定向 224 passed、追加 49 passed（分开报告，均 0 skipped）及浏览器/compileall 证据；合并收尾无新增产品修改、未重跑测试或发布验证，详细边界见 F04 卡。
+
+F05 本分支候选（IN_REVIEW，尚未合入）：同一 StateStore 持久 operation intent 与结果，ACK 丢失后对账或 UNKNOWN；Stop 请求与 Worker 停止事实分开记录。定向故障恢复证据及 AO v0.12.9 契约边界见 F05 卡，M1 仍 IN_PROGRESS、R01 TODO。
 
 ## 2. 当前真实架构
 
@@ -62,7 +64,7 @@ F02 让 ClosedLoop 生产审批与 AutoApprover 共用范围策略：文件按�
 
 F03 共用严格 NUL 路径事实，覆盖 frozen base 之后 committed、staged、unstaged/untracked 的改动，rename/copy 保留双端点、删除保留原路径；无法可靠取证时不当 clean。artifact 按目录段与明确文件规则过滤；untracked diff 使用仓库外临时 index/objects，不修改真实 index。baseline 复用 Gate 完整性检查，Final scope 的确定性违规不能被模型 PASS 覆盖。
 
-materialization 保留正常用户净改动及原有暂存 cache；新交付树将 artifact 精确恢复为 frozen base 的 blob/mode，Mission 合并返回的明确 SHA，使 Worker 已提交的新 cache 不进入最终 integration 树。原 Worker 历史及基线内容保留，不改 ignore/exclude；构造失败进入 HUMAN。该过滤步骤不移动 Worker ref 或修改真实 index，多次 Git 采样仍不承诺并发写入下的原子快照；F05 停止确认与 R02 生命周期仍待实施。
+materialization 保留正常用户净改动及原有暂存 cache；新交付树将 artifact 精确恢复为 frozen base 的 blob/mode，Mission 合并返回的明确 SHA，使 Worker 已提交的新 cache 不进入最终 integration 树。原 Worker 历史及基线内容保留，不改 ignore/exclude；构造失败进入 HUMAN。该过滤步骤不移动 Worker ref 或修改真实 index，多次 Git 采样仍不承诺并发写入下的原子快照；F05 候选已将 AO Session 明确终止事实设为 materialization 前置条件，未知停止进入 HUMAN；完整 R02 生命周期仍待实施。
 
 ## 4. 已验证外部前提
 
@@ -75,7 +77,8 @@ AO executable通过CLAO_AO_BIN或PATH解析；runfile通过CLAO_AO_RUN_FILE或~/
 依据 [原审计](reference/CLAO_v0.2_audit_20260905.pdf)；F01 已补齐 A02 的完整契约与终局一致性及 A11 相关证据边界，F02 已修复 A01 的审批命令与路径包含性，F03 已修复 A03 的路径、artifact 和只读取证，支持边界见上文。其他卡继续保留：
 
 - A04/A05：F04 已实现 Gate 表专用只读 DTO 与 command/integrity/scope/overall 记录、历史 unknown/read_error 区分及常驻错误；本地写 API 校验 Host/Origin/JSON/会话 nonce，路径包含性与安全 DOM/pending 去重已补齐。外部审计 PASS、已合入 main（DONE），已发布 v0.2 不变；验证和支持边界见 F04 卡。
-- A06—A10：指令生效、外部动作未知、kill确认、停止恢复、基线/依赖和有效配置。
+- A07：F05 候选使用精确持久随机标记对账 spawn；普通 send 无唯一公开回执则保持 UNKNOWN、不重发；kill 需同一 Session 的 isTerminated=true / status=terminated。逻辑终止依赖 AO 公共契约，不承诺 OS 级证明或 exactly-once；待外部审计。
+- A06 / A08—A10：完整指令生效、停止恢复、基线/依赖和有效配置仍待后续卡。
 - A11/A12 其余范围：多模型、后续 Git 取证边界、结果导出和普通用户使用体验；不因 F01 完成宣称所有证据路径或模型真实性已验收。
 
 状态与证据等级请查 [V03_BACKLOG.md](V03_BACKLOG.md)。不能因为历史R5 COMPLETE把这些问题写成RESOLVED。
@@ -90,7 +93,7 @@ AO executable通过CLAO_AO_BIN或PATH解析；runfile通过CLAO_AO_RUN_FILE或~/
 | 模型 | Codex CLI与AO Codex | GLM/Kimi语义profile，Worker单独准入 |
 | 配置 | 有重复和未接线项 | 唯一effective config与Mission快照 |
 | 结果 | integration路径与日志 | 可独立应用的patch导出与证据摘要 |
-| 停止 | HUMAN终态，停止确认尚待补齐 | 准确取消、崩溃恢复、关联attempt |
+| 停止 | F05 候选：HUMAN 接收停止请求；持久 operation / worker_stop 区分确认与 UNKNOWN | 准确取消、崩溃恢复、关联attempt |
 
 ## 7. 文档职责与历史
 

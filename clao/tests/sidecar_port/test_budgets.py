@@ -56,12 +56,18 @@ def test_max_same_alerts_forces_human(tmp_path):
     loop, task, store = _loop(tmp_path, budgets={
         "max_local_fixes": 5, "max_replans": 1, "max_same_alerts": 1,
         "max_runtime_seconds": 1800})
+    # Keep observing after the first alert. A successful local-fix send
+    # correctly enters WORKER_RETRYING and would test a different lifecycle.
+    loop.planner.plan = MagicMock(side_effect=lambda audit, spec, action_id, **kw:
+        PlannerAction(action_id, task.task_id, PlannerActionType.CONTINUE,
+                      "continue observation", target_session_id=task.worker_session_id))
     errs = [ev("2026-08-27T00:0%d:00Z" % i, etype="error",
                message="conn refused to /x", fingerprint="fp1")
             for i in range(3)]
     loop._collect_events = MagicMock(return_value=errs)
     loop.step()                       # 1st alert -> audit (same_alert=1)
-    assert loop.state != ProjectState.HUMAN
+    assert loop.state == ProjectState.WORKER_RUNNING
+    assert store.counter_get("same_alert:" + task.task_id + ":fp1") == 1
     # inject a different alert id so it isn't deduped; same fingerprint
     errs2 = [ev("2026-08-27T00:1%d:00Z" % i, etype="error",
                 message="conn refused to /x", fingerprint="fp1")
@@ -72,6 +78,7 @@ def test_max_same_alerts_forces_human(tmp_path):
     loop._collect_events = MagicMock(return_value=errs2)
     loop.step()                       # 2nd same-fp alert -> same_alert=2 > 1 -> HUMAN
     assert loop.state == ProjectState.HUMAN
+    loop.planner.plan.assert_called_once()  # budget blocks the second Planner call
 
 
 def test_max_runtime_watchdog_halts(tmp_path):
@@ -98,7 +105,8 @@ def test_replan_kills_old_worker(tmp_path):
                        replacement_task_spec={"objective": "new obj"})
     ex = loop.executor
     ex._run = MagicMock(return_value=MagicMock(returncode=0,
-                          stdout="spawned session w2"))
+                          stdout="spawned session w2 (worker)"))
+    loop.adapter.operation_session.side_effect = lambda sid: {"id": sid, "isTerminated": bool(ex._run.call_count), "status": "terminated" if ex._run.call_count else "running"}
     res = ex.execute(pa, task)
     # first call should have been `session kill w1`
     first_args = ex._run.call_args_list[0].args[0]
@@ -110,6 +118,7 @@ def test_kill_worker_calls_session_kill(tmp_path):
     loop, task, store = _loop(tmp_path)
     ex = loop.executor
     ex._run = MagicMock(return_value=MagicMock(returncode=0))
+    loop.adapter.operation_session.side_effect = lambda sid: {"id": sid, "isTerminated": bool(ex._run.call_count), "status": "terminated" if ex._run.call_count else "running"}
     assert ex.kill_worker("w1") is True
     assert ex._run.call_args.args[0] == ["session", "kill", "w1"]
 

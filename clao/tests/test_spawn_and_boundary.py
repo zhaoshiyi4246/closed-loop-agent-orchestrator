@@ -15,9 +15,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import subprocess
+import pytest
 from unittest.mock import MagicMock
 
-from loopcore.action_executor import ActionExecutor
+from loopcore.action_executor import ActionExecutor, ExternalOperationUnknown, AOProcessNotStarted, operation_id
 from loopcore.auditor import FakeAuditorProvider
 from loopcore.closed_loop import ClosedLoop
 from loopcore.event_observer import Observer
@@ -37,6 +38,9 @@ def _executor(tmp_path, **kw):
     ex = ActionExecutor("ao", "d", "r", store,
                         max_spawn_attempts=kw.get("cap", 3),
                         spawn_backoff_seconds=kw.get("backoff", 30))
+    ex.adapter = MagicMock()
+    ex.adapter.operation_sessions.return_value = []
+    ex.adapter.operation_session.side_effect = lambda sid: {"id": sid, "isTerminated": True, "status": "terminated"}
     return ex, store
 
 
@@ -74,12 +78,12 @@ def test_codex_spawn_argv_and_session_id(tmp_path, monkeypatch):
     task = TaskSpec.from_dict(_task_spec())
     proc = subprocess.CompletedProcess(
         args=[], returncode=0,
-        stdout="spawned session scratch-1\n", stderr="")
+        stdout="spawned session scratch-1 (worker)\n", stderr="")
     run = MagicMock(return_value=proc)
     monkeypatch.setattr(ex, "_run", run)
 
     assert ex._spawn(task.project_id, task.worker_harness,
-                     "worker-test", "reply only") == "scratch-1"
+                     "worker-test", "reply only", identity="spawn-test", owner_id=task.task_id) == "scratch-1"
     assert run.call_count == 1
     argv = run.call_args.args[0]
     assert argv[:5] == ["spawn", "--kind", "worker", "--project",
@@ -99,7 +103,10 @@ def test_model_rejection_does_not_retry_without_model(tmp_path, monkeypatch):
     run = MagicMock(return_value=rejected)
     monkeypatch.setattr(ex, "_run", run)
 
-    assert ex._spawn("scratch", "codex", "worker-test", "reply only") is None
+    ex.adapter = MagicMock()
+    ex.adapter.operation_sessions.return_value = []
+    with pytest.raises(ExternalOperationUnknown):
+        ex._spawn("scratch", "codex", "worker-test", "reply only", identity="model-test", owner_id="task")
     assert run.call_count == 1
     assert "--model" in run.call_args.args[0]
 
@@ -123,8 +130,10 @@ def test_replan_spawn_keeps_codex_harness_and_model(tmp_path, monkeypatch):
                 args=[], returncode=0, stdout="killed", stderr="")
         return subprocess.CompletedProcess(
             args=[], returncode=0,
-            stdout="spawned session w-new\n", stderr="")
+            stdout="spawned session w-new (worker)\n", stderr="")
 
+    ex.adapter = MagicMock()
+    ex.adapter.operation_session.side_effect = lambda sid: {"id": sid, "isTerminated": bool(calls), "status": "terminated" if calls else "running"}
     monkeypatch.setattr(ex, "_run", fake_run)
     result = ex.execute(action, task)
 
@@ -137,7 +146,7 @@ def test_replan_spawn_keeps_codex_harness_and_model(tmp_path, monkeypatch):
 def test_spawn_retry_cap_and_backoff(tmp_path, monkeypatch):
     ex, store = _executor(tmp_path, cap=3, backoff=30)
     task = TaskSpec.from_dict(_task_spec())
-    monkeypatch.setattr(ex, "_run", lambda *a, **k: _failed_proc())
+    monkeypatch.setattr(ex, "_run", MagicMock(side_effect=AOProcessNotStarted("CLI unavailable")))
     monkeypatch.setattr("loopcore.action_executor._epoch_seconds",
                         lambda: 1000)
     # attempt 1 -> fail, next allowed at 1030
@@ -162,46 +171,23 @@ def test_spawn_retry_cap_and_backoff(tmp_path, monkeypatch):
     assert store.counter_get("spawn_attempts:" + task.task_id) == 3
 
 
-def test_default_branch_spawn_failure_is_persistent_and_persisted(
-        tmp_path, monkeypatch):
+@pytest.mark.parametrize("diagnostic", [
+    "DEFAULT_BRANCH_UNRESOLVED: default branch is unresolved",
+    ("x" * 350) + " upstream connection timed out",
+])
+def test_spawn_failure_keeps_diagnostic_without_authorizing_retry(tmp_path, monkeypatch, diagnostic):
     ex, store = _executor(tmp_path)
     task = TaskSpec.from_dict(_task_spec())
-    failure = subprocess.CompletedProcess(
-        args=[], returncode=1, stdout="",
-        stderr="DEFAULT_BRANCH_UNRESOLVED: default branch is unresolved")
-    monkeypatch.setattr(ex, "_run", lambda *_args, **_kwargs: failure)
-
-    assert ex.spawn_initial_worker(task) is None
-
-    assert store.counter_get("spawn_attempts:" + task.task_id) == 1
+    run = MagicMock(return_value=subprocess.CompletedProcess([], 1, "", diagnostic))
+    monkeypatch.setattr(ex, "_run", run)
+    for _ in range(3):
+        with pytest.raises(ExternalOperationUnknown):
+            ex.spawn_initial_worker(task)
+    assert run.call_count == 1
+    op = store.operations()[0]
+    assert op["status"] == "UNKNOWN" and op["attempts"] == 1
+    assert any(e["fact"].get("diagnostic") == diagnostic for e in op["evidence"])
     assert store.counter_get("spawn_transient:" + task.task_id) == 0
-    row = store._conn.execute(
-        "SELECT alert_id, payload_json FROM alerts").fetchone()
-    payload = json.loads(row[1])
-    assert row[0].startswith("spawn-failure:%s:persistent:1:"
-                             % task.task_id)
-    assert payload == {
-        "alert_type": "SPAWN_FAILURE",
-        "task_id": task.task_id,
-        "classification": "persistent",
-        "attempt": 1,
-        "summary": ("DEFAULT_BRANCH_UNRESOLVED: default branch is "
-                    "unresolved"),
-    }
-
-
-def test_spawn_classifier_uses_network_text_after_300_chars(
-        tmp_path, monkeypatch):
-    ex, store = _executor(tmp_path)
-    task = TaskSpec.from_dict(_task_spec())
-    failure = subprocess.CompletedProcess(
-        args=[], returncode=1, stdout="",
-        stderr=("x" * 350) + " upstream connection timed out")
-    monkeypatch.setattr(ex, "_run", lambda *_args, **_kwargs: failure)
-
-    assert ex.spawn_initial_worker(task) is None
-
-    assert store.counter_get("spawn_transient:" + task.task_id) == 1
     assert store.counter_get("spawn_attempts:" + task.task_id) == 0
 
 
@@ -224,21 +210,20 @@ def test_spawn_timeout_never_persists_prompt_argv(tmp_path, monkeypatch):
 
     monkeypatch.setattr(ex, "_run", timeout)
 
-    assert ex.spawn_initial_worker(task) is None
+    with pytest.raises(ExternalOperationUnknown):
+        ex.spawn_initial_worker(task)
     assert "R5_PRIVATE_OBJECTIVE_SENTINEL" in leaked["exception_text"]
     assert "R5_PRIVATE_ACCEPTANCE_SENTINEL" in leaked["exception_text"]
     assert "R5_PRIVATE_GATE_SENTINEL" in leaked["exception_text"]
-    assert store.counter_get("spawn_transient:" + task.task_id) == 1
+    assert store.counter_get("spawn_transient:" + task.task_id) == 0
     assert store.counter_get("spawn_attempts:" + task.task_id) == 0
 
     payload_json = store._conn.execute(
         "SELECT payload_json FROM alerts").fetchone()[0]
     payload = json.loads(payload_json)
-    assert payload["alert_type"] == "SPAWN_FAILURE"
-    assert payload["classification"] == "transient"
-    assert payload["attempt"] == 1
-    assert "timed out" in payload["summary"]
-    assert "120" in payload["summary"]
+    assert payload["alert_type"] == "EXTERNAL_OPERATION_UNKNOWN"
+    assert store.operations()[0]["attempts"] == 1
+    assert "TimeoutExpired" in json.dumps(store.operations()[0]["evidence"])
 
     detail = ex.spawn_budget_detail(task.task_id)
     private_values = (
@@ -252,6 +237,7 @@ def test_spawn_timeout_never_persists_prompt_argv(tmp_path, monkeypatch):
     )
     for private in private_values:
         assert private not in payload_json
+        assert private not in json.dumps(store.operations())
         assert private not in detail
 
 
@@ -268,42 +254,46 @@ def test_spawn_failure_alert_is_bounded_and_sanitized(tmp_path, monkeypatch):
         args=[], returncode=1, stdout="", stderr=secret)
     monkeypatch.setattr(ex, "_run", lambda *_args, **_kwargs: failure)
 
-    assert ex.spawn_initial_worker(task) is None
+    with pytest.raises(ExternalOperationUnknown):
+        ex.spawn_initial_worker(task)
 
     payload_json = store._conn.execute(
         "SELECT payload_json FROM alerts").fetchone()[0]
     payload = json.loads(payload_json)
-    assert payload["alert_type"] == "SPAWN_FAILURE"
-    assert payload["classification"] == "persistent"
-    assert "DEFAULT_BRANCH_UNRESOLVED" in payload["summary"]
+    assert payload["alert_type"] == "EXTERNAL_OPERATION_UNKNOWN"
+    evidence = json.dumps(store.operations()[0]["evidence"])
+    assert "DEFAULT_BRANCH_UNRESOLVED" in evidence
     assert len(payload["summary"]) <= 1600
     for forbidden in (
             "bearer-secret", "api-secret", "token-secret", "cookie-secret",
             home, "request-credential", "private prompt text"):
         assert forbidden not in payload_json
+        assert forbidden not in evidence
 
 
 def test_spawn_budget_detail_includes_last_sanitized_root_cause(
         tmp_path, monkeypatch):
-    ex, _store = _executor(tmp_path, cap=1)
+    ex, store = _executor(tmp_path, cap=1)
     task = TaskSpec.from_dict(_task_spec())
     failure = subprocess.CompletedProcess(
         args=[], returncode=1, stdout="",
         stderr="DEFAULT_BRANCH_UNRESOLVED: configure default branch")
     monkeypatch.setattr(ex, "_run", lambda *_args, **_kwargs: failure)
 
-    assert ex.spawn_initial_worker(task) is None
+    with pytest.raises(ExternalOperationUnknown):
+        ex.spawn_initial_worker(task)
 
     detail = ex.spawn_budget_detail(task.task_id)
-    assert "persistent 1/1, transient 0/8" in detail
-    assert "last spawn failure: DEFAULT_BRANCH_UNRESOLVED" in detail
+    assert "persistent 0/1, transient 0/8" in detail
+    assert "DEFAULT_BRANCH_UNRESOLVED" in json.dumps(store.operations()[0]["evidence"])
+    assert store.operations()[0]["status"] == "UNKNOWN"
 
 
 def test_successful_spawn_records_no_failure_alert(tmp_path, monkeypatch):
     ex, store = _executor(tmp_path)
     task = TaskSpec.from_dict(_task_spec())
     success = subprocess.CompletedProcess(
-        args=[], returncode=0, stdout="spawned session worker-ok\n",
+        args=[], returncode=0, stdout="spawned session worker-ok (worker)\n",
         stderr="")
     monkeypatch.setattr(ex, "_run", lambda *_args, **_kwargs: success)
 
@@ -314,12 +304,12 @@ def test_successful_spawn_records_no_failure_alert(tmp_path, monkeypatch):
 def test_spawn_success_clears_retry_counters(tmp_path, monkeypatch):
     ex, store = _executor(tmp_path)
     task = TaskSpec.from_dict(_task_spec())
-    monkeypatch.setattr(ex, "_run", lambda *a, **k: _failed_proc())
+    monkeypatch.setattr(ex, "_run", MagicMock(side_effect=AOProcessNotStarted("CLI unavailable")))
     monkeypatch.setattr("loopcore.action_executor._epoch_seconds",
                         lambda: 1000)
     assert ex.spawn_initial_worker(task) is None
     ok_proc = subprocess.CompletedProcess(args=[], returncode=0,
-                                          stdout="spawned session s-new\n",
+                                          stdout="spawned session s-new (worker)\n",
                                           stderr="")
     monkeypatch.setattr(ex, "_run", lambda *a, **k: ok_proc)
     monkeypatch.setattr("loopcore.action_executor._epoch_seconds",
@@ -338,7 +328,7 @@ def test_replan_crash_resume_restores_worker_id(tmp_path, monkeypatch):
                            replacement_task_spec={"objective": "redo"},
                            reason="t")
     ok_proc = subprocess.CompletedProcess(args=[], returncode=0,
-                                          stdout="spawned session w-new\n",
+                                          stdout="spawned session w-new (worker)\n",
                                           stderr="")
     monkeypatch.setattr(ex, "_run", lambda *a, **k: ok_proc)
     first = ex.execute(action, task)

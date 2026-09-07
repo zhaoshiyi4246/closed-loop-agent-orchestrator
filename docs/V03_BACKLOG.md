@@ -1,6 +1,6 @@
 # CLAO v0.3 任务与验收台账
 
-版本：0.3-plan-r1 · 2026-09-06。状态：已批准 / IN EFFECT。DOC-00、F01 / F02 / F03 / F04 已完成；下一任务 F05 为 `TODO`，M1 继续 `IN_PROGRESS`；其余功能卡状态见下表，原报告的发现不等于已复现或已修复。
+版本：0.3-plan-r1 · 2026-09-06。状态：已批准 / IN EFFECT。DOC-00、F01 / F02 / F03 / F04 已完成；当前任务 F05 为 `IN_REVIEW`，M1 继续 `IN_PROGRESS`；其余功能卡状态见下表，原报告的发现不等于已复现或已修复。
 
 设计以 [V03_PLAN.md](V03_PLAN.md) 为准。当前唯一任务由根目录 [PLANS.md](../PLANS.md) 指定。本文件保存每张卡的详细状态和证据，PLANS 不重复整张台账。
 
@@ -37,7 +37,7 @@
 | V03-F02 | M1 | 审批命令与路径包含性 | DOC-00 | DONE（PR #33 审计 PASS / merged） |
 | V03-F03 | M1 | Git路径、产物规则与只读取证 | DOC-00 | DONE（PR #34 审计 PASS / merged） |
 | V03-F04 | M1 | Gate查询、本地API与安全渲染 | F01的结果字段约定 | DONE（PR #35 审计 PASS / merged） |
-| V03-F05 | M1 | 停止确认与未知外部动作保护 | DOC-00 | TODO |
+| V03-F05 | M1 | 停止确认与未知外部动作保护 | DOC-00 | IN_REVIEW |
 | V03-R01 | M2 | 有效配置与阶段诊断 | F01/F04 | TODO |
 | V03-R02 | M2 | 指令回执、取消恢复、固定基线 | F03/F05/R01 | TODO |
 | V03-U01 | M3 | iPhone风格界面骨架与状态夹具 | G1；R01/R02字段设计 | TODO |
@@ -154,12 +154,24 @@ G1=F01—F05；G2=R01—R02；G3=U01—U03；G4=P01—P02及P03有记录的支�
 
 ## V03-F05｜停止确认与未知外部动作保护
 
+- 状态：IN_REVIEW；base `fe1d12c42f780e6bbf6af272d0aca38ddb50026a`，分支 `codex/v03-f05-external-operations`；F01–F04 DONE，M1 IN_PROGRESS，R01 TODO。
+
 - 对应：A07。落点：Executor、Mission、Store，必要AO官方只读查询。
 - 工作：同Store intent/operation_id/result；spawn/send超时先对账；无法确认则UNKNOWN+人工处理。materialization须已停止事实；不忽略kill失败继续提交。
 - 必测：spawn成功但客户端ack丢失；send后进程中断；kill false/timeout；多次重试同操作；不唯一外部结果不得造第二Worker。
 - 完成：在支持的AO契约下防盲重发，未知状态可解释；副作用数量受控；一次受控故障恢复验收。报告at-most-once/对账边界，不承诺分布式exactly-once。
 - 不做：改AO内部DB；新增队列服务；提升预算隐藏未知。
-- 证据：待填。
+- 实现：现有 `state.db` 的 `external_operations` 保存稳定 identity、输入摘要、attempt、结果与对账证据。`NOT_STARTED` 尚未调用（或已证明 CLI 未创建）、`IN_FLIGHT` 已持久抢占但确认未落盘、`SUCCEEDED` 已确认操作结果、`FAILED` 已确认本地未执行且有界尝试耗尽、`UNKNOWN` 无法确认；UNKNOWN 不当成功或失败。结果与成功预算计数同事务保存，多 Store 争用也只有一个调用者；超时/transport/nonzero 不再按错误文案自动重发。提示词/消息只存 hash，CLI 诊断脱敏限长。
+- 对账依据：固定 AO v0.12.9 源码 `4cbb4b6ced1ad93f79641a2347d2342f1ffd218a`。核对 [spawn CLI](https://github.com/Untrivial-ai/agent-orchestrator/blob/4cbb4b6ced1ad93f79641a2347d2342f1ffd218a/backend/internal/cli/spawn.go)、[send CLI](https://github.com/Untrivial-ai/agent-orchestrator/blob/4cbb4b6ced1ad93f79641a2347d2342f1ffd218a/backend/internal/cli/send.go)、[公开 Session 控制器](https://github.com/Untrivial-ai/agent-orchestrator/blob/4cbb4b6ced1ad93f79641a2347d2342f1ffd218a/backend/internal/httpd/controllers/sessions.go) 与 [终止实现](https://github.com/Untrivial-ai/agent-orchestrator/blob/4cbb4b6ced1ad93f79641a2347d2342f1ffd218a/backend/internal/session_manager/manager.go)。未访问 AO 内部 DB，也未启动真实 Worker/模型。
+- Spawn：调用前冻结随机 120-bit、完整 20 字符 displayName 标记；ACK 丢失后只接受公开列表中唯一精确标记，且单 Session 的 ID/project/harness/kind/mode 全部吻合；无匹配、多匹配、改名、缺字段、读取失败均 UNKNOWN。该标记是关联证据，不是 AO 幂等键；不按人名/时间猜测，不证明初始 prompt 已被 Worker 消费或工作树已就绪。成功结果供初始 dispatch/replan 重入采用，未绑定的迟到 Worker 也纳入终止清理。
+- Send：覆盖 Planner local-fix、L0 和实际 Worker directive 发送。普通 CLI send 没有传 caller clientMessageId，conversation 内容相同或缺失都不能证明某次消息交付；未知时只做只读诊断并进入 HUMAN，不再发送。成功只代表 AO 接受，不代表 Worker 已应用。未实现 R02 完整 directive 回执。
+- Kill / Stop / 交付：ACK、exit=0、false、timeout 都需查同一 Session 的严格布尔 `isTerminated=true` 且 `status=terminated`；idle/exited、404、畸形/重复 JSON 字段均不当已停。未知状态只读再对账；旧停止结果遇到外部 restore/live 事实失效，但不盲目重新 kill。Mission 及 ClosedLoop 在后续工作前检查未决 operation；旧 Worker 未确认停止不 spawn replacement、不 commit/materialize/merge。Stop receipt 先落库，`worker_stop` 单独记录 CONFIRMED/UNKNOWN；终态保留原始 reason 与停止未知原因，不声称 HUMAN 等于所有 Worker 已停止。Panel 仅同步接收顺序与写失败错误，未新增取消中/恢复 UI。
+- Windows 检查：产品 CPython 3.12.7 / `.venv`，Scripts 前置 PATH，src 为 PYTHONPATH。在 `clao/` 执行 `python -m pytest tests/test_f05_external_operations.py tests/test_spawn_and_boundary.py tests/test_crash_resume.py tests/test_terminal_cleanup_and_total_replans.py tests/test_directive_channel.py tests/test_shellish_guard.py tests/test_ao_runtime_portability.py tests/test_f03_git_evidence.py tests/sidecar_port/test_mission.py tests/sidecar_port/test_budgets.py tests/sidecar_port/test_phase2.py tests/test_f04_panel_boundaries.py::test_unauthorized_http_writes_never_reach_actions tests/test_f04_panel_boundaries.py::test_same_origin_page_nonce_allows_normal_write -q -rs --tb=short`：**286 passed / 1 failed / 211.64s**。唯一失败是告警预算夹具依赖旧 send 异常留下的中间态，已改为合法 CONTINUE 观察路径，保留并增强相同告警阻断断言；所有故障场景、正常发送、预算、F03 artifact/index 与交付断言均保留。
+- 定向复核：`python -m pytest tests/sidecar_port/test_budgets.py::test_max_same_alerts_forces_human tests/test_f05_external_operations.py::test_mission_resume_unknown_send_parks_before_any_materialization tests/test_f05_external_operations.py::test_stop_during_spawn_adopts_late_ack_only_for_cleanup -q --tb=short`：**3 passed / 3.31s**（含修正夹具与新增两个完整恢复窗口）。此前其余 286 项已通过，集合分开报告，不将中途失败隐藏为一次全绿运行。
+- 最终 operation/预算检查：`python -m pytest tests/test_f05_external_operations.py tests/sidecar_port/test_budgets.py tests/test_terminal_cleanup_and_total_replans.py tests/test_spawn_and_boundary.py tests/test_crash_resume.py tests/sidecar_port/test_phase2.py -q -rs --tb=short`：**114 passed / 79.75s**，0 failed / 0 skipped；包括已证明 CLI 未创建的 send/replan 重启重试、耗尽后 FAILED、恢复成功仅计一次，及迟到弱对账不覆盖已确认成功或产生误报。最后为 pending 重试补齐 ClosedLoop 不消费新事件/另起 action 的入口断言：`python -m pytest tests/test_f05_external_operations.py::test_closed_loop_unstarted_resume_keeps_one_pending_action tests/test_crash_resume.py -q -rs --tb=short`：**9 passed / 29.08s**，0 failed / 0 skipped。集合存在重叠，不累计为全量回归计数。变更 Python 文件 compileall、diff-check 和 4 份 Markdown 的 20 个本地链接检查通过。
+- 故障注入覆盖：真实隔离 SQLite 关闭/重开、临时 Git、按官方响应形状实现的 loopback HTTP fake；spawn 成功丢 ACK/timeout/crash 后精确采用、多/零候选 UNKNOWN、send 外部生效但保存前/后 crash、kill false/timeout/transport/crash 的存活与终止分支、late ACK 遇 Stop、停止事实先于真实 materialization、成功预算只计一次、进程未创建的有界重试及真实缺失 executable。运行次数断言保证不重复 spawn/send/kill。
+- 残余 AO 边界：displayName 可被外部改名/复制，不能代替官方唯一键；普通 send 缺少可唯一关联的公开回执，未知结果可能长期需人工。Session terminated 是 AO 公开的逻辑终止事实；AO chat stop 内部有 best-effort 清理，不能据此承诺独立 OS 进程级证明、不可被外部 restore 或分布式 exactly-once。现有终态不自动恢复为 running，完整取消/新 attempt/只读 attach 留给 R02。
+- NOT_RUN：全量回归、clean install、打包、smoke、真实 AO Mission/收费模型、GUI 视觉验收。未合并、未创建 tag/Release，未实施 R01/R02/U01/U02 或模型切换。
 
 ## V03-R01｜有效配置与阶段诊断
 

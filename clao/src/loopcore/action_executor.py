@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import secrets
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,6 +22,20 @@ from .mission_contracts import (PlannerAction, PlannerActionType, TaskSpec,
                         ProjectState)
 from .event_normalizer import _epoch_seconds
 from .state_store import StateStore
+from .ao_adapter import AOAdapter
+
+
+class ExternalOperationUnknown(RuntimeError):
+    """Uncertain effect: callers park for human handling, never blindly replay."""
+
+
+class AOProcessNotStarted(RuntimeError):
+    """Only the CLI process-creation boundary can prove non-invocation."""
+
+
+def operation_id(kind: str, *parts) -> str:
+    raw = json.dumps(parts, ensure_ascii=False, separators=(",", ":"))
+    return kind + ":" + hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
 @dataclass
@@ -45,20 +60,6 @@ _SHELLISH = _re.compile(
 
 def _shellish(text: str) -> bool:
     return bool(_SHELLISH.search(text or ""))
-
-
-# Transient spawn failures (gateway quota windows, rate limits, network
-# blips) recover on their own within minutes — they must NOT burn the small
-# persistent-failure cap (real-run evidence: MISSION-PANEL-20260830-223950
-# dropped BOTH subtasks to HUMAN during one ~8-minute gateway outage).
-_TRANSIENT_SPAWN_RE = _re.compile(
-    r"(429|502|503|504|rate.?limit|quota|overloaded|timed? ?out|"
-    r"temporarily|connection|network|gateway|upstream|econn)",
-    _re.IGNORECASE)
-
-
-def _is_transient_spawn_error(text: str) -> bool:
-    return bool(_TRANSIENT_SPAWN_RE.search(text or ""))
 
 
 _SPAWN_SUMMARY_LIMIT = 1600
@@ -110,11 +111,13 @@ class ActionExecutor:
                  max_spawn_attempts: int = 3,
                  spawn_backoff_seconds: int = 30,
                  max_transient_spawn_attempts: int = 8,
-                 transient_spawn_backoff_seconds: int = 90):
+                 transient_spawn_backoff_seconds: int = 90,
+                 adapter: Optional[AOAdapter] = None):
         self.ao_bin = ao_bin
         self.data_dir = data_dir
         self.run_file = str(run_file) if run_file else None
         self.store = store
+        self.adapter = adapter or AOAdapter(run_file=run_file)
         # `ao spawn --model <m>`; empty deliberately selects the daemon
         # default. Production config pins gpt-5.6-sol for the Codex worker.
         self.worker_model = worker_model or ""
@@ -126,16 +129,119 @@ class ActionExecutor:
         # the caller escalates to HUMAN once the cap is reached.
         self.max_spawn_attempts = int(max_spawn_attempts or 3)
         self.spawn_backoff_seconds = int(spawn_backoff_seconds or 30)
-        # Dual budget: TRANSIENT failures (quota/rate-limit/network — see
-        # _TRANSIENT_SPAWN_RE) recover on their own, so they get a separate,
-        # larger allowance with a slower backoff instead of burning the
-        # persistent-failure cap above.
+        # Preserve historical counters/config compatibility. F05 never uses
+        # transport diagnostics to authorize another invocation.
         self.max_transient_spawn_attempts = int(
             max_transient_spawn_attempts or 8)
         self.transient_spawn_backoff_seconds = int(
             transient_spawn_backoff_seconds or 90)
         self._last_spawn_error = ""
         self._last_spawn_classification = ""
+
+    def _observe(self, op, status, reason, *, result=None, counters=(), **facts):
+        saved = self.store.operation_observe(
+            op["operation_id"], status, {"reason": reason, **facts}, result, counters)
+        if saved["status"] == "UNKNOWN":
+            self.store.record_alert("operation:" + op["operation_id"], {
+                "alert_type": "EXTERNAL_OPERATION_UNKNOWN", "operation_id": op["operation_id"],
+                "operation_kind": op["kind"], "target": op["target"],
+                "summary": reason, "requires_human": True})
+        return saved
+
+    def _reconcile(self, op, counters=()):
+        """AO 0.12.9 public reads only. Absence is NEVER proof of non-execution."""
+        counters = op["request"].get("success_counters", counters)
+        try:
+            if op["kind"] == "spawn":
+                req = op["request"]
+                matches = [s for s in self.adapter.operation_sessions()
+                           if s.get("displayName") == req["marker"]]
+                if len(matches) != 1:
+                    return self._observe(op, "UNKNOWN", "spawn correlation is absent or ambiguous",
+                                         matches=len(matches))
+                candidate = matches[0]
+                sid = candidate.get("id")
+                if not isinstance(sid, str) or not _re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", sid):
+                    raise ValueError("invalid correlated session id")
+                fact = self.adapter.operation_session(sid)
+                if any(fact.get(k) != v for k, v in {
+                        "projectId": op["target"], "displayName": req["marker"],
+                        "harness": req["harness"], "kind": "worker", "mode": "chat"}.items()):
+                    raise ValueError("correlated Session fields do not match intent")
+                return self._observe(op, "SUCCEEDED", "exact persisted spawn marker identifies one Session",
+                                     result={"session_id": sid}, counters=counters,
+                                     isTerminated=fact["isTerminated"])
+            if op["kind"] == "kill":
+                fact = self.adapter.operation_session(op["target"])
+                if fact["isTerminated"] is True and fact["status"] == "terminated":
+                    return self._observe(op, "SUCCEEDED", "AO Session confirms termination",
+                                         result={"session_id": op["target"]},
+                                         isTerminated=True, session_status="terminated")
+                # A current live fact also invalidates an old stop result after
+                # an external restore. Never re-kill that new episode blindly.
+                return self._observe(op, "UNKNOWN", "AO Session has not confirmed termination",
+                                     isTerminated=fact["isTerminated"], session_status=fact["status"])
+            conversation = self.adapter.operation_conversation(op["target"])
+            return self._observe(op, "UNKNOWN", "ao send exposes no caller correlation key; conversation cannot prove this delivery",
+                                 observed_messages=len(conversation["messages"]))
+        except Exception as exc:
+            return self._observe(op, "UNKNOWN", "AO reconciliation unavailable: " + type(exc).__name__)
+
+    @staticmethod
+    def _require_known(op):
+        if op["status"] in ("UNKNOWN", "IN_FLIGHT", "NOT_STARTED"):
+            reason = op["evidence"][-1]["fact"]["reason"] if op["evidence"] else "operation not dispatched"
+            raise ExternalOperationUnknown("%s %s target=%s: %s" % (
+                op["status"], op["operation_id"], op["target"], reason))
+        return op["status"] == "SUCCEEDED"
+
+    def reconcile_pending(self, owner_id: str) -> None:
+        """A restart cannot skip an unresolved side effect to run later work."""
+        for op in self.store.operations(owner_id):
+            if op["status"] in ("IN_FLIGHT", "UNKNOWN"):
+                self._require_known(self._reconcile(op))
+
+    def _effect(self, op, args, *, timeout=120, counters=(), max_attempts=3):
+        if op["status"] in ("SUCCEEDED", "FAILED"):
+            return op
+        if op["status"] in ("IN_FLIGHT", "UNKNOWN"):
+            return self._reconcile(op, counters)
+        if not self.store.operation_claim(op["operation_id"], max_attempts):
+            current = self.store.operation(op["operation_id"])
+            if current["status"] == "NOT_STARTED":
+                raise ExternalOperationUnknown("operation not dispatched: stop, budget or unresolved operation blocks " + op["operation_id"])
+            return current
+        op = self.store.operation(op["operation_id"])
+        try:
+            proc = self._run(args, timeout=timeout)
+        except AOProcessNotStarted:
+            # Popen did not create a CLI process; unlike a transport error this
+            # proves AO was not invoked. The same intent may retry within cap.
+            return self._observe(op, "FAILED" if op["attempts"] >= max_attempts else "NOT_STARTED",
+                                 "AO CLI process could not be created")
+        except Exception as exc:
+            # Do not stringify TimeoutExpired/CalledProcessError: their cmd
+            # contains the full prompt or message. BaseException/crash leaves
+            # the committed IN_FLIGHT record for a later read-only reconcile.
+            self._observe(op, "IN_FLIGHT", "AO acknowledgement lost: " + type(exc).__name__)
+            return self._reconcile(op, counters)
+        if op["kind"] == "kill":
+            self._observe(op, "IN_FLIGHT", "kill CLI returned; termination still requires AO fact",
+                          returncode=proc.returncode)
+            return self._reconcile(op)
+        if proc.returncode == 0:
+            if op["kind"] == "send":
+                return self._observe(op, "SUCCEEDED", "AO accepted send (not proof of Worker consumption)",
+                                     counters=counters)
+            match = _re.fullmatch(r"spawned session ([A-Za-z0-9][A-Za-z0-9_-]{0,127}) \([^\r\n]+\)(?:[^\r\n]*)\s*",
+                                 proc.stdout or "")
+            if match:
+                return self._observe(op, "SUCCEEDED", "AO spawn acknowledgement", counters=counters,
+                                     result={"session_id": match.group(1)})
+        self._observe(op, "IN_FLIGHT", "CLI failure or incomplete reply is not proof of no AO effect",
+                      returncode=proc.returncode,
+                      diagnostic=_sanitize_spawn_error((proc.stderr or "") + " " + (proc.stdout or ""))[:_SPAWN_SUMMARY_LIMIT])
+        return self._reconcile(op, counters)
 
     def _spawn_args(self, project_id: str, harness: str, name: str,
                     prompt: str, include_model: bool = True) -> list:
@@ -147,59 +253,24 @@ class ActionExecutor:
         return args
 
     def _spawn(self, project_id: str, harness: str, name: str,
-               prompt: str) -> Optional[str]:
-        """Spawn a worker session; returns the new session id or None.
-
-        AO's Codex harness accepts an explicit session model override, so a
-        configured model is sent exactly once. Spawn failures stay visible to
-        the existing transient/persistent budget classifier; there is no
-        speculative retry with a different model contract.
-
-        Failure detail is kept on self._last_spawn_error so the caller can
-        classify transient vs persistent (dual spawn budgets); transport
-        exceptions (timeout etc.) are caught here and read as transient.
-        """
-        try:
-            proc = self._run(self._spawn_args(project_id, harness, name,
-                                              prompt))
-        except subprocess.TimeoutExpired:
-            # TimeoutExpired.__str__ includes its cmd, which contains the full
-            # --prompt value. Never inspect or persist that exception text.
-            raw = "TimeoutExpired: AO spawn timed out after 120 seconds"
-            self._last_spawn_classification = "transient"
-            self._last_spawn_error = _sanitize_spawn_error(
-                raw)[:_SPAWN_SUMMARY_LIMIT]
-            return None
-        except Exception as e:  # timeout / transport -> transient
-            raw = "%s: %s" % (type(e).__name__, e)
-            self._last_spawn_classification = (
-                "transient" if _is_transient_spawn_error(raw)
-                else "persistent")
-            self._last_spawn_error = _sanitize_spawn_error(
-                raw)[:_SPAWN_SUMMARY_LIMIT]
-            return None
-        if proc.returncode != 0:
-            raw = ((proc.stderr or "") + "\n" +
-                   (proc.stdout or "")).strip()
-            self._last_spawn_classification = (
-                "transient" if _is_transient_spawn_error(raw)
-                else "persistent")
-            self._last_spawn_error = _sanitize_spawn_error(
-                raw)[:_SPAWN_SUMMARY_LIMIT]
-            return None
-        import re
-        m = re.search(r"spawned session (\S+)", proc.stdout or "")
-        if m:
-            self._last_spawn_error = ""
-            self._last_spawn_classification = ""
-            return m.group(1)
-        raw = ("rc=0 but no session id in output: " +
-               (proc.stdout or "") + "\n" + (proc.stderr or ""))
-        self._last_spawn_classification = (
-            "transient" if _is_transient_spawn_error(raw)
-            else "persistent")
-        self._last_spawn_error = _sanitize_spawn_error(
-            raw)[:_SPAWN_SUMMARY_LIMIT]
+               prompt: str, *, identity: str, owner_id: str, counters=()) -> Optional[str]:
+        request = {"harness": harness, "model": self.worker_model,
+                   "success_counters": list(counters),
+                   "prompt_sha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+                   # AO echoes the exact 20-character displayName. This random
+                   # 120-bit marker is correlation, NOT an AO idempotency key.
+                   "marker": secrets.token_urlsafe(15)}
+        op = self.store.ensure_operation(identity, "spawn", owner_id, project_id, request)
+        op = self._effect(op, self._spawn_args(project_id, harness, op["request"]["marker"], prompt),
+                          counters=counters, max_attempts=self.max_spawn_attempts)
+        if op["status"] in ("UNKNOWN", "IN_FLIGHT"):
+            self._require_known(op)
+        if op["status"] == "SUCCEEDED":
+            self._last_spawn_error = self._last_spawn_classification = ""
+            return op["result"]["session_id"]
+        self._last_spawn_error = (op["evidence"][-1]["fact"]["reason"] if op["evidence"]
+                                  else "spawn not dispatched: stopped or blocked")
+        self._last_spawn_classification = "persistent"
         return None
 
     def load_counters(self, task_id: str) -> None:
@@ -214,9 +285,23 @@ class ActionExecutor:
         return e
 
     def _run(self, args: list, timeout: float = 120) -> subprocess.CompletedProcess:
-        return subprocess.run([self.ao_bin] + args, capture_output=True,
-                              text=True, timeout=timeout, env=self._env(),
-                              encoding="utf-8", errors="replace")
+        argv = [self.ao_bin] + args
+        try:
+            proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                    text=True, env=self._env(), encoding="utf-8", errors="replace")
+        except (FileNotFoundError, PermissionError) as exc:
+            raise AOProcessNotStarted(type(exc).__name__) from exc
+        with proc:
+            try:
+                stdout, stderr = proc.communicate(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                proc.kill()  # Stop the CLI child, not an AO Worker.
+                proc.communicate()
+                raise
+            except BaseException:
+                proc.kill()
+                raise
+            return subprocess.CompletedProcess(argv, proc.returncode, stdout, stderr)
 
     def execute(self, action: PlannerAction, task: TaskSpec) -> ActionResult:
         # Idempotency: never execute the same action_id twice. On a
@@ -264,6 +349,10 @@ class ActionExecutor:
             else:
                 return ActionResult(action.action_id, action.action, False,
                                     "unknown action")
+            if not res.ok and res.new_state is None:
+                # Proven non-invocation stays pending for a bounded retry;
+                # recording it as executed would permanently suppress it.
+                return res
             self.store.mark_action_executed(
                 action.action_id,
                 {"ok": res.ok, "detail": res.detail,
@@ -271,9 +360,13 @@ class ActionExecutor:
                  # hand the replacement worker id back to the loop.
                  "new_worker_session_id": res.new_worker_session_id})
             return res
-        except Exception as e:
+        except ExternalOperationUnknown as exc:
             return ActionResult(action.action_id, action.action, False,
-                                "error: %s" % e)
+                                str(exc), new_state=ProjectState.HUMAN)
+        except Exception as exc:
+            return ActionResult(action.action_id, action.action, False,
+                                "action interrupted: " + type(exc).__name__,
+                                new_state=ProjectState.HUMAN)
 
     def _continue(self, action, task) -> ActionResult:
         return ActionResult(action.action_id, action.action, True,
@@ -281,10 +374,7 @@ class ActionExecutor:
                             new_state=ProjectState.WORKER_RUNNING)
 
     def spawn_cap_reached(self, task_id: str) -> bool:
-        """True when EITHER spawn budget is exhausted: persistent failures
-        hit max_spawn_attempts; transient ones get their own larger budget
-        (gateway quota blips recover within minutes — don't burn the small
-        persistent cap on them)."""
+        """Honor prior caps; new attempts require proven non-execution."""
         return (self.store.counter_get("spawn_attempts:" + task_id)
                 >= self.max_spawn_attempts) or \
             (self.store.counter_get("spawn_transient:" + task_id)
@@ -314,18 +404,15 @@ class ActionExecutor:
         without touching code).
         Returns the new session id or None on failure.
 
-        Dual bounded budgets: PERSISTENT failures (config errors etc.) burn
-        `max_spawn_attempts` with N*spawn_backoff_seconds waits; TRANSIENT
-        ones (quota/rate-limit/network, see _TRANSIENT_SPAWN_RE) burn the
-        separate, larger `max_transient_spawn_attempts` budget with slower
-        N*transient_spawn_backoff_seconds waits — gateway blips recover on
-        their own and must not trip the small persistent cap. Counters are
-        incremented AFTER a failed attempt, classified by the captured
-        error text; a successful spawn clears all counters so a later
-        legitimately needed spawn is not blocked by ancient failures.
+        Only proven CLI non-start may retry with bounded linear backoff.
+        Missing/failed transport acknowledgement is reconciled or UNKNOWN.
+        Historical retry counters are retained, but cannot authorize replay
+        of an operation that might already have reached AO.
         """
-        if self.spawn_cap_reached(task.task_id) or \
-                self._spawn_backoff_pending(task.task_id):
+        identity = operation_id("spawn-initial", task.task_id)
+        prior = self.store.operation(identity)
+        if (not prior or prior["status"] == "NOT_STARTED") and (
+                self.spawn_cap_reached(task.task_id) or self._spawn_backoff_pending(task.task_id)):
             return None
         harness = getattr(task, "worker_harness", "codex") or "codex"
         gate = "; ".join(task.gate_commands or [])
@@ -351,7 +438,8 @@ class ActionExecutor:
                                for ac in task.acceptance_criteria),
                      gate or "(none)"))
         sid = self._spawn(task.project_id, harness,
-                          ("worker-%s" % task.task_id)[:20], prompt)
+                          ("worker-%s" % task.task_id)[:20], prompt,
+                          identity=identity, owner_id=task.subtask_of or task.task_id)
         if sid:
             # success: clear ALL retry counters so a future legitimately
             # needed spawn (e.g. after a replan kill) starts fresh.
@@ -359,15 +447,13 @@ class ActionExecutor:
                         "spawn_next_at:"):
                 self.store.counter_delete_prefix(pfx + task.task_id)
             return sid
-        classification = self._last_spawn_classification or (
-            "transient" if _is_transient_spawn_error(self._last_spawn_error)
-            else "persistent")
-        if classification == "transient":
-            n = self.store.counter_incr("spawn_transient:" + task.task_id)
-            backoff = self.transient_spawn_backoff_seconds * n
-        else:
-            n = self.store.counter_incr("spawn_attempts:" + task.task_id)
-            backoff = self.spawn_backoff_seconds * n
+        final = self.store.operation(identity)
+        if final["status"] == "FAILED":
+            self.store.counter_set("spawn_attempts:" + task.task_id, self.max_spawn_attempts)
+            return None
+        classification = "persistent"
+        n = self.store.counter_incr("spawn_attempts:" + task.task_id)
+        backoff = self.spawn_backoff_seconds * n
         summary = self._last_spawn_error or "AO spawn failed without output"
         fingerprint = hashlib.sha256(
             summary.encode("utf-8")).hexdigest()[:12]
@@ -385,36 +471,39 @@ class ActionExecutor:
         return None
 
     def _send_local_fix(self, action, task) -> ActionResult:
-        if self.local_fixes >= task.budgets["max_local_fixes"]:
+        identity = operation_id("send-action", action.action_id)
+        prior = self.store.operation(identity)
+        if not prior and self.local_fixes >= task.budgets["max_local_fixes"]:
             return ActionResult(action.action_id, action.action, False,
-                                "max_local_fixes exceeded",
-                                new_state=ProjectState.HUMAN)
-        if not action.target_session_id:
+                                "max_local_fixes exceeded", ProjectState.HUMAN)
+        if not action.target_session_id or _shellish(action.message or ""):
             return ActionResult(action.action_id, action.action, False,
-                                "no target_session_id", ProjectState.HUMAN)
-        msg = action.message or ""
-        # hard guard: never allow shell-ish content through
-        if _shellish(msg):
+                                "missing target or shell-like message", ProjectState.HUMAN)
+        op = self._send(identity, task.subtask_of or task.task_id,
+                        action.target_session_id, action.message or "",
+                        counters=("local_fixes:" + task.task_id,))
+        if op["status"] == "NOT_STARTED":
             return ActionResult(action.action_id, action.action, False,
-                                "message rejected (shell-like content)",
-                                ProjectState.HUMAN)
-        proc = self._run(["send", "--session", action.target_session_id,
-                          "--message", msg])
-        ok = proc.returncode == 0
-        if ok:
-            # Only a successful delivery consumes a local-fix budget slot.
-            # A transient `ao send` failure (gateway/rate-limit/network) must
-            # NOT burn the persistent counter — otherwise one transient blip
-            # could push max_local_fixes=2 to its cap and force HUMAN on the
-            # next legitimate fix. (Mirrors _spawn's transient/persistent split.)
-            self.local_fixes = self.store.counter_incr("local_fixes:" + task.task_id)
+                                "NOT_STARTED: CLI was not created; bounded retry pending")
+        ok = self._require_known(op)
+        self.load_counters(task.task_id)
         return ActionResult(action.action_id, action.action, ok,
-                            proc.stdout.strip()[:200] or proc.stderr.strip()[:200],
-                            new_state=ProjectState.WORKER_RETRYING if ok
-                            else ProjectState.HUMAN)
+                            "%s %s" % (op["status"], identity),
+                            ProjectState.WORKER_RETRYING if ok else ProjectState.HUMAN)
+
+    def _send(self, identity, owner_id, session_id, message, counters=()):
+        op = self.store.ensure_operation(identity, "send", owner_id, session_id,
+            {"message_sha256": hashlib.sha256(message.encode("utf-8")).hexdigest(),
+             "success_counters": list(counters)})
+        # Ordinary AO send has no caller key. A missing ACK is reconciled to
+        # UNKNOWN, even when an identical message appears in the conversation.
+        return self._effect(op, ["send", "--session", session_id, "--message", message],
+                            timeout=60, counters=counters)
 
     def _replan_spawn(self, action, task) -> ActionResult:
-        if self.replans >= task.budgets["max_replans"]:
+        identity = operation_id("spawn-replan", action.action_id)
+        prior = self.store.operation(identity)
+        if not prior and self.replans >= task.budgets["max_replans"]:
             return ActionResult(action.action_id, action.action, False,
                                 "max_replans exceeded",
                                 new_state=ProjectState.HUMAN)
@@ -444,7 +533,7 @@ class ActionExecutor:
             if limit > 0:
                 key = "mission_replans:" + parent
                 used = self.store.counter_get(key)
-                if used >= limit:
+                if not prior and used >= limit:
                     return ActionResult(action.action_id, action.action,
                                         False,
                                         "mission max_total_replans exceeded "
@@ -457,7 +546,6 @@ class ActionExecutor:
                 # spawned worker (re-entry spawns a second one). The per-task
                 # `replans:` counter follows the same "success-only" rule.
                 mission_replan_key = key
-                mission_replan_limit = limit
             else:
                 mission_replan_key = None
         else:
@@ -469,18 +557,18 @@ class ActionExecutor:
         # `ao session kill` terminates the session cleanly; the worktree is kept.
         old_sid = action.target_session_id or task.worker_session_id
         if old_sid:
-            self._run(["session", "kill", old_sid], timeout=30)
+            if not self.kill_worker(old_sid, owner_id=task.subtask_of or task.task_id):
+                raise ExternalOperationUnknown("replacement blocked: old Worker stop unconfirmed: " + old_sid)
         new_sid = self._spawn(task.project_id, harness,
-                              ("replan-%s" % task.task_id)[:20], prompt)
+                              ("replan-%s" % task.task_id)[:20], prompt,
+                              identity=identity, owner_id=task.subtask_of or task.task_id,
+                              counters=("replans:" + task.task_id,) +
+                              ((mission_replan_key,) if mission_replan_key else ()))
         ok = new_sid is not None
-        if ok:
-            # Only a successful re-spawn consumes budget slots — both the
-            # per-task counter and the shared mission-level counter. A failed
-            # or interrupted spawn must not burn either (crash-resume re-enters
-            # _replan_spawn and would otherwise double-charge + orphan workers).
-            self.replans = self.store.counter_incr("replans:" + task.task_id)
-            if mission_replan_key:
-                self.store.counter_incr(mission_replan_key)
+        if not ok and self.store.operation(identity)["status"] == "NOT_STARTED":
+            return ActionResult(action.action_id, action.action, False,
+                                "NOT_STARTED: CLI was not created; bounded retry pending")
+        self.load_counters(task.task_id)
         return ActionResult(action.action_id, action.action, ok,
                             ("spawned %s" % new_sid) if ok
                             else "replan spawn failed",
@@ -488,24 +576,34 @@ class ActionExecutor:
                             else ProjectState.HUMAN,
                             new_worker_session_id=new_sid)
 
-    def kill_worker(self, session_id: str) -> bool:
-        """Stop a worker session cleanly (used by watchdog / replan)."""
+    def kill_worker(self, session_id: str, *, owner_id: str = "") -> bool:
+        """One stop intent per Session, with a fresh external stop fact.
+
+        Stored success alone is insufficient after an external AO restore.
+        UNKNOWN is only read again; no second kill is sent for that episode.
+        """
         if not session_id:
             return False
-        proc = self._run(["session", "kill", session_id], timeout=30)
-        return proc.returncode == 0
+        identity = operation_id("kill", session_id)
+        prior = self.store.operation(identity)
+        owner_id = prior["owner_id"] if prior else (owner_id or session_id)
+        op = self.store.ensure_operation(identity, "kill", owner_id, session_id, {})
+        if op["status"] != "NOT_STARTED":
+            return self._reconcile(op)["status"] == "SUCCEEDED"
+        try:
+            fact = self.adapter.operation_session(session_id)
+            if fact["isTerminated"] is True and fact["status"] == "terminated":
+                return self._reconcile(op)["status"] == "SUCCEEDED"
+        except Exception:
+            pass  # first authorized kill may proceed, but never counts as stopped
+        op = self._effect(op, ["session", "kill", session_id], timeout=30)
+        return op["status"] == "SUCCEEDED"
 
-    def nudge_worker(self, session_id: str, message: str) -> bool:
-        """L0 fast path: send a lightweight hint to the worker WITHOUT
-        consuming the local_fixes budget (distinct from SEND_LOCAL_FIX, which
-        is a Planner-authorised fix and counts against max_local_fixes).
-
-        Same shell-content guard as SEND_LOCAL_FIX; returns True on success.
-        """
-        if not session_id or not message:
+    def nudge_worker(self, session_id: str, message: str, *, identity: str = "",
+                     owner_id: str = "") -> bool:
+        """L0/directive send uses the same intent barrier without fix-budget use."""
+        if not session_id or not message or _shellish(message):
             return False
-        if _shellish(message):
-            return False
-        proc = self._run(["send", "--session", session_id, "--message", message],
-                         timeout=60)
-        return proc.returncode == 0
+        identity = identity or operation_id("send-nudge", session_id, message)
+        op = self._send(identity, owner_id or session_id, session_id, message)
+        return self._require_known(op)
