@@ -4,7 +4,7 @@
 const {chromium}=require('playwright');
 const assert=require('node:assert/strict');
 const fs=require('node:fs'), os=require('node:os'), path=require('node:path');
-const [origin,out]=process.argv.slice(2);
+const [origin,out,devOrigin]=process.argv.slice(2);
 assert(/^http:\/\/127\.0\.0\.1:\d+$/.test(origin), 'isolated loopback origin required');
 fs.mkdirSync(out,{recursive:true});
 let checks=0;
@@ -19,7 +19,7 @@ function contrast(a,b){const x=luminance(a),y=luminance(b);return (Math.max(x,y)
   const errors=[];
   try{
     const context=await browser.newContext({viewport:{width:1440,height:900},reducedMotion:'reduce'});
-    const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));
+    const page=await context.newPage();page.on('pageerror',e=>{errors.push(e.message);console.error('PAGE_ERROR '+page.url()+': '+e.message);});
     const writes=[],reads=[];
     page.on('request',r=>{if(r.method()==='POST') writes.push(r.url());if(r.url().includes('/api/')) reads.push(r.url());});
     for(const [width,height] of [[1440,900],[1366,768],[768,1024],[390,844]]){
@@ -43,14 +43,14 @@ function contrast(a,b){const x=luminance(a),y=luminance(b);return (Math.max(x,y)
         }
         await view(page,'overview');
         check(await page.locator('#btnNew').evaluate(n=>n.getBoundingClientRect().height>=44),'primary action target >=44px');
-        await shot(page,'overview-'+width+'-'+theme);
+
         // Controls at the bottom remain reachable after scroll, including narrow screens.
         await page.locator('#recentResults').scrollIntoViewIfNeeded();await noOverflow(page);
       }
     }
-    check(reads.length===0 && writes.length===0,'preview must not connect to real read/write APIs');
+    check(reads.some(u=>u.endsWith('/api/stream')) && writes.length===0,'normal mode reads real state without writes');
     await page.setViewportSize({width:1440,height:900});
-    await page.goto(origin+'/?preview=empty');await view(page,'settings');
+    await page.goto(devOrigin+'/?state=empty');await view(page,'settings');
     await page.locator('button[data-theme="light"]').click();await page.reload();
     check(await page.locator('html').getAttribute('data-theme')==='light','theme persists refresh');
     await view(page,'settings');await page.locator('button[data-theme="system"]').click();await page.emulateMedia({colorScheme:'dark'});await page.waitForFunction(()=>document.documentElement.dataset.theme==='dark');
@@ -77,49 +77,55 @@ function contrast(a,b){const x=luminance(a),y=luminance(b);return (Math.max(x,y)
     await page.click('#formReview button');check(await page.locator('#f_project').inputValue()==='sample-project','edit preserves selection');
     await page.click('#stepNext');await page.click('#stepNext');await page.click('#stepNext');
     await page.click('#btnStart');
-    check((await page.locator('#formSubmitError').textContent()).includes('不会发送写请求'),'preview does not fake success');
-    await shot(page,'form-confirm-light');
+    await page.waitForFunction(()=>!PENDING.has('mission') && document.getElementById('formSubmitError').textContent);
+    check((await page.locator('#formSubmitError').textContent()).includes('不执行写操作'),'preview does not fake success');
+    check(await page.locator('#clientErrors').isHidden(),'form error is shown once at the action');
+
     await page.locator('#closeMission').focus();await page.keyboard.press('Shift+Tab');
     check(await page.evaluate(()=>document.getElementById('newMission').contains(document.activeElement)),'dialog traps focus');
     await page.keyboard.press('Escape');
     check(await page.locator('#btnNew').evaluate(n=>n===document.activeElement),'dialog restores original focus');
-    await page.click('#btnPreview');await page.keyboard.press('Escape');
-    check(await page.locator('#btnPreview').evaluate(n=>n===document.activeElement),'preview dialog restores focus');
+    await page.locator('#clientErrors').waitFor({state:'visible'});
+    check((await page.locator('#clientErrors').innerText()).includes('不执行写操作'),'closing form keeps its unresolved error visible');
     // The full required state set shares the production renderer, with explicit differences.
-    const expected={empty:'尚无任务',running:'进行中',approval:'等待审批',success:'已完成',failure:'执行失败',cancelling:'取消中',cancelled:'已取消',stop_unknown:'停止尚未确认',disconnected:'进行中',gate_read_error:'需要人工处理'};
+    const expected={empty:'待开始',running:'进行中',approval:'需处理',success:'已完成',failure:'需处理',cancelling:'取消中',cancelled:'已取消',stop_unknown:'需处理',disconnected:'进行中',gate_read_error:'进行中'};
     for(const [state,label] of Object.entries(expected)){
-      await page.selectOption('#previewSelect',state);check(await page.locator('#overviewState').textContent()===label,'distinct state '+state);
+      await page.goto(devOrigin+'/?state='+state);await page.waitForFunction(()=>LAST).catch(e=>{throw new Error('Fixture '+state+': '+errors.join('; ')+' / '+e.message);});check(await page.locator('#overviewState').textContent()===label,'distinct state '+state);
       if(state!=='empty'){
         await page.locator('#currentTask button').click();
         check(await page.locator('#taskDetail').isVisible(),'shared task detail '+state);
         if(state==='failure') check((await page.locator('#evidence').textContent()).includes('overall=fail') && (await page.locator('#evidence').textContent()).includes('command=pass'),'exit zero never overrides scope failure');
         if(state==='gate_read_error') check((await page.locator('#evidence').textContent()).includes('Gate 读取失败'),'read_error visible');
-        if(state==='disconnected') check((await page.locator('#connectionStatus').textContent()).includes('断连'),'disconnect visible');
-        if(['failure','stop_unknown','gate_read_error'].includes(state)) await shot(page,'detail-'+state+'-light');
+        if(state==='disconnected') check((await page.locator('#connectionStatus').textContent()).includes('连接中断'),'disconnect visible');
+        if(state==='cancelled') {
+          check(await page.evaluate(()=>LAST.mission.cancellation.status==='cancelled' && LAST.phases.workers[0].activity==='terminated'),'cancelled fixture uses actual cancellation contract and stopped worker');
+          check((await page.locator('#subtasks').innerText()).includes('执行已停止'),'retained historical task state is not shown as live worker execution');
+        }
+        if(state==='stop_unknown') check((await page.locator('#detailReason').textContent()).includes('无法确认') && !(await page.locator('#detailState').textContent()).includes('已取消'),'unknown is not cancellation completion');
       }
       await view(page,'overview');
     }
-    await page.selectOption('#previewSelect','approval');await shot(page,'overview-approval-light');
-    await view(page,'tasks');await shot(page,'tasks-light');await page.locator('#missionsList button').first().click();
+    await page.goto(devOrigin+'/?state=approval');await page.waitForFunction(()=>LAST);
+    check(await page.locator('#attention').evaluate(n=>!n.innerText.includes(LAST.mission.reason)),'same full reason not repeated on overview');
+    await view(page,'tasks');await page.locator('#missionsList button').first().click();
     await page.locator('#loadedDetail > details > summary').click();
     check(await page.locator('#diagnostics').isVisible(),'advanced diagnostic opens');
-    await view(page,'models');await shot(page,'models-light');await view(page,'settings');await shot(page,'settings-light');
-    check(writes.length===0 && reads.length===0,'all preview actions remain isolated');
-    await page.setViewportSize({width:390,height:844});await page.selectOption('#previewSelect','empty');
-    await view(page,'settings');await page.locator('button[data-theme="dark"]').click();
-    await view(page,'models');await shot(page,'models-390-dark');
-    await view(page,'overview');await page.click('#btnNew');
-    check(await page.locator('#f_project').inputValue()==='sample-project','reopened form retains project');
-    // Reopened progressive form retains the earlier confirmation step and drafts.
-    await page.locator('#formReview').waitFor({state:'visible'});await noOverflow(page);
-    check(await page.locator('#newMission').evaluate(n=>n.scrollWidth<=n.clientWidth),'390px dialog has no horizontal overflow');
-    await shot(page,'form-390-dark');await page.keyboard.press('Escape');
+    check((await context.request.post(devOrigin+'/api/mission',{data:{objective:'must never execute'}})).status()===403,'dev server rejects direct POST as well as fixture transport');
+    check((await context.request.get(devOrigin+'/preview.py')).status()===404,'dev server has a finite static allowlist');
+    check(writes.length===0 && reads.every(u=>u.startsWith(origin)),'dev transports cannot reach production APIs');
     await page.setViewportSize({width:1440,height:900});
     // A real HTTP/SQLite page must not be supplemented with preview data.
     await page.goto(origin+'/');await page.waitForFunction(()=>LAST && PROJECTS.length);
-    check(await page.locator('#previewBanner').isHidden(),'normal mode is not sample mode');
-    check((await page.locator('#currentTask').textContent()).includes('正常中文 objective'),'production SQLite objective shown');
+    check(await page.locator('#previewBanner,#btnPreview,#settingsPreview').count()===0,'normal mode is not sample mode');
+    check((await page.locator('#currentTask').textContent()).includes('为订单导入增加格式校验'),'production SQLite objective shown');
     check(!(await page.locator('#currentTask').textContent()).includes('数据导入'),'no sample fallback');
+    await view(page,'settings');await page.locator('button[data-theme=light]').click();await view(page,'overview');
+    await shot(page,'revision-overview-light');
+    await page.locator('#currentTask button').click();await shot(page,'revision-detail-light');
+    await view(page,'settings');await shot(page,'revision-settings-light');
+    await page.setViewportSize({width:390,height:844});await page.locator('button[data-theme=dark]').click();await view(page,'overview');await shot(page,'revision-overview-390-dark');
+    await page.locator('#currentTask button').click();await shot(page,'revision-detail-390-dark');
+    await page.setViewportSize({width:1440,height:900});
     await view(page,'settings');await page.fill('#k_poll','0.375');await page.locator('#k_idle').focus();
     await page.evaluate(()=>render(structuredClone(LAST)));
     check(await page.locator('#k_poll').inputValue()==='0.375','snapshot cannot erase unfocused dirty settings');
@@ -127,13 +133,24 @@ function contrast(a,b){const x=luminance(a),y=luminance(b);return (Math.max(x,y)
     await page.evaluate(()=>render(structuredClone(LAST)));
     check(await page.locator('#f_obj').evaluate((n,value)=>n===document.activeElement && n.value===value,unsafe),'background does not steal form focus or draft');
     await page.keyboard.press('Escape');await view(page,'tasks');
+    if(await page.locator('#backToTasks').isVisible()) await page.locator('#backToTasks').click();
     const button=page.locator('#missionsList button').first();await button.focus();
     await page.evaluate(()=>{window.savedSnapshot=structuredClone(LAST);const s=structuredClone(LAST);s.mission.objective='new safe title';render(s);render(window.savedSnapshot);});
     check(await button.evaluate(n=>n===document.activeElement),'focused task button survives changed snapshot');
     await view(page,'overview');
-    check((await page.locator('#missionsList').textContent()).includes('正常中文 objective') && !(await page.locator('#missionsList').textContent()).includes('new safe title'),'deferred updates keep latest facts');
+    check((await page.locator('#missionsList').textContent()).includes('为订单导入增加格式校验') && !(await page.locator('#missionsList').textContent()).includes('new safe title'),'deferred updates keep latest facts');
+    await page.evaluate(()=>{const s=structuredClone(LAST);s.subtasks=[{task_id:'child',state:'DONE',objective:'子任务完成'}];render(s);});
+    check(await page.locator('#overviewState').textContent()==='进行中','child DONE does not complete Mission');
+    check((await page.locator('#subtasks').textContent()).includes('子任务已完成'),'child completion stays identifiable');
+    await page.evaluate(()=>{const s=structuredClone(LAST);s.subtasks[0].state='FAILED';render(s);});
+    check((await page.locator('#subtasks').innerText()).includes('需处理') && !(await page.locator('#subtasks').innerText()).includes('进行中'),'failed child remains a failure requiring attention');
+    await page.evaluate(()=>{window.beforeApproval=structuredClone(LAST);const s=structuredClone(LAST);s.phases.records[0].phase='approval_wait';render(s);});
+    check((await page.locator('#missionsList').textContent()).includes('需处理'),'phase-only update also refreshes task list status');
+    await page.evaluate(()=>render(window.beforeApproval));
+
+    check(await page.locator('script[src*=fixtures],#devState').count()===0,'normal product never loads fixtures or dev controls');
     await page.evaluate(()=>{const s=structuredClone(LAST);s.mission.state='__proto__';render(s);});
-    check(await page.locator('#overviewState').textContent()==='状态未知','unsupported state remains safe unknown');
+    check(await page.locator('#overviewState').textContent()==='需处理','unsupported state requires attention');
     await page.evaluate(()=>{const s=structuredClone(LAST);s.mission.objective='中文 < > & " \' long-title '.repeat(80);s.mission.reason='error <script> '.repeat(800)+' LONG_END';render(s);});
     await page.setViewportSize({width:390,height:844});await noOverflow(page);
     check((await page.locator('#currentTask').textContent()).includes('LONG_END'),'long reason is retained as scrollable text');
@@ -149,14 +166,12 @@ function contrast(a,b){const x=luminance(a),y=luminance(b);return (Math.max(x,y)
   try{
     zoomContext=await chromium.launchPersistentContext(path.join(root,'profile'),{channel:'msedge',headless:true,viewport:null,reducedMotion:'reduce',args:['--window-size=1440,900','--disable-extensions-except='+ext,'--load-extension='+ext]});
     const worker=zoomContext.serviceWorkers()[0] || await zoomContext.waitForEvent('serviceworker');
-    const page=await zoomContext.newPage();await page.goto(origin+'/?preview=empty');
+    const page=await zoomContext.newPage();await page.goto(origin+'/?preview=empty');await page.waitForFunction(()=>LAST && PROJECTS.length);
     const zoom=await worker.evaluate(async origin=>{const tabs=await chrome.tabs.query({});const tab=tabs.find(t=>t.url?.startsWith(origin));await chrome.tabs.setZoom(tab.id,2);return chrome.tabs.getZoom(tab.id);},origin);
     check(zoom===2,'actual browser zoom is 200%');await noOverflow(page);
     for(const name of ['overview','tasks','models','settings']){await view(page,name);await noOverflow(page);}
-    await view(page,'overview');await page.click('#btnNew');await page.selectOption('#f_project','sample-project');await page.click('#stepNext');await page.fill('#f_obj','200% 缩放测试');await page.fill('#f_ac','主要操作可达');await page.click('#stepNext');await page.fill('#f_paths','src/**');await page.click('#stepNext');
-    await page.locator('#btnStart').scrollIntoViewIfNeeded();const cdp=await zoomContext.newCDPSession(page);
-    const screenshot=await cdp.send('Page.captureScreenshot',{format:'png',fromSurface:true,captureBeyondViewport:false});
-    fs.writeFileSync(path.join(out,'form-200-percent-light.png'),Buffer.from(screenshot.data,'base64'));
+    await view(page,'overview');await page.click('#btnNew');await page.selectOption('#f_project','safe-project');await page.click('#stepNext');await page.fill('#f_obj','200% 缩放测试');await page.fill('#f_ac','主要操作可达');await page.click('#stepNext');await page.fill('#f_paths','src/**');await page.click('#stepNext');
+    await page.locator('#btnStart').scrollIntoViewIfNeeded();
     check(await page.locator('#btnStart').evaluate(n=>{const r=n.getBoundingClientRect();return r.bottom<=innerHeight && r.right<=innerWidth && r.top>=0;}),'200% primary action reachable');
     await page.keyboard.press('Escape');check(await page.locator('#btnNew').evaluate(n=>n===document.activeElement),'200% focus return');
   }finally{
@@ -165,5 +180,5 @@ function contrast(a,b){const x=luminance(a),y=luminance(b);return (Math.max(x,y)
     assert(path.dirname(target)===parent && path.basename(target).startsWith('clao-u01-zoom-'));
     fs.rmSync(target,{recursive:true,force:true});
   }
-  console.log('U01_BROWSER_PASS '+checks+' assertions; actual Edge, 8 overview widths/themes, 200% browser zoom; '+out);
+  console.log('U01_BROWSER_PASS '+checks+' assertions; actual Edge, 8 product widths/themes, isolated dev states, 200% browser zoom; '+out);
 })().catch(e=>{console.error(e.stack);process.exitCode=1;});

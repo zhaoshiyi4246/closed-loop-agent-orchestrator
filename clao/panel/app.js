@@ -1,6 +1,5 @@
 
 let LAST = null, ACTIVE_TAB = "ev", PROJECTS = [];
-const PREVIEW = new URLSearchParams(location.search).has("preview");
 let VIEW="overview", DETAIL_ID=null, WIZARD_STEP=0, PROJECT_ERROR="";
 const $ = id => document.getElementById(id);
 const PANEL_NONCE = document.currentScript.nonce;
@@ -17,10 +16,14 @@ function toast(msg){ const node=$("toast"); node.textContent=msg; node.style.dis
   setTimeout(()=>node.style.display="none",2600); }
 function uiError(source,error){
   if(error) UI_ERRORS.set(source,text(error)); else UI_ERRORS.delete(source);
-  $("clientErrors").textContent=[...UI_ERRORS].map(([key,value])=>key+"："+value).join("\n");
-  $("clientErrors").hidden=UI_ERRORS.size===0;
+  showClientErrors();
   if(source==="mission") $("formSubmitError").textContent=error?text(error):"";
   if(source==="config") $("settingsError").textContent=error?text(error):"";
+}
+function showClientErrors(){
+  const visible=[...UI_ERRORS].filter(([key])=>!(key==="config" && VIEW==="settings") && !(key==="mission" && $("newMission").open));
+  $("clientErrors").textContent=visible.map(([key,value])=>key+"："+value).join("\n");
+  $("clientErrors").hidden=visible.length===0;
 }
 function syncButtons(){
   document.querySelectorAll("[data-write-key]").forEach(b=>b.disabled=PENDING.has(b.dataset.writeKey) || b.dataset.blocked==="1");
@@ -29,7 +32,6 @@ function syncButtons(){
   $("btnStart").disabled=PENDING.has("mission") || $("f_project").disabled || !PROJECTS.length || !$("f_project").value || !!LAST?.running;
 }
 async function writeAction(key,path,body,success){
-  if(PREVIEW){uiError(key,"样例预览不会发送写请求。返回真实工作台后才能操作。");return;}
   if(PENDING.has(key)) return;
   PENDING.add(key); syncButtons();
   const requestStarted=performance.now();
@@ -60,7 +62,6 @@ document.querySelectorAll(".tabs button").forEach(b=>{
 });
 async function loadFile(name){
   const target=$(name==="memory.md"?"memPre":"projPre");
-  if(PREVIEW){target.textContent="样例预览：这里展示运行投影；未读取真实任务文件。";return;}
   try{
     const response=await fetch("/api/file?name="+encodeURIComponent(name));
     const data=await response.json();
@@ -71,35 +72,34 @@ async function loadFile(name){
 
 /* ---------------- render: dynamic values are text, never markup ---------------- */
 function drawGate(query){
-  const box=$("evidence"); box.replaceChildren();
-  const labels={not_run:"Gate 尚未运行",no_records:"没有 Gate 记录；不能推断执行结果",read_error:"Gate 读取失败",ok:"Gate 记录"};
-  box.append(el("div",labels[query?.status] || "Gate 状态 unknown"));
+  const box=$("evidence");box.replaceChildren();
+  const labels={not_run:"Gate 尚未运行",no_records:"没有 Gate 记录",read_error:"Gate 读取失败",ok:""};
+  const label=Object.hasOwn(labels,query?.status)?labels[query.status]:"Gate 状态未知";
+  if(label) box.append(el("p",label,query?.status==="read_error"?"field-error":"subtle"));
   if(query?.error) box.append(el("pre",query.error,"diagnostic"));
-  if(query?.reason) box.append(el("div",query.reason));
-  const phases={task:"Task Gate",baseline:"baseline Gate",final:"Final Gate",unknown:"阶段 unknown"};
+  if(query?.reason) {const d=el("details");d.append(el("summary","读取详情"),el("pre",query.reason,"diagnostic"));box.append(d);}
+  const phases={task:"子任务验收",baseline:"基线验收",final:"最终验收",unknown:"验收阶段未知"};
+  const result=value=>value==="pass"?"通过":value==="fail"?"失败":"未知";
   for(const run of query?.records || []){
-    const row=el("div",null,"ev");
-    row.append(el("b",(phases[run.phase] || "阶段 unknown")+" · "+text(run.task_id)));
-    if(run.historical_fields_missing) row.append(el("div","历史字段未提供；unknown"));
-    row.append(el("pre",run.command || "（命令未执行）","diagnostic"));
-    row.append(el("div","command="+text(run.command_result)+" · exit="+(run.exit_code==null?"未执行":text(run.exit_code))+" · command batch="+text(run.command_status)));
-    row.append(el("div","repository integrity="+text(run.integrity?.status)+" · scope="+text(run.scope?.status)));
-    const overall=el("strong","overall="+text(run.overall));
-    overall.style.color=run.overall==="pass"?"var(--green)":run.overall==="fail"?"var(--red)":"var(--amber)";
-    row.append(overall);
-    if(run.output) for(const [stream,meta] of Object.entries(run.output)){
-      if(meta?.truncated) row.append(el("pre",stream+" 已截断：original="+text(meta.original_length)+" chars · limit="+text(meta.limit_chars)+" · SHA-256="+text(meta.sha256),"diagnostic"));
+    const row=el("div",null,"ev"),head=el("div",null,"section-heading");
+    head.append(el("b",Object.hasOwn(phases,run.phase)?phases[run.phase]:phases.unknown),el("span",result(run.overall),"status "+(run.overall==="pass"?"good":run.overall==="fail"?"bad":"wait")));row.append(head);
+    row.append(el("p","命令："+result(run.command_status)+" · 仓库完整性："+result(run.integrity?.status)+" · 修改范围："+result(run.scope?.status)));
+    if(run.historical_fields_missing) row.append(el("p","历史字段未提供；unknown"));
+    for(const [label,fact] of [["仓库完整性",run.integrity],["修改范围",run.scope]]){
+      if(fact?.reason && fact.status!=="pass") row.append(el("pre",label+"："+text(fact.reason),"diagnostic"));
     }
-    for(const [label,reason] of [["integrity",run.integrity?.reason],["scope",run.scope?.reason]]){
-      if(reason) row.append(el("pre",label+"："+text(reason),"diagnostic"));
+    const d=el("details");d.append(el("summary","命令与证据详情"));
+    d.append(el("p",text(run.task_id)),el("pre",run.command || "（命令未执行）","diagnostic"));
+    d.append(el("p","command="+text(run.command_result)+" · exit="+(run.exit_code==null?"未执行":text(run.exit_code))+" · command batch="+text(run.command_status)));
+    d.append(el("p","repository integrity="+text(run.integrity?.status)+" · scope="+text(run.scope?.status)+" · overall="+text(run.overall)));
+    for(const [label,fact] of [["integrity",run.integrity],["scope",run.scope]]) if(fact?.reason && fact.status==="pass") d.append(el("pre",label+"："+text(fact.reason),"diagnostic"));
+    if(run.output) for(const [stream,meta] of Object.entries(run.output)) if(meta?.truncated){
+      row.append(el("p",stream+" 输出已截断，完整性信息见证据详情。","field-error"));
+      d.append(el("pre",stream+" 已截断：original="+text(meta.original_length)+" chars · limit="+text(meta.limit_chars)+" · SHA-256="+text(meta.sha256),"diagnostic"));
     }
-    if(run.output?.error_category) row.append(el("div","command error="+text(run.output.error_category)+" · timeout="+text(run.output.timeout_seconds)+"s"));
-    if(run.stdout || run.stderr){
-      const details=el("details"); details.open=run.overall==="fail";
-      details.append(el("summary","stdout / stderr"));
-      details.append(el("pre",text(run.stdout)+"\n"+text(run.stderr),"diagnostic")); row.append(details);
-    }
-    box.append(row);
+    if(run.output?.error_category) row.append(el("p","命令错误："+text(run.output.error_category)+" · timeout="+text(run.output.timeout_seconds)+"s","field-error"));
+    if(run.stdout || run.stderr) d.append(el("pre",text(run.stdout)+"\n"+text(run.stderr),"diagnostic"));
+    row.append(d);box.append(row);
   }
 }
 let STREAM_EPOCH=null, STREAM_SEQ=-1, CONNECTED=false, RECEIVED_MONO=null, DISCONNECTED_MONO=null, REQUEST_TIMING=null;
@@ -184,10 +184,10 @@ function render(s){
   $("missionConfig").textContent=s.mission_config?.status==="ok"?configText(s.mission_config.snapshot,s.config_fields):"本次配置："+text(s.mission_config?.status || "unknown")+"；不使用最新默认值伪造历史";
   renderPhases();
   const subs=s.subtasks || [];
-  region("subtasks",subs,tasks=>{
+  region("subtasks",[subs,m?.state,m?.cancellation],tasks=>{
   for(const task of subs){
     const card=el("div",null,"subtask");
-    card.append(statusBadge(task),el("div",task.objective,"obj"));
+    card.append(taskStatus(task),el("div",task.objective,"obj"));
     const details=el("details"), key=text(task.task_id);
     details.dataset.taskId=key;
     details.open=OPEN_SUBTASKS.has(key);
@@ -215,7 +215,7 @@ function render(s){
     selector.dataset.workers=workerKeys;
     selector.querySelectorAll("option[data-w]").forEach(node=>node.remove());
     workers.forEach((task,i)=>{
-    const id=text(task.worker_session_id), option=el("option",`Worker ${i+1} (${id})（同步 Planner）`);
+    const id=text(task.worker_session_id), option=el("option",`Worker ${i+1}（同步 Planner）`);
     option.value="worker:"+id; option.dataset.w="1"; selector.append(option);
     });
     selector.value=selected; if(!selector.value) selector.value="planner";
@@ -246,7 +246,7 @@ function render(s){
   syncButtons();
 }
 
-/* ---------------- workbench: the same components for live facts and fixtures ---------------- */
+/* ---------------- workbench: live state presentation ---------------- */
 const OPEN_SUBTASKS=new Set();
 const TERMINAL=new Set(["MISSION_DONE","HUMAN","FAILED","CANCELLED"]);
 const PHASE_NAMES={preflight:"准备与环境检查",prepare:"准备执行",preparation:"准备隔离工作树",projection:"同步状态记录",ao_read:"读取 AO 执行事实",observation_wait:"等待下次观察",approval_waiting:"等待审批",reconciliation:"核对外部操作结果",send:"发送受控指令",spawn:"创建 Worker",worker:"Worker 执行",worker_execution:"Worker 执行",observe:"观察执行进展",observation:"观察执行进展",approval_wait:"等待人工审批",approval:"检查审批请求",model_request:"语义模型复核",planner:"Planner 规划",auditor:"Auditor 审计",baseline_gate:"基线检查",task_gate:"任务验收",final_gate:"最终验收",gate:"确定性检查",materialization:"整理交付改动",materialize:"整理交付改动",merge:"合并隔离成果",verifier:"最终复核",retry_wait:"等待下一次尝试",stop:"确认 Worker 停止",kill:"确认 Worker 停止"};
@@ -258,15 +258,33 @@ function icon(name,tile){
   const box=el("span",null,"icon-tile "+tile);box.append(svg);return box;
 }
 function stateInfo(m){
-  if(!m) return ["尚无任务","neutral"];
-  if(m.cancellation?.status==="unknown" || m.worker_stop?.status==="UNKNOWN" && m.stop_request && m.state!=="CANCELLING") return ["停止尚未确认","wait"];
-  const current=(m.id || m.mission_id)===LAST?.mission?.id, phase=latestPhase();
-  if(current && LAST?.running && phase?.status==="running" && !TERMINAL.has(m.state) && m.state!=="CANCELLING"){
-    if(phase.phase==="approval_wait") return ["等待审批","wait"];
-    if(m.state==="MISSION_READY" && !["preflight","preparation","spawn"].includes(phase.phase)) return ["进行中","active"];
-  }
-  const labels={MISSION_DONE:["已完成","good"],DONE:["已完成","good"],FAILED:["执行失败","bad"],HUMAN:["需要人工处理","wait"],CANCELLING:["取消中","wait"],CANCELLED:["已取消","neutral"],MISSION_READY:["准备执行","active"],preflight:["准备与检查","active"],RUNNING:["进行中","active"],WORKER_RUNNING:["正在执行","active"],WORKER_RETRYING:["准备重试","wait"],TASK_READY:["等待执行","neutral"],GATE_PENDING:["等待验收","active"],AUDIT_PENDING:["等待审计","active"],LOCAL_FIX_PENDING:["等待局部修复","active"],REPLAN_PENDING:["等待重规划","active"],PLANNER_PENDING:["等待规划","active"],VERIFIER_PENDING:["等待复核","active"]};
-  return Object.hasOwn(labels,m.state)?labels[m.state]:["状态未知","wait"];
+  if(!m) return ["待开始","neutral"];
+  if(m.cancellation?.status==="unknown" || m.worker_stop?.status==="UNKNOWN" && m.state!=="CANCELLING") return ["需处理","wait"];
+  if(m.state==="CANCELLING") return ["取消中","wait"];
+  if(m.state==="CANCELLED") return ["已取消","neutral"];
+  if(m.state==="MISSION_DONE") return ["已完成","good"];
+  if(m.state==="FAILED") return ["需处理","bad"];
+  if(m.state==="HUMAN") return ["需处理","wait"];
+  const phase=latestPhase();
+  if((m.id || m.mission_id)===LAST?.mission?.id && phase?.status==="running" && ["approval_wait","approval_waiting"].includes(phase.phase)) return ["需处理","wait"];
+  if(m.state==="MISSION_READY" && !((m.id || m.mission_id)===LAST?.mission?.id && LAST?.running)) return ["待开始","neutral"];
+  if(["MISSION_READY","RUNNING","preflight","VERIFIER_PENDING"].includes(m.state)) return ["进行中","active"];
+  return ["需处理","wait"];
+}
+function taskStatus(task){
+  if(task.state==="DONE") return el("span","子任务已完成","status good");
+  if(LAST?.mission?.state==="CANCELLED" && LAST.mission.cancellation?.status==="cancelled") return el("span","执行已停止","status neutral");
+  if(["TASK_READY","PLANNER_PENDING"].includes(task.state)) return el("span","待开始","status neutral");
+  if(["WORKER_RUNNING","WORKER_RETRYING","GATE_PENDING","AUDIT_PENDING","LOCAL_FIX_PENDING","REPLAN_PENDING"].includes(task.state)) return el("span","进行中","status active");
+  return el("span","需处理","status "+(task.state==="FAILED"?"bad":"wait"));
+}
+function taskReason(m){
+  if(m?.reason) return text(m.reason);
+  if(m?.cancellation?.status==="unknown" || m?.worker_stop?.status==="UNKNOWN") return "停止尚未确认。";
+  if(m?.state==="CANCELLING") return "取消请求已接收，正在确认停止。";
+  const p=latestPhase();
+  if((m?.id || m?.mission_id)===LAST?.mission?.id && p?.status==="running") return p.reason || phaseLabel(p);
+  return "";
 }
 function statusBadge(m){const [label,tone]=stateInfo(m);return el("span",label,"status "+tone);}
 function putStatus(id,m){const [label,tone]=stateInfo(m);$(id).textContent=label;$(id).className="status "+tone;}
@@ -274,22 +292,23 @@ function phaseLabel(p){return Object.hasOwn(PHASE_NAMES,p?.phase)?PHASE_NAMES[p.
 function latestPhase(){const rows=LAST?.phases?.records || [];return rows.find(p=>p.status==="running") || rows[0];}
 function friendlyElapsed(p){
   if(p?.elapsed_seconds==null) return "耗时未知";
-  const delta=!PREVIEW && p.status==="running" && RECEIVED_MONO!=null?Math.max(0,((CONNECTED?performance.now():(DISCONNECTED_MONO ?? RECEIVED_MONO))-RECEIVED_MONO)/1000):0;
+  const delta=p.status==="running" && RECEIVED_MONO!=null?Math.max(0,((CONNECTED?performance.now():(DISCONNECTED_MONO ?? RECEIVED_MONO))-RECEIVED_MONO)/1000):0;
   return "已记录 "+Math.floor(p.elapsed_seconds+delta)+" 秒";
 }
 function renderFriendlyPhase(){
   const p=latestPhase();
-  $("connectionStatus").textContent=PREVIEW?"样例 · "+(CONNECTED?"非实时数据":"模拟断连"):CONNECTED?"状态已连接":"连接中断 · 保留记录";
+  $("connectionStatus").textContent=CONNECTED?"已连接":"连接中断 · 保留记录";
   $("connectionStatus").classList.toggle("offline",!CONNECTED);
-  if(DETAIL_ID===LAST?.mission?.id) $("friendlyPhase").textContent=p?phaseLabel(p)+" · "+friendlyElapsed(p)+(p.attempt!=null?" · 第 "+text(p.attempt)+" 次尝试":"")+(p.reason?"\n"+text(p.reason):""):"尚无阶段记录，耗时未知。";
+  if(DETAIL_ID===LAST?.mission?.id) $("friendlyPhase").textContent=p?phaseLabel(p)+" · "+friendlyElapsed(p)+(p.attempt!=null?" · 第 "+text(p.attempt)+" 次尝试":""):"尚无阶段记录，耗时未知。";
 }
-function empty(title,description){const n=el("div",null,"empty");n.append(el("h3",title),el("p",description));return n;}
+function empty(title,description){const n=el("div",null,"empty");n.append(el("h3",title));if(description) n.append(el("p",description));return n;}
 function navigate(view,focus=false){
   if(!["overview","tasks","models","settings"].includes(view)) return;
   VIEW=view;
   document.querySelectorAll(".view").forEach(n=>n.hidden=n.id!=="view-"+view);
   document.querySelectorAll("[data-view]").forEach(n=>{if(n.dataset.view===view)n.setAttribute("aria-current","page");else n.removeAttribute("aria-current");});
   $("locationName").textContent=({overview:"概览",tasks:"任务",models:"模型",settings:"设置"})[view];
+  showClientErrors();
   if(focus) $(view+"Heading").focus();
 }
 // Keep actionable regions stable while the user is interacting with them. Apply the
@@ -317,8 +336,8 @@ function taskRows(){
 }
 function renderTaskList(){
   const filter=$("taskFilter").value;
-  region("missionsList",[taskRows(),filter,LAST?.running],box=>{
-    const rows=taskRows().filter(r=>filter==="all" || filter==="active" && !TERMINAL.has(r.state) || filter==="needs" && ["HUMAN","FAILED","CANCELLING"].includes(r.state) || filter==="done" && ["MISSION_DONE","CANCELLED"].includes(r.state));
+  region("missionsList",[taskRows(),filter,LAST?.running,latestPhase()?.phase,latestPhase()?.status],box=>{
+    const rows=taskRows().filter(r=>filter==="all" || filter==="active" && !TERMINAL.has(r.state) || filter==="needs" && stateInfo(r)[0]==="需处理" || filter==="done" && ["MISSION_DONE","CANCELLED"].includes(r.state));
     for(const item of rows){
       const row=el("div",null,"mrow");row.dataset.missionId=item.mission_id;
       const body=el("div",null,"grow"), title=el("button",null,"link-row");
@@ -333,13 +352,13 @@ function renderTaskList(){
   });
 }
 function nextStep(m){
-  if(m?.worker_stop?.status==="UNKNOWN" || m?.cancellation?.status==="unknown") return "请在 AO 核对 Session 状态；停止未确认前不整理或合并成果。";
-  if(m?.state==="CANCELLING") return "请求已收到。等待外部停止确认，接收请求不等于已经停止。";
-  if(m?.state==="CANCELLED") return "查看保留的记录；如需重新执行，可创建关联的新 attempt。";
-  if(m?.state==="MISSION_DONE") return "查看验收证据与隔离目录中的成果，自行决定后续交付。";
-  if(["HUMAN","FAILED"].includes(m?.state)) return "先阅读失败原因与证据，处理阻塞后再决定下一步。";
+  if(m?.cancellation?.status==="unknown" || m?.worker_stop?.status==="UNKNOWN" && m?.state!=="CANCELLING") return "请在 AO 核对执行是否已停止。";
+  if(m?.state==="CANCELLING") return "等待停止确认。";
+  if(m?.state==="CANCELLED") return "可查看记录，或重新执行。";
+  if(m?.state==="MISSION_DONE") return "查看成果与验收记录。";
+  if(["HUMAN","FAILED"].includes(m?.state)) return "处理原因中指出的问题后，再决定是否重新执行。";
   if(m?.inspection_only) return "当前仅查看存档。恢复前需通过已有材料检查。";
-  return "可继续观察，或通过补充指令说明约束。";
+  return "可等待执行，或补充指令。";
 }
 function renderTaskDetail(){
   $("taskListArea").hidden=!!DETAIL_ID;$("taskDetail").hidden=!DETAIL_ID;
@@ -347,7 +366,7 @@ function renderTaskDetail(){
   const loaded=DETAIL_ID===LAST?.mission?.id;
   const m=loaded?LAST.mission:taskRows().find(r=>r.mission_id===DETAIL_ID);
   $("detailTitle").textContent=m?.objective || "任务目标未提供";putStatus("detailState",m);
-  $("detailReason").textContent=m?.reason || (loaded?"此记录尚未提供原因。":"当前是任务摘要，加载存档后才能读取详细证据。");
+  $("detailReason").textContent=taskReason(m);$("detailReason").hidden=!$("detailReason").textContent;
   $("detailNext").textContent=nextStep(m);
   $("loadedDetail").hidden=!loaded;$("detailUnloaded").hidden=loaded;
   $("detailUnloaded").textContent=LAST?.running?"当前另有任务运行，暂不能切换存档。此处只显示已有摘要，不展示其他任务的证据。":"选择“加载存档”读取这个任务的证据。";
@@ -357,7 +376,7 @@ function renderTaskDetail(){
     if(!loaded && !LAST?.running) box.append(actionButton("加载存档","mission",()=>attach(DETAIL_ID)));
     if(!LAST?.running && m){
       if(TERMINAL.has(m.state)){
-        const next=actionButton("新 attempt","mission",()=>newAttempt(DETAIL_ID));
+        const next=actionButton("重新执行","mission",()=>newAttempt(DETAIL_ID));
         if(m.worker_stop?.status==="UNKNOWN" || m.cancellation?.status==="unknown") {next.dataset.blocked="1";next.disabled=true;next.title="Worker 停止尚未确认，不能开始替代执行。";}
         box.append(next);
       }
@@ -370,49 +389,54 @@ function renderTaskDetail(){
   const phase=p?.phase || "", index=/preflight|prepare|spawn/.test(phase)?0:/gate/.test(phase)?2:/materializ|merge|verifier/.test(phase)?3:/worker|observ|approval|model_request|planner|auditor|retry/.test(phase)?1:-1;
   region("phaseRail",index,box=>["准备","执行与观察","验收","成果复核"].forEach((label,i)=>box.append(el("span",label,i===index?"reached":""))));
   const summary=LAST?.last_summary;
-  $("resultLocation").textContent=summary?.runtime_dir?"运行目录："+text(summary.runtime_dir):"运行材料：runtime/"+text(LAST?.mission?.id)+"/ · integration 为隔离成果目录；是否交付以实际终局与证据为准。";
+  $("resultLocation").textContent=summary?.runtime_dir?"运行目录："+text(summary.runtime_dir):"运行记录：runtime/"+text(LAST?.mission?.id)+"/";
   region("receiptSummary",LAST?.directive_receipts,box=>{
     for(const receipt of (LAST?.directive_receipts?.records || []).slice(0,6)) box.append(el("p",text(receipt.target)+" · "+text(receipt.status)+" · "+text(receipt.reason)));
   });
   renderFriendlyPhase();syncButtons();
 }
 function renderReadiness(){
-  region("readiness",[PROJECTS,PROJECT_ERROR,PREVIEW],box=>{
-    box.append(el("p",PROJECT_ERROR?"项目读取需要处理":PROJECTS.length?"可以选择项目":"等待项目资料","ready-label"));
-    const row=el("div",null,"list-row"), body=el("div",null,"grow");
-    body.append(el("h3",PREVIEW?"示例 AO 项目":PROJECTS.length?"AO 项目列表已读取":"AO 项目列表"),el("p",PROJECT_ERROR || (PROJECTS.length?"新建任务时明确选择工作项目。":"可打开新建任务并重试读取；空列表不会补入样例。")));row.append(body);box.append(row);
-    const check=el("div",null,"list-row");check.append(el("p","完整环境、工作树与来源提交在实际启动时检查。读取项目列表不代表全部就绪。"));box.append(check);
-  });
+  $("readiness").textContent=PROJECT_ERROR;
+  $("readiness").hidden=!!LAST?.mission || !PROJECT_ERROR;
 }
 function renderWorkbench(s){
   const m=s.mission;putStatus("overviewState",m);
   region("currentTask",[m,s.running,s.phases?.records?.[0]?.phase],box=>{
-    if(!m){const card=empty("下一件事，从这里开始","选择项目，写清目标，让每一步都有可检查的结果。");card.prepend(icon("plus","blue"));box.append(card);return;}
-    box.append(el("h3",m.objective || "目标未提供"),el("p",m.reason || "等待新的执行记录。","task-lead"));
+    if(!m){const card=empty("还没有任务","点击“新建任务”开始。");card.prepend(icon("plus","blue"));box.append(card);return;}
+    box.append(el("h3",m.objective || "目标未提供"),el("p",taskReason(m),"task-lead"));
     const meta=el("div",null,"current-meta");
-    for(const [label,value] of [["当前阶段",phaseLabel(latestPhase())],["执行方式",m.inspection_only?"仅查看历史":s.running?"本地隔离执行":"查看已有结果"]]){const pair=el("div");pair.append(el("span",label),el("p",value));meta.append(pair);}
+    for(const [label,value] of [["当前阶段",phaseLabel(latestPhase())]]){const pair=el("div");pair.append(el("span",label),el("p",value));meta.append(pair);}
     const button=el("button","查看任务详情","primary");button.append(icon("arrow-right"));button.onclick=()=>openTask(m.id);box.append(meta,button);
   });
   region("attention",[m?.state,m?.reason,m?.worker_stop,s.alerts,s.panel_errors,s.read_errors,s.gate_query?.status,CONNECTED],box=>{
-    const notes=[];
-    if(!CONNECTED) notes.push(["状态连接已断开","保留最后一次已知状态。重连只读取状态，不会重新提交写操作。","warning"]);
-    if(m && ["HUMAN","FAILED","CANCELLING"].includes(m.state)) notes.push([stateInfo(m)[0],m.reason || nextStep(m),m.state==="FAILED"?"error":"warning"]);
-    for(const error of s.panel_errors || []) notes.push(["运行器错误",text(error),"error"]);
-    for(const error of s.read_errors || []) notes.push([text(error.source)+" 读取失败",text(error.error),"error"]);
-    for(const a of s.alerts || []) notes.push([a.summary || "需要检查的告警",[a.description,a.error,a.reason].filter(v=>v!=null).map(text).join("\n"),"warning"]);
-    if(s.gate_query?.status==="read_error" && !(s.read_errors || []).some(e=>/gate/.test(e.source))) notes.push(["Gate 读取失败",s.gate_query.error || "读取结果未知，不能判断通过。","error"]);
-    for(const [title,reason,tone] of notes){const note=el("div",null,"notice "+tone);note.append(el("strong",title),el("p",reason));box.append(note);}
-    if(!notes.length) box.append(empty("暂无待处理事项",m?"现有记录没有新的告警；后续更新会显示在这里。":"任务运行后，需要你处理的事项会保留在这里。"));
+    const notes=[], seen=new Set([taskReason(m)]);
+    function note(title,values,tone){
+      const fresh=[...new Set(values.filter(v=>v!=null).map(text))].filter(v=>v && !seen.has(v));
+      fresh.forEach(v=>seen.add(v));
+      if(fresh.length) notes.push([title,fresh.join("\n"),tone]);
+    }
+    for(const error of s.panel_errors || []) note("运行器错误",[error],"error");
+    for(const error of s.read_errors || []) {
+      if(/gate/.test(error.source)) continue; // Gate errors belong to the evidence card.
+      note("记录读取失败",[error.error],"error");
+    }
+    for(const a of s.alerts || []) note(a.summary || "告警",[a.description,a.error,a.reason].filter(v=>v!=null).length?[a.description,a.error,a.reason]:[a.summary],"warning");
+    for(const [title,reason,tone] of notes){const n=el("div",null,"notice "+tone);n.append(el("strong",title));if(reason!==text(title)) n.append(el("p",reason));box.append(n);}
+    if(s.gate_query?.status==="read_error"){
+      const link=el(m?"button":"p",m?"Gate 记录读取失败 · 查看证据":"Gate 记录读取失败："+text(s.gate_query.error),"text-button");if(m) link.onclick=()=>{openTask(m.id);$("evidence").scrollIntoView({block:"center"});};
+      box.append(link);
+    }
+    if(!notes.length && s.gate_query?.status!=="read_error") box.append(el("p",m && stateInfo(m)[0]==="需处理"?"请查看当前任务的原因与处理入口。":"暂无待处理事项。","subtle"));
   });
   region("recentResults",s.missions,box=>{
     const rows=(s.missions || []).filter(r=>TERMINAL.has(r.state)).slice(0,3);
     for(const r of rows){const row=el("div",null,"list-row"),button=el("button",null,"link-row");button.append(el("span",r.objective || "目标未提供"),statusBadge(r));button.onclick=()=>openTask(r.mission_id);row.append(button);box.append(row);}
-    if(!rows.length) box.append(empty("还没有最近结果","完成、失败或取消的任务都会保留记录。"));
+    if(!rows.length) box.append(el("p","暂无结果。","subtle"));
   });
   region("roleCards",s.default_config,box=>{
     const values=s.default_config?.values;
-    for(const [role,description] of [["worker","在 AO 工作树执行任务"],["planner","理解目标，规划与给出受控指令"],["auditor","按现有触发条件进行只读审计"],["verifier","对最终成果与证据独立复核"]]){
-      const row=el("div",null,"list-row"), body=el("div",null,"grow");body.append(el("h3",role==="worker"?"Worker · 执行角色":role[0].toUpperCase()+role.slice(1)+" · 语义角色"),el("p",description));
+    for(const role of ["worker","planner","auditor","verifier"]){
+      const row=el("div",null,"list-row"), body=el("div",null,"grow");body.append(el("h3",role==="worker"?"执行 · Worker":({planner:"规划 · Planner",auditor:"审计 · Auditor",verifier:"复核 · Verifier"})[role]));
       row.append(icon(role==="worker"?"list-checks":"cpu",role==="worker"?"green":"purple"),body,el("div",(role==="worker"?values?.worker?.model:values?.roles?.[role]?.model) || "配置尚未提供","model-value"));box.append(row);
     }
   });
@@ -425,11 +449,10 @@ document.querySelectorAll("[data-view],[data-go]").forEach(b=>b.onclick=()=>navi
 $("backToTasks").onclick=()=>{DETAIL_ID=null;renderTaskDetail();$("tasksHeading").focus();};
 $("taskFilter").onchange=renderTaskList;
 const DIALOG_OPENERS=new Map();
-function showDialog(id){const dialog=$(id);DIALOG_OPENERS.set(id,document.activeElement);if(!dialog.open) dialog.showModal();}
+function showDialog(id){const dialog=$(id);DIALOG_OPENERS.set(id,document.activeElement);if(!dialog.open) dialog.showModal();showClientErrors();}
 function closeDialog(id){$(id).close();}
-for(const id of ["newMission","previewDialog"]) $(id).addEventListener("close",()=>{const opener=DIALOG_OPENERS.get(id);if(opener?.isConnected) opener.focus();});
-$("closeMission").onclick=()=>closeDialog("newMission");$("closePreview").onclick=()=>closeDialog("previewDialog");
-$("btnPreview").onclick=$("settingsPreview").onclick=()=>showDialog("previewDialog");
+for(const id of ["newMission"]) $(id).addEventListener("close",()=>{const opener=DIALOG_OPENERS.get(id);if(opener?.isConnected) opener.focus();showClientErrors();});
+$("closeMission").onclick=()=>closeDialog("newMission");
 function showSelectedProject(){
   const selected=PROJECTS.find(p=>String(p.id)===$("f_project").value);
   $("f_project_meta").textContent=selected?"项目路径："+text(selected.path || "未提供")+" · 类型："+text(selected.kind || "未提供"):"尚未选择项目。";
@@ -439,7 +462,7 @@ async function loadProjects(){
   const selector=$("f_project"), selected=selector.value;
   selector.disabled=true;$("btnProjects").disabled=true;syncButtons();
   try{
-    const d=PREVIEW?{ok:true,projects:[{id:"sample-project",name:"示例 · 数据工具",path:"示例项目 / data-tools",kind:"git"}]}:await (await fetch("/api/projects")).json();
+    const d=await (await fetch("/api/projects")).json();
     if(!d.ok) throw new Error(d.error || "AO Project API 请求失败");
     PROJECTS=d.projects || [];
     const prompt=el("option",PROJECTS.length?"请选择一个项目":"AO 中没有已注册项目");prompt.value="";selector.replaceChildren(prompt);
@@ -478,7 +501,7 @@ function renderReview(){
   }
   const values=LAST?.default_config?.values;
   if(LAST?.running) box.append(el("p","当前已有任务运行，不能同时启动另一任务。表单输入会保留。","notice warning"));
-  box.append(el("p","模型采用启动时的新任务默认值，并由后端冻结快照。当前可见 Worker："+text(values?.worker?.model || "unknown")+"；Planner / Auditor / Verifier："+["planner","auditor","verifier"].map(r=>text(values?.roles?.[r]?.model || "unknown")).join(" / ")+"。模型配置在设置的高级区域编辑。","notice"));
+  box.append(el("p","Worker："+text(values?.worker?.model || "unknown")+"；Planner / Auditor / Verifier："+["planner","auditor","verifier"].map(r=>text(values?.roles?.[r]?.model || "unknown")).join(" / ")+"。如需修改，请打开设置。","notice"));
 }
 function openNew(){
   if(!$("f_sub").dataset.dirty) $("f_sub").value=String(LAST?.default_config?.values?.budgets?.max_subtasks ?? 1);
@@ -523,11 +546,11 @@ $("btnSend").onclick=()=>{
   });
 };
 $("d_text").addEventListener("keydown",e=>{if(e.key==="Enter") $("btnSend").click();});
-function newAttempt(mid){return writeAction("mission","/api/new-attempt",{mission_id:mid},d=>{toast("已创建关联 attempt "+d.mission_id);DETAIL_ID=d.mission_id;navigate("tasks");renderTaskDetail();});}
+function newAttempt(mid){return writeAction("mission","/api/new-attempt",{mission_id:mid},d=>{toast("已创建新的执行记录");DETAIL_ID=d.mission_id;navigate("tasks");renderTaskDetail();});}
 function resume(mid){return writeAction("mission","/api/resume",{mission_id:mid},()=>{toast("检查通过，已恢复 "+mid);DETAIL_ID=mid;renderTaskDetail();});}
 function attach(mid){return writeAction("mission","/api/attach",{mission_id:mid},()=>{toast("已加载 "+mid);DETAIL_ID=mid;renderTaskDetail();});}
 
-/* ---------------- theme, preview and ordered live feed ---------------- */
+/* ---------------- theme and ordered live feed ---------------- */
 const SYSTEM_THEME=matchMedia("(prefers-color-scheme: dark)");let THEME="light";
 try{THEME=localStorage.getItem("clao.theme") || "light";}catch{/* restricted storage: keep a usable theme */}
 function applyTheme(value,persist=true){
@@ -538,18 +561,6 @@ function applyTheme(value,persist=true){
 }
 document.querySelectorAll("button[data-theme]").forEach(b=>b.onclick=()=>applyTheme(b.dataset.theme));
 SYSTEM_THEME.addEventListener("change",()=>{if(THEME==="system") applyTheme(THEME,false);});applyTheme(THEME,false);
-for(const [key,label] of Object.entries(PREVIEW_STATES)){
-  const option=el("option",label);option.value=key;$("previewSelect").append(option);
-  const link=el("a",label);link.href="/?preview="+key;link.append(icon("chevron-right"));$("previewOptions").append(link);
-}
-function choosePreview(name){
-  const valid=Object.hasOwn(PREVIEW_STATES,name)?name:"empty";
-  $("previewSelect").value=valid;DETAIL_ID=null;REGION_KEYS.clear();DEFERRED_REGIONS.clear();UI_ERRORS.clear();uiError("preview",null);
-  RECEIVED_MONO=performance.now();DISCONNECTED_MONO=null;CONNECTED=valid!=="disconnected";
-  if(!CONNECTED) DISCONNECTED_MONO=RECEIVED_MONO;
-  render(previewSnapshot(valid));history.replaceState(null,"","/?preview="+valid);
-}
-$("previewSelect").onchange=()=>choosePreview($("previewSelect").value);
 function disconnect(){
   if(CONNECTED || DISCONNECTED_MONO===null) DISCONNECTED_MONO=performance.now();
   CONNECTED=false;renderPhases();if(LAST) renderWorkbench(LAST);
@@ -557,9 +568,8 @@ function disconnect(){
 function connect(){
   const stream=new EventSource("/api/stream");
   stream.onmessage=event=>{try{acceptSnapshot(JSON.parse(event.data));uiError("状态连接",null);}catch(error){uiError("状态连接",error.message);}};
-  stream.onerror=()=>{disconnect();uiError("状态连接","连接中断，正在重连；保留最后一次已知状态");stream.close();setTimeout(connect,4000);};
+  stream.onerror=()=>{disconnect();stream.close();setTimeout(connect,4000);};
 }
-if(PREVIEW){$("previewBanner").hidden=false;choosePreview(new URLSearchParams(location.search).get("preview"));loadProjects();}
-else {connect();loadProjects();}
-setInterval(()=>{if(LAST && CONNECTED && !PREVIEW) renderPhases();},1000);
-setInterval(()=>{if(!PREVIEW && VIEW==="tasks" && (ACTIVE_TAB==="mem"||ACTIVE_TAB==="proj")) loadFile(ACTIVE_TAB==="mem"?"memory.md":"project.md");},10000);
+connect();loadProjects();
+setInterval(()=>{if(LAST && CONNECTED) renderPhases();},1000);
+setInterval(()=>{if(VIEW==="tasks" && (ACTIVE_TAB==="mem"||ACTIVE_TAB==="proj")) loadFile(ACTIVE_TAB==="mem"?"memory.md":"project.md");},10000);

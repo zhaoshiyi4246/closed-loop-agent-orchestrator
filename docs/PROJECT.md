@@ -185,18 +185,22 @@ Worker 初始/replan prompt 包含实际 objective、AC、allowed/forbidden path
 表单或默认设置草稿，正在操作的列表区域延后更新且只采用最新事实。
 
 四步新建表单保留项目、目标/验收、路径/Gate、模型/预算确认输入。项目必须明确选择；
-仍调用既有创建接口，没有新增模型/供应商选项或 source 确认 API。就绪卡只声称
-项目列表读取事实，完整环境/source 检查仍在启动时进行；这不是 U02 的完整任务旅程。
+仍调用既有创建接口，没有新增模型/供应商选项或 source 确认 API。项目列表只提供选择与读取错误，完整环境/source 检查仍在启动时进行；这不是 U02 的完整任务旅程。
 历史摘要加载、恢复、新 attempt、取消、指令、默认设置与有限文件查看入口继续保留，
 停止未知时不提供可用的新 attempt 按钮，实际权限仍由原有后端判定。
 
-`?preview=<状态>` 明确标识样例，10 种夹具使用与真实数据相同的渲染函数，不建立
-SSE、不调用项目/文件 API，统一阻断所有写请求。正常模式没有样例回填。
-详见[本地预览方法](../clao/README.md#工作台与状态预览v03-u01-开发分支)。
-静态资源只增加五个固定路径，未将 URL 映射为任意文件；原 Host / Origin / JSON /
-nonce、只允许 memory.md/project.md 的文件范围与 CSP 脚本 nonce 要求不变。
-图标为 12 个本地 Lucide SVG 符号，完整上游 ISC/Feather MIT 许可随资源提供；无框架、
-构建服务、远程字体、CDN 或模型探测请求。现有 manifest 的 panel/ 前缀覆盖新资源。
+正常页面不提供状态预览，旧 `preview` 参数仍读取真实数据；正式静态 allowlist 不含夹具。
+主层归并为待开始/进行中/需处理/取消中/已取消/已完成；断连为连接提示，Gate 读取失败为证据错误。
+停止 UNKNOWN 属于需处理，取消接收不代表取消完成；子任务 DONE 不改变 Mission 状态。
+“重新执行”继续调用原 `/api/new-attempt`，生成关联新记录，不重新运行旧终态。
+
+开发资源移至仓库 `dev/panel/`（现有 manifest 不覆盖）；独立只读预览服务读取原产品 shell/assets，
+用开发传输夹具调用同一渲染组件，不实例化 Controller/PanelState/AO，不提供写 API。
+[启动与检查方法](V03_BACKLOG.md#v03-u01iphone风格界面骨架与状态夹具)；夹具取消状态为 `cancelled`，
+停止事实与历史子任务状态分别保留，取消完成不显示 Worker 正在执行。
+产品静态资源为四个固定路径；原 Host / Origin / JSON / nonce、memory.md/project.md 文件范围与
+CSP 脚本 nonce 要求不变。12 个本地 Lucide 符号及完整 ISC/Feather MIT 许可保留；没有新框架、
+构建服务、CDN 或模型探测请求。当前仍依赖 AO 注册项目及 origin，尚未实现独立项目与执行入口。
 
 定向 Windows/Edge 证据及截图索引见 [U01 卡](V03_BACKLOG.md#v03-u01iphone风格界面骨架与状态夹具)。
 截图由实际实现产生，已自行查看；最终代码与视觉验收由负责人在 PR 中进行。
@@ -225,7 +229,7 @@ AO executable通过CLAO_AO_BIN或PATH解析；runfile通过CLAO_AO_RUN_FILE或~/
 
 | 主题 | 当前实现 | v0.3设计（待实现） |
 |---|---|---|
-| GUI | U01 分支：四入口、分组卡片、主题、响应式渐进表单与同组件状态预览；代码/视觉待审计 | U02 完整任务旅程与 U03 结果中心/导出 |
+| GUI | U01 分支：四入口、分组卡片、主题、响应式渐进表单；开发夹具独立；代码/视觉待审计 | U02 独立项目/本地执行后完成任务旅程与 U03 结果中心/导出 |
 | 模型 | Codex CLI与AO Codex | GLM/Kimi语义profile，Worker单独准入 |
 | 配置 | R01 已合入；R02 恢复先验证冻结材料 | 新 GUI 的配置旅程 |
 | 结果 | integration路径与日志 | 可独立应用的patch导出与证据摘要 |
