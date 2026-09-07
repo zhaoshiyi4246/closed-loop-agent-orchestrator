@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from . import worktree as wt
-from .action_executor import ActionExecutor
+from .action_executor import ActionExecutor, ExternalOperationUnknown, operation_id
 from .ao_adapter import AOAdapter, AOError
 from .auditor import AuditorProvider
 from .closed_loop import ClosedLoop
@@ -83,6 +83,7 @@ class MissionController:
         self.verifier = verifier
         self.executor = executor
         self.adapter = adapter
+        self.executor.adapter = adapter
         self.gate = gate
         self.store = store
         self.dry_run = dry_run
@@ -99,6 +100,8 @@ class MissionController:
         # controller checkpoint and every subtask loop (shared via
         # _build_loop) refuses to act once raised.
         self._stop_event = threading.Event()
+        if self.store.mission_stop_requested(self.mission.mission_id):
+            self._stop_event.set()
 
     # ------------------------------------------------------------- state
     @property
@@ -120,6 +123,8 @@ class MissionController:
         # atomic method is the source of truth under contention.
         if prev in MISSION_TERMINAL and s != prev:
             return
+        if s == "MISSION_DONE" and not self.dry_run and not self._stop_workers():
+            s, reason = "HUMAN", reason + "; Worker stop remains UNKNOWN"
         self._mission_row = {"state": s, "reason": reason, "at": now_iso()}
         # Only carry the plan when we hold one: with store-level merging, an
         # explicit "plan": null would erase a previously recorded plan.
@@ -137,22 +142,62 @@ class MissionController:
             # a transition that did not land.
             self._mission_row = None  # force re-read from store next time
             return
-        # Terminal transition: stop every still-bound live worker. A mission
-        # that halts (merge conflict, FAILED subtask, budget) must not leave
-        # orphan workers running against a mission nobody will merge — their
-        # output would land in worktrees no controller ever reads again
-        # (real-run: MISSION-PANEL-203226 S2 completed `half()` into a void).
+        if s in MISSION_TERMINAL:
+            self._stop_event.set()
         if s in MISSION_TERMINAL and prev != s and not self.dry_run:
-            # Snapshot tasks before iterating: kill_worker shells out (releases
-            # the GIL), and a concurrent _decompose on the mission thread could
-            # otherwise insert a key mid-iteration -> "dict changed size during
-            # iteration". request_stop() can reach here from a panel thread.
-            for sid, task in list(self.tasks.items()):
-                if task.worker_session_id:
-                    try:
-                        self.executor.kill_worker(task.worker_session_id)
-                    except Exception:
-                        pass
+            self._stop_workers()
+
+    def _stop_workers(self) -> bool:
+        """Persist cleanup facts, including a spawn that crashed before binding.
+
+        Recovery only reconciles dispatched operations; it cannot respawn or
+        resend. A previously unattempted kill may run once to perform cleanup.
+        """
+        if self.dry_run:
+            return True
+        mid = self.mission.mission_id
+        sessions = {t.worker_session_id for t in list(self.tasks.values()) if t.worker_session_id}
+        for tid in self.store.all_task_ids():
+            task = self.store.load_task(tid) or {}
+            if task.get("subtask_of") == mid and task.get("worker_session_id"):
+                sessions.add(task["worker_session_id"])
+        unresolved = []
+        for op in self.store.operations(mid):
+            if op["kind"] != "spawn":
+                continue
+            if op["status"] in ("IN_FLIGHT", "UNKNOWN"):
+                op = self.executor._reconcile(op)
+            if op["result"].get("session_id"):
+                sessions.add(op["result"]["session_id"])
+            if op["status"] in ("IN_FLIGHT", "UNKNOWN"):
+                unresolved.append(op["operation_id"])
+        unconfirmed = []
+        for session in sorted(sessions):
+            try:
+                stopped = self.executor.kill_worker(session, owner_id=mid) is True
+            except Exception as exc:
+                stopped = False
+                self.store.record_alert(make_id("STOP-UNKNOWN"), {
+                    "alert_type": "WORKER_STOP_UNKNOWN", "mission_id": mid,
+                    "target": session, "error": type(exc).__name__, "requires_human": True})
+            if not stopped:
+                unconfirmed.append(session)
+        confirmed = not unconfirmed and not unresolved
+        facts = {"status": "CONFIRMED" if confirmed else "UNKNOWN",
+                 "sessions": sorted(sessions), "unconfirmed": unconfirmed,
+                 "unresolved_spawns": unresolved, "checked_at": now_iso()}
+        self.store.record_mission(mid, {"worker_stop": facts})
+        if not confirmed:
+            row = self._read_state()
+            reason = row.get("reason", "")
+            if "Worker stop remains UNKNOWN" not in reason:
+                self.store.record_mission(mid, {"reason": reason + "; Worker stop remains UNKNOWN"})
+            self.store.record_alert("stop-unknown:" + mid, {
+                "alert_type": "WORKER_STOP_UNKNOWN", "mission_id": mid,
+                "summary": "Worker stop remains UNKNOWN; cleanup requires reconciliation",
+                "requires_human": True})
+        self._mission_row = None
+        return confirmed
 
     def _read_state(self) -> Dict:
         row = getattr(self, "_mission_row", None)
@@ -172,14 +217,14 @@ class MissionController:
 
     # ------------------------------------------------------------- stop
     def request_stop(self) -> None:
-        """User-initiated stop (panel /api/stop). Lands the mission in HUMAN
-        immediately — the terminal transition inside _set_state reaps every
-        still-bound worker — and raises the shared stop event so every
-        controller checkpoint and subtask loop refuses further work.
-        Idempotent; a mission already terminal is left untouched."""
+        """Persist receipt before stopping; HUMAN does not claim termination."""
+        self.store.request_mission_stop(self.mission.mission_id)
         self._stop_event.set()
+        self._mission_row = None
         if self.state not in MISSION_TERMINAL:
-            self._set_state("HUMAN", "stopped by user")
+            self._set_state("HUMAN", "stop requested by user")
+        else:
+            self._stop_workers()
 
     # ------------------------------------------------------------- step
     # Consecutive mission-tick exceptions tolerated before halting to HUMAN
@@ -199,6 +244,9 @@ class MissionController:
             result = self._step_impl()
             self._loop_error_streak = 0
             return result
+        except ExternalOperationUnknown as exc:
+            self._set_state("HUMAN", str(exc))
+            return {"state": self.state, "acted": True, "error": str(exc)}
         except ProtocolError as exc:
             self.store.record_alert(make_id("PROTOCOL-MISSION"),
                                     dict(exc.payload(), mission_id=self.mission.mission_id))
@@ -234,12 +282,20 @@ class MissionController:
 
     def _step_impl(self) -> Dict:
         result = {"state": self.state, "acted": False}
+        if self.store.mission_stop_requested(self.mission.mission_id):
+            self._stop_event.set()
+            if self.state not in MISSION_TERMINAL:
+                self._set_state("HUMAN", "stop requested by user")
         if self.state in MISSION_TERMINAL:
+            self._stop_workers()
+            result["state"] = self.state
             return result
-        # User stop: act no further (request_stop already landed HUMAN and
-        # reaped the workers; an in-flight tick just unwinds from here).
+        # User stop: receipt and cleanup facts are already durable; an
+        # in-flight tick unwinds without assuming cleanup has succeeded.
         if self._stop_event.is_set():
             return result
+        if not self.dry_run:
+            self.executor.reconcile_pending(self.mission.mission_id)
         # mission runtime watchdog
         if self._runtime_exceeded():
             self._set_state("HUMAN", "mission max_runtime_seconds exceeded")
@@ -454,6 +510,8 @@ class MissionController:
 
     def _dispatch_ready(self) -> None:
         for sid, task in self.tasks.items():
+            if self._stop_event.is_set() or self.store.mission_stop_requested(self.mission.mission_id):
+                return
             if task.worker_session_id:
                 continue
             if self._subtask_state(sid) in (ProjectState.DONE,
@@ -483,6 +541,9 @@ class MissionController:
             if new_sid:
                 task.worker_session_id = new_sid
                 self.store.record_task(task.task_id, task.to_dict())
+                if self._stop_event.is_set() or self.store.mission_stop_requested(self.mission.mission_id):
+                    self._stop_workers()
+                    return
                 # freeze the per-worker diff base AT DISPATCH — before the
                 # worker can commit. Freezing lazily (first gate/audit) loses
                 # the race against workers that `git commit` mid-task, and
@@ -527,7 +588,9 @@ class MissionController:
             if target.startswith("worker:"):
                 sid = target.split(":", 1)[1]
                 if sid and not self.dry_run:
-                    self.executor.nudge_worker(sid, stamp)
+                    self.executor.nudge_worker(sid, stamp,
+                        identity=operation_id("send-directive", self.mission.mission_id, sid, d.at, text),
+                        owner_id=self.mission.mission_id)
                 # mirror to planner (visibility rule)
                 for loop in self.loops.values():
                     _append_instruct(loop, "[镜像·发给 %s] %s" % (target, stamp))
@@ -719,9 +782,12 @@ class MissionController:
             return []
 
     def _merge_done(self) -> None:
-        if self.dry_run:
+        if self.dry_run or self._stop_event.is_set() or self.state in MISSION_TERMINAL:
             return
+        self.executor.reconcile_pending(self.mission.mission_id)
         for sid, task in self.tasks.items():
+            if self.store.mission_stop_requested(self.mission.mission_id):
+                return
             if sid in self.merged:
                 continue
             if self._subtask_state(sid) != ProjectState.DONE:
@@ -733,14 +799,13 @@ class MissionController:
                 self._set_state(
                     "HUMAN", "AO workspace unavailable for %s" % sid)
                 return
-            # Stop the worker BEFORE committing its worktree: if the AO session
-            # is still alive it may write to the worktree mid-merge (cleanup,
-            # cache, hooks), and commit_all would capture a half-baked state
-            # into the integration branch. kill_worker is idempotent.
-            try:
-                self.executor.kill_worker(task.worker_session_id)
-            except Exception:
-                pass  # best-effort; a dead worker is fine, merge must proceed
+            # No commit/materialization/merge until the AO Session's current
+            # termination fact is confirmed. A CLI acknowledgement is not it.
+            if self.executor.kill_worker(task.worker_session_id, owner_id=self.mission.mission_id) is not True:
+                self._set_state("HUMAN", "materialization blocked: Worker stop remains UNKNOWN: " + task.worker_session_id)
+                return
+            if self._stop_event.is_set() or self.store.mission_stop_requested(self.mission.mission_id):
+                return
             try:
                 # Dispatch froze this base before the Worker could commit.
                 # Never refreeze at delivery time or merge an unfiltered HEAD.

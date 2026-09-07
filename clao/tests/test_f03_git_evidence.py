@@ -153,7 +153,7 @@ def _delivery_mission(repo, tmp_path, monkeypatch):
     })
     mc.adapter.get_session_workspace.return_value = str(worker)
     monkeypatch.setattr(mc.executor, "spawn_initial_worker", lambda task: "sess-artifacts")
-    monkeypatch.setattr(mc.executor, "kill_worker", lambda session: True)
+    monkeypatch.setattr(mc.executor, "kill_worker", lambda session, **kwargs: True)
     mc.step()  # deterministic single-task plan; no model call
     mc._dispatch_ready()  # real dispatch-time frozen base, fake AO spawn only
     sid = next(iter(mc.tasks))

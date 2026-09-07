@@ -190,6 +190,50 @@ class AOAdapter:
         data = self._get("/api/v1/sessions/%s" % worker_id)
         return (data or {}).get("session", data or {})
 
+    def _operation_json(self, path: str):
+        def unique_fields(pairs):
+            row = {}
+            for key, value in pairs:
+                if key in row:
+                    raise AOError("ambiguous duplicate field in operation fact")
+                row[key] = value
+            return row
+        return json.loads(self._get_raw(path), object_pairs_hook=unique_fields)
+
+    def operation_sessions(self) -> List[Dict]:
+        """Strict public facts for reconciliation; never repair ambiguous JSON.
+
+        AO v0.12.9 echoes spawn.displayName in SessionView but supplies no
+        spawn idempotency key. Only an exact, pre-persisted random marker may
+        correlate a lost acknowledgement; human labels/timestamps cannot.
+        """
+        data = self._operation_json("/api/v1/sessions")
+        rows = data.get("sessions") if isinstance(data, dict) else None
+        if not isinstance(rows, list) or any(not isinstance(s, dict) for s in rows):
+            raise AOError("invalid session list for operation reconciliation")
+        return rows
+
+    def operation_session(self, session_id: str) -> Dict:
+        encoded = urllib.parse.quote(session_id, safe="")
+        data = self._operation_json("/api/v1/sessions/" + encoded)
+        row = data.get("session") if isinstance(data, dict) else None
+        if (not isinstance(row, dict) or row.get("id") != session_id
+                or type(row.get("isTerminated")) is not bool
+                or not isinstance(row.get("status"), str)):
+            raise AOError("incomplete or mismatched Session termination fact")
+        return row
+
+    def operation_conversation(self, session_id: str) -> Dict:
+        """Ordinary `ao send` passes no clientMessageId. A returned conversation
+        is diagnostic only: text similarity/absence (including paged history)
+        is neither unique delivery proof nor proof of non-delivery.
+        """
+        encoded = urllib.parse.quote(session_id, safe="")
+        data = self._operation_json("/api/v1/sessions/" + encoded + "/conversation")
+        if not isinstance(data, dict) or not isinstance(data.get("messages"), list):
+            raise AOError("invalid conversation for operation reconciliation")
+        return data
+
     def get_session_workspace(self, session_id: str) -> str:
         """Return AO's authoritative live workspace path for one session."""
         data = self._get(

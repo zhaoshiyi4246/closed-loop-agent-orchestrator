@@ -79,6 +79,7 @@ def _mc(tmp_path, *, dry=False, verifier=None, mission_data=None,
         planner=None):
     store = StateStore(tmp_path / "m.db")
     adapter = MagicMock()
+    adapter.operation_session.side_effect = lambda sid: {"id": sid, "isTerminated": True, "status": "terminated"}
     adapter.get_recent_events.return_value = []
     adapter.get_worker_status.return_value = {"id": "w", "status": "idle",
                                               "activity": {"state": "idle"}}
@@ -242,7 +243,7 @@ def test_dispatch_workspace_failure_halts_mission(tmp_path):
 
     with patch.object(mc.executor, "spawn_initial_worker",
                       return_value="sess-missing"), \
-            patch.object(mc.executor, "kill_worker") as kill, \
+            patch.object(mc.executor, "kill_worker", return_value=True) as kill, \
             patch("loopcore.mission.wt.freeze_base") as freeze:
         result = mc.step()
 
@@ -251,7 +252,7 @@ def test_dispatch_workspace_failure_halts_mission(tmp_path):
                for t in mc.tasks.values())
     mc.adapter.get_session_workspace.assert_called_once_with("sess-missing")
     freeze.assert_not_called()
-    kill.assert_called_once_with("sess-missing")
+    kill.assert_called_once_with("sess-missing", owner_id=mc.mission.mission_id)
 
 
 def _bind_done_worker(mc, store, session_id="sess-done"):
@@ -281,8 +282,9 @@ def test_merge_resolves_workspace_before_kill_and_uses_actual_path(tmp_path):
         order.append(("workspace", session_id))
         return str(worker)
 
-    def kill(session_id):
+    def kill(session_id, **kwargs):
         order.append(("kill", session_id))
+        return True
 
     def commit(path, _message, *, base_commit):
         order.append(("commit", path, base_commit))
@@ -327,8 +329,9 @@ def test_merge_workspace_failure_halts_before_commit(tmp_path):
         order.append(("workspace", session_id))
         raise AOError("SESSION_WORKSPACE_NOT_FOUND")
 
-    def kill(session_id):
+    def kill(session_id, **kwargs):
         order.append(("kill", session_id))
+        return True
 
     mc.adapter.get_session_workspace.side_effect = missing
     mc.executor.kill_worker = kill
@@ -352,7 +355,7 @@ def test_merge_commit_failure_preserves_git_detail(tmp_path):
     mc.adapter.get_session_workspace.return_value = str(worker)
     wt._write_base_sidecar(worker, sid + ":" + task.worker_session_id, "a" * 40)
 
-    with patch.object(mc.executor, "kill_worker") as kill, \
+    with patch.object(mc.executor, "kill_worker", return_value=True) as kill, \
             patch("loopcore.mission.wt.commit_all",
                   side_effect=RuntimeError(
                       "git commit failed: last fake stderr")), \
@@ -364,7 +367,7 @@ def test_merge_commit_failure_preserves_git_detail(tmp_path):
     assert mc.state == "HUMAN"
     assert "unable to commit Worker workspace for %s" % sid in reason
     assert "git commit failed: last fake stderr" in reason
-    kill.assert_any_call(task.worker_session_id)
+    kill.assert_any_call(task.worker_session_id, owner_id=mc.mission.mission_id)
     integration.assert_not_called()
     merge.assert_not_called()
     assert mc.merged == []

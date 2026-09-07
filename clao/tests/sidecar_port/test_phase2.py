@@ -161,9 +161,11 @@ def test_replan_budget(tmp_path):
     task.budgets["max_replans"] = 1
     pa = PlannerAction("A6", "T", PlannerActionType.REPLAN_SPAWN, "r",
                        replacement_task_spec={"objective": "redo"})
+    ex.adapter = MagicMock()
+    ex.adapter.operation_session.return_value = {"isTerminated": True, "status": "terminated"}
     with patch.object(ex, "_run") as m:
         m.return_value = MagicMock(returncode=0,
-                                    stdout="spawned session w-new", stderr="")
+                                    stdout="spawned session w-new (worker)", stderr="")
         r = ex.execute(pa, task)
         assert r.ok
         assert r.new_worker_session_id == "w-new"

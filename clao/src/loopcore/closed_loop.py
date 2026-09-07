@@ -24,7 +24,7 @@ from typing import Dict, List, Optional
 
 from .structured import ProtocolError, ContractConfigurationError
 from .mission_contracts import check_role, check_planner, check_verifier
-from .action_executor import ActionExecutor, ActionResult
+from .action_executor import ActionExecutor, ActionResult, ExternalOperationUnknown, operation_id
 from .ao_adapter import AOAdapter, AOError
 from .approvals import (decide_approval, apply_approval, pending_approvals,
                         is_safe_command)
@@ -66,6 +66,7 @@ class ClosedLoop:
         self.executor = executor
         self.observer = observer
         self.adapter = adapter
+        self.executor.adapter = adapter
         self.gate = gate
         self.store = store
         self.dry_run = dry_run
@@ -136,6 +137,9 @@ class ClosedLoop:
             result = self._step_impl(injected_events)
             self._loop_error_streak = 0
             return result
+        except ExternalOperationUnknown as exc:
+            self._halt_budget(str(exc))
+            return {"state": self.state, "acted": True, "error": str(exc)}
         except ProtocolError as exc:
             self.store.record_alert(make_id("PROTOCOL-TASK"),
                                     dict(exc.payload(), task_id=self.task.task_id))
@@ -178,6 +182,8 @@ class ClosedLoop:
         # decisions, dispatches or gate runs once the stop latch is raised.
         if self._stop_event.is_set():
             return result
+        if not self.dry_run:
+            self.executor.reconcile_pending(self.task.subtask_of or self.task.task_id)
         # Runtime watchdog: enforce max_runtime_seconds (budget).
         if self._runtime_exceeded():
             result["acted"] = True
@@ -218,7 +224,8 @@ class ClosedLoop:
                           ProjectState.REPLAN_PENDING):
             result["acted"] = True
             self._resume_action()
-            if self.state in (ProjectState.DONE, ProjectState.HUMAN,
+            if self.state in (ProjectState.LOCAL_FIX_PENDING, ProjectState.REPLAN_PENDING,
+                              ProjectState.DONE, ProjectState.HUMAN,
                               ProjectState.FAILED):
                 result["state"] = self.state
                 return result
@@ -507,7 +514,11 @@ class ClosedLoop:
             msg = ("You hit an error. Re-read the failing output and the "
                    "acceptance criteria, then retry. Do not modify tests or "
                    "forbidden paths.")
-            ok = self.executor.nudge_worker(self.task.worker_session_id, msg)
+            ok = self.executor.nudge_worker(self.task.worker_session_id, msg,
+                identity=operation_id("send-l0", self.task.task_id, self.task.worker_session_id, fp),
+                owner_id=self.task.subtask_of or self.task.task_id)
+            if not ok:
+                continue
             self.store.counter_set(key, 1)
             from .mission_contracts import PlannerAction, PlannerActionType
             pa = PlannerAction(
@@ -625,11 +636,18 @@ class ClosedLoop:
 
     def _halt_budget(self, reason: str) -> None:
         """Transition to HUMAN on a budget/limit breach, stopping the worker."""
-        if self.task.worker_session_id:
+        if self.task.worker_session_id and not self.dry_run:
             try:
-                self.executor.kill_worker(self.task.worker_session_id)
-            except Exception:
-                pass
+                stopped = self.executor.kill_worker(self.task.worker_session_id,
+                    owner_id=self.task.subtask_of or self.task.task_id) is True
+            except Exception as exc:
+                stopped = False
+                reason += "; stop read error: " + type(exc).__name__
+            if not stopped:
+                reason += "; Worker stop remains UNKNOWN"
+                self.store.record_alert(make_id("STOP-UNKNOWN"), {
+                    "alert_type": "WORKER_STOP_UNKNOWN", "task_id": self.task.task_id,
+                    "target": self.task.worker_session_id, "summary": reason, "requires_human": True})
         if is_legal_transition(self.state, ProjectState.HUMAN):
             self._transition(ProjectState.HUMAN, "budget", reason, {})
         elif is_legal_transition(self.state, ProjectState.FAILED):

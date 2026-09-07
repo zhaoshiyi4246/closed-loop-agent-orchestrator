@@ -154,18 +154,16 @@ class PanelState:
             self.errors.append("%s: runner: %s" % (now_iso(), e))
 
     def stop(self):
-        self.stop_flag.set()
-        # Land the mission in HUMAN right away (the terminal transition reaps
-        # every bound worker) so the user-visible state stops progressing NOW
-        # instead of after the in-flight tick unwinds. Controller internals
-        # are store-locked/idempotent; runs outside self.lock so a slow AO
-        # kill can never freeze the panel API.
+        # The Controller persists receipt before latching/cleanup. A failed
+        # receipt must not become an in-memory-only successful Stop request.
         rt = self.rt
         if rt is not None:
             try:
                 rt.controller.request_stop()
-            except Exception as e:                       # never die mute
+            except Exception as e:
                 self.errors.append("%s: stop: %s" % (now_iso(), e))
+                return
+        self.stop_flag.set()
 
     def running(self) -> bool:
         # Once a stop is requested the mission does no further work (stop

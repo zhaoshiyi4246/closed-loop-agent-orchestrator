@@ -301,6 +301,7 @@ class MissionRuntime:
         self.executor = ActionExecutor(
             ao_bin=ao_bin, data_dir=None, run_file=str(ao_run_file),
             store=self.store,
+            adapter=self.adapter,
             worker_model=wcfg.get("model", ""),
             max_spawn_attempts=int(wcfg.get("spawn_max_attempts", 3)),
             spawn_backoff_seconds=int(wcfg.get("spawn_backoff_seconds", 30)),

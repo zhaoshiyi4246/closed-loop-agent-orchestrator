@@ -8,6 +8,7 @@
    into a mission that had already halted on a merge conflict).
 """
 import os
+import threading
 import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
@@ -57,12 +58,19 @@ def test_total_replans_enforced(tmp_path):
     ex = ActionExecutor("ao", "d", "r", store)
     task = _task(subtask_of="M-1", max_replans=5)
     # subtask budget (5) allows more, but mission budget is 2
-    with patch.object(ex, "_spawn", return_value="new-w"), \
-            patch.object(ex, "_run", return_value=MagicMock(returncode=0)):
+    ex.adapter = MagicMock()
+    ex.adapter.operation_session.return_value = {"isTerminated": True, "status": "terminated"}
+    with patch.object(ex, "_run", return_value=MagicMock(returncode=0, stdout="spawned session new-w (worker)")):
         r1 = ex._replan_spawn(_replan_action(), task)   # uses mission slot 1
-        r2 = ex._replan_spawn(_replan_action(), task)   # uses mission slot 2
+        replay = ex._replan_spawn(_replan_action(), task)
+        assert replay.ok and store.counter_get("mission_replans:M-1") == 1
+        second = _replan_action()
+        second.action_id = "A-R2"
+        r2 = ex._replan_spawn(second, task)   # uses mission slot 2
         assert r1.ok and r2.ok
-        r3 = ex._replan_spawn(_replan_action(), task)   # over budget
+        third = _replan_action()
+        third.action_id = "A-R3"
+        r3 = ex._replan_spawn(third, task)   # over budget
     assert not r3.ok
     assert "max_total_replans" in r3.detail
     assert r3.new_state == ProjectState.HUMAN
@@ -73,8 +81,9 @@ def test_total_replans_ignored_without_mission_budget(tmp_path):
     store = _store(tmp_path)
     ex = ActionExecutor("ao", "d", "r", store)
     task = _task(subtask_of=None)   # standalone task: no parent mission
-    with patch.object(ex, "_spawn", return_value="new-w"), \
-            patch.object(ex, "_run", return_value=MagicMock(returncode=0)):
+    ex.adapter = MagicMock()
+    ex.adapter.operation_session.return_value = {"isTerminated": True, "status": "terminated"}
+    with patch.object(ex, "_run", return_value=MagicMock(returncode=0, stdout="spawned session new-w (worker)")):
         r = ex._replan_spawn(_replan_action(), task)
     assert r.ok
 
@@ -88,11 +97,13 @@ def _controller(tmp_path, workers):
     mc.mission.mission_id = "M-2"
     mc.mission.to_dict.return_value = {"mission_id": "M-2"}
     mc.store = store
+    mc._stop_event = threading.Event()
     mc.dry_run = False
     mc.plan = None
     mc.tasks = {sid: MagicMock(worker_session_id=ws)
                 for sid, ws in workers.items()}
     mc.executor = MagicMock()
+    mc.executor.kill_worker.return_value = True
     return mc
 
 
