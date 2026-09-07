@@ -7,7 +7,7 @@
 ## 当前唯一执行指针
 
 - 当前阶段：**M1 IN_PROGRESS**；M0 COMPLETE。
-- 当前唯一任务：**V03-F05 — 停止确认与未知外部动作保护**，IN_REVIEW；base `fe1d12c42f780e6bbf6af272d0aca38ddb50026a`，分支 `codex/v03-f05-external-operations`；独立 PR 待外部审计，本轮不合并。
+- 当前唯一任务：**V03-F05 — 停止确认与未知外部动作保护**，IN_REVIEW；base `fe1d12c42f780e6bbf6af272d0aca38ddb50026a`，分支 `codex/v03-f05-external-operations`；[PR #36](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/36) 已提交，等待外部审计，本轮不合并。
 - 最近完成：**V03-F04 — Gate查询、本地API与安全渲染**，DONE；[PR #35](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/35) 外部审计 PASS、无需返修；2026-09-07 已 rebase merge 到 main `c51ccd155f7ab6c226454846c9e1f1fff146956d`。
 - F01 / F02 / F03 保持 DONE；[PR #32](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/32) / [PR #33](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/33) / [PR #34](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/34) 均已审计 PASS 并合入，历史证据仍有效，详见对应卡。
 - F05 候选：同一 StateStore 持久 intent / IN_FLIGHT / confirmed result / UNKNOWN；spawn 精确随机标记对账、普通 send 未确认不重发、kill 需 AO Session 终止事实。Stop 先持久接收，未知停止阻断 replan 和 materialization；不扩展 Mission 生命周期。
