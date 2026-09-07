@@ -423,7 +423,7 @@ def test_preflight_happy_path(monkeypatch, tmp_path):
     }
 
 
-def test_build_runtime_preflight_failure_creates_no_runtime(
+def test_build_runtime_preflight_failure_keeps_config_and_diagnostics_without_worker(
         monkeypatch, tmp_path):
     monkeypatch.setattr(run_mission, "ROOT", tmp_path)
     monkeypatch.setattr(
@@ -434,7 +434,14 @@ def test_build_runtime_preflight_failure_creates_no_runtime(
     with pytest.raises(run_mission.PreflightError, match="blocked"):
         run_mission.build_runtime(MISSION, CFG)
 
-    assert not (tmp_path / "runtime").exists()
+    from loopcore.state_store import StateStore
+    store = StateStore(tmp_path / "runtime" / MISSION["mission_id"] / "state.db")
+    assert store.mission_config(MISSION["mission_id"])["effective_config"]["revision"]
+    assert store.operations() == []
+    assert store._conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == 0
+    phase = StateStore.query_phases(store._conn, MISSION["mission_id"])["records"][0]
+    assert phase["phase"] == "preflight" and phase["status"] == "failed"
+    store.close()
 
 
 def test_deterministic_dry_run_skips_mission_preflight(

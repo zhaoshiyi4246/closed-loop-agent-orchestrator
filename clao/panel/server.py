@@ -23,6 +23,7 @@ import urllib.parse
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from types import SimpleNamespace
 
 PANEL_DIR = Path(__file__).resolve().parent
 ROOT = PANEL_DIR.parent
@@ -33,8 +34,9 @@ import run_mission  # noqa: E402
 from loopcore.ao_adapter import AOAdapter  # noqa: E402
 from loopcore.envelope import MessageKind  # noqa: E402
 from loopcore.mission import MISSION_TERMINAL  # noqa: E402
-from loopcore.mission_contracts import new_mission_max_subtasks  # noqa: E402
 from loopcore.event_normalizer import now_iso  # noqa: E402
+from loopcore.effective_config import (load_config as read_config, resolve_config,
+                                       save_defaults, restore_snapshot, FIELDS)
 from loopcore.state_store import StateStore  # noqa: E402
 
 PORT = int(os.environ.get("PANEL_PORT", "7100"))
@@ -95,70 +97,76 @@ def _saved_mission(mid):
 class PanelState:
     """Owns the active mission runtime (if any) and the runner thread."""
 
-    def __init__(self):
+    def __init__(self, config_path=None):
+        self.config_path = config_path
+        self.snapshot_lock = threading.RLock()
+        self.stream_epoch = secrets.token_hex(12)
+        self.sequence = 0
+        self.loading = None
         self.lock = threading.RLock()
         self.rt = None                 # run_mission.MissionRuntime | None
         self.thread = None
         self.stop_flag = threading.Event()
         self.started_mono = None
         self.last_summary = None
-        self.live = {                   # live-tunable time knobs (seconds)
-            "poll_seconds": 5,
-            "idle_audit_cooldown_seconds": 300,
-            "blocked_escalation_seconds": 600,
-            "l0_nudge_grace_seconds": 300,
-        }
         self.errors = []
 
     # ---- mission lifecycle
+    def defaults(self):
+        return read_config(self.config_path) if self.config_path is not None else resolve_config(run_mission.load_config())
+
+    @property
+    def live(self):
+        # Legacy API projection; these are persisted NEW-MISSION defaults.
+        cfg = self.defaults()
+        return {"poll_seconds": cfg["runner"]["poll_seconds"], **{k: cfg["observer"][k] for k in
+                ("idle_audit_cooldown_seconds", "blocked_escalation_seconds", "l0_nudge_grace_seconds")}}
+
     def start_mission(self, mission_dict: dict) -> str:
-        _runtime_dir(mission_dict.get("mission_id"))
+        runtime = _runtime_dir(mission_dict.get("mission_id"))
         with self.lock:
-            if self.thread and self.thread.is_alive():
+            if self.loading or (self.thread and self.thread.is_alive()):
                 raise RuntimeError("已有任务在运行，先停止或等待完成")
+            cfg = self.defaults()
+            self.loading = SimpleNamespace(runtime=runtime, mission_dict=mission_dict,
+                mission=SimpleNamespace(mission_id=mission_dict["mission_id"]), controller=None)
+            self.rt = None
+        # Do not hold the Panel lock over preflight: GET/SSE must see progress
+        # before these potentially slow requests return.
+        try:
             run_mission.setup_environment()
-            cfg = run_mission.load_config()
-            cfg.setdefault("observer", {})
-            for k in ("idle_audit_cooldown_seconds",
-                      "blocked_escalation_seconds", "l0_nudge_grace_seconds"):
-                cfg["observer"][k] = self.live[k]
-            self.rt = run_mission.build_runtime(mission_dict, cfg)
-            self.stop_flag.clear()
-            self.started_mono = time.monotonic()
-            self.last_summary = None
-            self.thread = threading.Thread(target=self._run, daemon=True,
-                                           name="mission-runner")
-            self.thread.start()
+            rt = run_mission.build_runtime(mission_dict, cfg)
+            with self.lock:
+                self.rt = rt
+                self.stop_flag.clear()
+                self.started_mono = time.monotonic()
+                self.last_summary = None
+                self.thread = threading.Thread(target=self._run, daemon=True, name="mission-runner")
+                self.thread.start()
             return mission_dict["mission_id"]
+        except Exception as exc:
+            with self.lock:
+                self.rt = self.loading  # Preserve failed-preflight diagnostics.
+                self.errors.append("preflight: " + str(exc))
+            raise
+        finally:
+            with self.lock:
+                self.loading = None
 
     def _run(self):
         rt = self.rt
         try:
-            started = time.monotonic()
-            while True:
-                rt.controller.step()
-                rt.projector.project_once()
-                state = rt.controller.state
-                if state in MISSION_TERMINAL or self.stop_flag.is_set():
-                    break
-                if time.monotonic() - started >= 7200:      # 2h hard cap
-                    break
-                time.sleep(max(1.0, float(self.live["poll_seconds"])))
-            rt.projector.project_once()
-            self.last_summary = {
-                "mission_id": rt.mission.mission_id,
-                "final_state": rt.controller.state,
-                "stopped_by_user": self.stop_flag.is_set(),
-            }
-        except Exception as e:                               # never die mute
+            self.last_summary = run_mission.run_loop(rt, should_stop=self.stop_flag.is_set)
+            self.last_summary["stopped_by_user"] = self.stop_flag.is_set()
+        except Exception as e:
             self.errors.append("%s: runner: %s" % (now_iso(), e))
 
     def stop(self):
         # The Controller persists receipt before latching/cleanup. A failed
         # receipt must not become an in-memory-only successful Stop request.
         rt = self.rt
-        if rt is None:
-            raise ClientError("没有已加载的任务", 409)
+        if rt is None or rt.controller is None:
+            raise ClientError("没有可停止的已加载任务", 409)
         try:
             rt.controller.request_stop()
         except Exception as e:
@@ -209,23 +217,14 @@ class PanelState:
         return {"target": d.target, "text": d.text, "at": d.at,
                 "mirrored_to_planner": target != "planner"}
 
-    # ---- live config
+    # ---- persisted defaults (never mutate active runtime)
     def set_config(self, updates: dict) -> dict:
-        if ("auto_ff_master" in updates
-                and updates["auto_ff_master"] is not False):
-            raise RuntimeError(
-                "auto_ff_master is disabled in the competition runtime")
+        if "auto_ff_master" in updates:
+            raise RuntimeError("auto_ff_master is disabled in the competition runtime; remove deprecated option")
         with self.lock:
-            for k in self.live:
-                if k in updates:
-                    self.live[k] = max(1, int(updates[k]))
-            if self.rt:      # controller reads these per call -> instant
-                obs = self.rt.controller.cfg.setdefault("observer", {})
-                for k in ("idle_audit_cooldown_seconds",
-                          "blocked_escalation_seconds",
-                          "l0_nudge_grace_seconds"):
-                    obs[k] = self.live[k]
-            return dict(self.live)
+            path = self.config_path or run_mission.ROOT / "config" / "default.yaml"
+            saved = save_defaults(path, updates)
+            return saved.snapshot()
 
 
 PANEL = PanelState()
@@ -298,10 +297,27 @@ def list_missions() -> list:
 
 
 def snapshot() -> dict:
+    # Serialize full snapshots, not controller execution. Reconnect gets a full
+    # replacement with a session epoch + monotonic sequence; no event replay.
+    with PANEL.snapshot_lock:
+        started = time.perf_counter()
+        snap = _snapshot()
+        PANEL.sequence += 1
+        snap["stream"] = {"epoch": PANEL.stream_epoch, "sequence": PANEL.sequence,
+                          "mission_id": (snap.get("mission") or {}).get("id"),
+                          "generated_at": time.time(), "snapshot_seconds": time.perf_counter() - started}
+        records = (snap.get("phases") or {}).get("records") or []
+        latest = max((r.get("recorded_epoch") or 0 for r in records), default=0)
+        snap["stream"]["phase_record_to_snapshot_seconds"] = max(0, time.time() - latest) if latest else None
+        return snap
+
+
+def _snapshot() -> dict:
     with PANEL.lock:
-        rt = PANEL.rt
+        rt = PANEL.loading or PANEL.rt
+        active = bool(PANEL.loading or (PANEL.thread and PANEL.thread.is_alive()))
         running = PANEL.running()
-        live = dict(PANEL.live)
+        live = {}
         errs = PANEL.errors[-10:]
         summary = PANEL.last_summary
     snap = {"ok": True, "running": running, "config": live,
@@ -318,6 +334,15 @@ def snapshot() -> dict:
             snap["read_errors"].append({"source": source, "error": str(exc)})
             return default
 
+    defaults = read("default configuration", lambda: PANEL.defaults().snapshot(), None)
+    snap["default_config"] = defaults
+    if defaults:
+        values = defaults["values"]
+        snap["config"] = {"poll_seconds": values["runner"]["poll_seconds"], **{k: values["observer"][k] for k in
+                          ("idle_audit_cooldown_seconds", "blocked_escalation_seconds", "l0_nudge_grace_seconds")}}
+    snap["config_fields"] = {k: {"kind": v[1], "minimum": v[2], "maximum": 604800 if v[1] == "seconds" else 2 if v[1] == "subtasks" else 1000000 if v[1] == "count" else None, "consumer": v[3]} for k, v in FIELDS.items()}
+    snap["mission_config"] = {"status": "not_loaded", "snapshot": None}
+    snap["phases"] = {"status": "not_called", "records": [], "sequence": None}
     snap["missions"] = read("missions", list_missions, [])
     if not rt:
         snap["mission"] = None
@@ -330,6 +355,8 @@ def snapshot() -> dict:
         snap["ok"] = False
         snap["read_errors"].append({"source": "state.db", "error": str(e)})
         snap["gate_query"] = {"status": "read_error", "records": [], "error": str(e)}
+        snap["mission_config"] = {"status": "read_error", "snapshot": None}
+        snap["phases"] = {"status": "read_error", "records": [], "sequence": None, "error": str(e)}
         snap["mission"] = {"id": rt.mission.mission_id, "state": "?",
                            "error": str(e)}
         return snap
@@ -348,7 +375,19 @@ def snapshot() -> dict:
 
         mission_rows = read("mission", lambda: _payloads("missions", 1), [])
         mission_payload = mission_rows[0] if mission_rows else {}
-        mstate = mission_payload.get("state") or "unknown"
+        saved = mission_payload.get("effective_config")
+        snap["mission_config"] = {"status": "historical_missing" if saved is None else "ok",
+                                  "snapshot": read("Mission configuration", lambda: restore_snapshot(saved).snapshot(), None) if saved is not None else None}
+        if (saved is not None and snap["mission_config"]["snapshot"] is None) or any(e["source"] == "mission" for e in snap["read_errors"]):
+            snap["mission_config"]["status"] = "read_error"
+        snap["phases"] = StateStore.query_phases(conn, rt.mission.mission_id, active=active)
+        if snap["phases"]["status"] == "read_error":
+            snap["read_errors"].append({"source": "phases", "error": snap["phases"]["error"]})
+            snap["ok"] = False
+        diag = getattr(rt, "diagnostics", None)
+        if diag is not None:
+            snap["panel_errors"] = snap["panel_errors"] + list(diag.errors)
+        mstate = mission_payload.get("state") or ("preflight" if PANEL.loading else "unknown")
         counters = dict(read("counters", lambda: _rows(conn,
                                            "SELECT name, value FROM counters"), []))
         transitions = read("transitions", lambda: _rows(conn,
@@ -392,7 +431,7 @@ def snapshot() -> dict:
             "verifications": read("verifications", lambda: _payloads("verifications", 4), []),
             "alerts": read("alerts", lambda: _payloads("alerts", 10), []),
             "counters": counters,
-            "directives_pending": rt.controller.directives.pending_count(),
+            "directives_pending": rt.controller.directives.pending_count() if rt.controller else None,
         })
         if snap["gate_query"]["status"] == "read_error":
             snap["ok"] = False
@@ -492,6 +531,10 @@ class Handler(BaseHTTPRequestHandler):
             self.connection.settimeout(timeout)
 
     def _json(self, obj, code=200):
+        if hasattr(self, "_received_mono") and isinstance(obj, dict):
+            obj["request_timing"] = {"received_at": self._received_epoch,
+                                     "response_at": time.time(),
+                                     "handler_seconds": time.perf_counter() - self._received_mono}
         body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -587,6 +630,8 @@ class Handler(BaseHTTPRequestHandler):
         self._json({"ok": False, "error": "not found"}, 404)
 
     def do_POST(self):
+        self._received_epoch = time.time()
+        self._received_mono = time.perf_counter()
         path = urllib.parse.urlparse(self.path).path
         try:
             try:
@@ -647,8 +692,9 @@ class Handler(BaseHTTPRequestHandler):
             raise RuntimeError("至少一条验收条件")
         gates = [g.strip() for g in (body.get("gate_commands") or "")
                  .splitlines() if g.strip()] or ["python -m pytest -q"]
-        max_subtasks = new_mission_max_subtasks({
-            "max_subtasks": body.get("max_subtasks", 1)})
+        max_subtasks = body["max_subtasks"] if "max_subtasks" in body else PANEL.defaults()["budgets"]["max_subtasks"]
+        if type(max_subtasks) is not int or max_subtasks not in (1, 2):
+            raise ClientError("budgets.max_subtasks must be 1 or 2 (integer)")
         mission = {
             "mission_id": mid,
             "project_id": project_id,
@@ -659,13 +705,7 @@ class Handler(BaseHTTPRequestHandler):
             "gate_commands": gates,
             "user_instruction": body.get("user_instruction") or "",
             "worker_harness": "codex",
-            "budgets": {"max_subtasks": max_subtasks,
-                        "max_total_replans": 2,
-                        "max_runtime_seconds": 3600,
-                        "subtask_budgets": {
-                            "max_local_fixes": 2, "max_replans": 1,
-                            "max_same_alerts": 2,
-                            "max_runtime_seconds": 1800}},
+            "budgets": {"max_subtasks": max_subtasks},
         }
         # persist for resume/reference
         _runtime_dir(mid)
@@ -688,7 +728,7 @@ class Handler(BaseHTTPRequestHandler):
         mid = _mission_id(body.get("mission_id"))
         mission = _saved_mission(mid)
         with PANEL.lock:
-            if PANEL.running():
+            if PANEL.running() or PANEL.loading:
                 raise RuntimeError("任务运行中，先停止再查看其它存档")
             run_mission.setup_environment()
             cfg = run_mission.load_config()
@@ -708,8 +748,10 @@ class Handler(BaseHTTPRequestHandler):
         deadline = time.monotonic() + 300     # client reconnects
         while time.monotonic() < deadline:
             try:
-                payload = json.dumps(snapshot(), ensure_ascii=False)
-                self.wfile.write(("data: %s\n\n" % payload).encode("utf-8"))
+                snap = snapshot()
+                cursor = "%s:%s" % (snap["stream"]["epoch"], snap["stream"]["sequence"])
+                payload = json.dumps(snap, ensure_ascii=False)
+                self.wfile.write(("id: %s\ndata: %s\n\n" % (cursor, payload)).encode("utf-8"))
                 self.wfile.flush()
             except (BrokenPipeError, ConnectionResetError, OSError):
                 return

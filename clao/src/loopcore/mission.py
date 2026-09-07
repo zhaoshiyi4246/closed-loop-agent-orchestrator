@@ -30,6 +30,9 @@ import time
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from time import time as _epoch_seconds
+from .diagnostics import phase_call, Diagnostics, note_error
+
 from . import worktree as wt
 from .action_executor import ActionExecutor, ExternalOperationUnknown, operation_id
 from .ao_adapter import AOAdapter, AOError
@@ -45,7 +48,7 @@ from .event_observer import Observer
 from .planner_adapter import PlannerProvider
 from .state_store import StateStore
 from .verifier import VerifierInput, VerifierProvider
-from .event_normalizer import now_iso, make_id, stable_id, _epoch_seconds
+from .event_normalizer import now_iso, make_id, stable_id
 
 MISSION_TERMINAL = ("MISSION_DONE", "HUMAN", "FAILED")
 
@@ -444,6 +447,7 @@ class MissionController:
             dry_run=self.dry_run,
             instruct=self.mission.user_instruction,
             stop_event=self._stop_event)
+        loop.diagnostics = getattr(self, "diagnostics", None)
         loop.board = self._progress_board
         loop.hold_spawn = True
         return loop
@@ -607,6 +611,7 @@ class MissionController:
             for loop in self.loops.values():
                 _append_instruct(loop, "[镜像·发给 %s] %s" % (target, stamp))
 
+    @phase_call("observation", role="observer")
     def _collect_all_events(self) -> None:
         """One API call; raw items cached for per-worker routing.
         A transient daemon hiccup (restart/unresponsive window) yields an
@@ -614,7 +619,8 @@ class MissionController:
         try:
             self._last_raw_items = self.adapter.get_recent_events(
                 self.mission.project_id, since=0)
-        except Exception:
+        except Exception as exc:
+            note_error(exc)
             self._last_raw_items = []
 
     def _route_events(self, loop: ClosedLoop, worker_id: str) -> List:
@@ -627,6 +633,14 @@ class MissionController:
         this Worker Session's sequence cursor are suppressed.
         """
         items = getattr(self, "_last_raw_items", []) or []
+        diag = getattr(self, "diagnostics", None)
+        if isinstance(diag, Diagnostics):
+            for item in items:
+                session = item.get("session") if item.get("kind") == "session" else None
+                if isinstance(session, dict) and session.get("id") == worker_id:
+                    activity = session.get("activity")
+                    diag.worker_fact(worker_id, activity=(activity.get("state") if isinstance(activity, dict) else None) or session.get("status"),
+                                     requested_model=self.cfg["worker"]["model"])
         turn_times: Dict[str, Dict[str, str]] = {}
         pid = self.mission.project_id
         since = loop._event_since.get(worker_id, 0)
@@ -669,6 +683,7 @@ class MissionController:
         except AOError:
             return None
 
+    @phase_call("preparation")
     def _integration_wt(
             self, source_worktree: Optional[str] = None) -> Optional[str]:
         integ = Path(self.store.path).parent / "integration"
@@ -737,9 +752,8 @@ class MissionController:
         run = self.gate.run(task, integ, require_clean=True, phase="baseline")
         failures = sorted({failure for result in run.results
                            if result.get("exit_code") != 0
-                           for failure in extract_failure_ids(
-                               (result.get("stdout") or "") +
-                               (result.get("stderr") or ""))})
+                           for failure in result.get("failure_ids", extract_failure_ids(
+                               (result.get("stdout") or "") + (result.get("stderr") or "")))})
         record = dict(failures=failures, integrity_ok=run.integrity_ok,
                       integrity_error=run.integrity_error,
                       initial_clean=run.initial_clean,
@@ -813,8 +827,13 @@ class MissionController:
                     worktree, task.task_id + ":" + task.worker_session_id)
                 if not base:
                     raise RuntimeError("materialization requires an exact frozen base")
-                delivery = wt.commit_all(worktree, "subtask %s" % sid,
-                                         base_commit=base)
+                diag = getattr(self, "diagnostics", None)
+                if isinstance(diag, Diagnostics):
+                    with diag.phase("materialization", task_id=sid, reason="Worker stop confirmed; constructing delivery commit") as fact:
+                        delivery = wt.commit_all(worktree, "subtask %s" % sid, base_commit=base)
+                        fact["result"] = "delivery commit constructed"
+                else:
+                    delivery = wt.commit_all(worktree, "subtask %s" % sid, base_commit=base)
             except RuntimeError as exc:
                 detail = str(exc)[:1200]
                 self._set_state(
@@ -827,7 +846,13 @@ class MissionController:
                 self._set_state("HUMAN",
                                 "integration worktree unavailable for %s" % sid)
                 return
-            r = wt.merge_worktree(integ, worktree, source_commit=delivery)
+            diag = getattr(self, "diagnostics", None)
+            if isinstance(diag, Diagnostics):
+                with diag.phase("merge", task_id=sid, reason="merging materialized commit into integration") as fact:
+                    r = wt.merge_worktree(integ, worktree, source_commit=delivery)
+                    fact["result"] = str(r.status)
+            else:
+                r = wt.merge_worktree(integ, worktree, source_commit=delivery)
             if r.status == wt.MergeOutcome.OK:
                 self.merged.append(sid)
                 # Persist merged so a crash-resume can re-fire final verify
@@ -902,8 +927,8 @@ class MissionController:
         command_value = getattr(run, "command_ok", run.ok)
         command_ok = command_value \
             if isinstance(command_value, bool) else bool(run.ok)
-        current_failures = extract_failure_ids(gate_output) if not command_ok \
-            else []
+        current_failures = (sorted({f for r in run.results for f in r["failure_ids"]})
+                            if all("failure_ids" in r for r in run.results) else extract_failure_ids(gate_output)) if not command_ok else []
         baseline = set(self._baseline_failures())
         new_failures = [f for f in current_failures if f not in baseline]
         legacy_failures = [f for f in current_failures if f in baseline]
@@ -983,7 +1008,7 @@ class MissionController:
 
     # ------------------------------------------------------------ budgets
     def _runtime_exceeded(self) -> bool:
-        limit = int(self.mission.budgets.get("max_runtime_seconds", 0) or 0)
+        limit = float(self.mission.budgets.get("max_runtime_seconds", 0) or 0)
         if limit <= 0:
             return False
         key = "mission_started_at:" + self.mission.mission_id
@@ -991,7 +1016,7 @@ class MissionController:
         if not started:
             self.store.counter_set(key, _epoch_seconds())
             return False
-        return (_epoch_seconds() - int(started)) > limit
+        return (_epoch_seconds() - float(started)) > limit
 
     # ------------------------------------------------------------ board
     def _progress_board(self) -> Dict:

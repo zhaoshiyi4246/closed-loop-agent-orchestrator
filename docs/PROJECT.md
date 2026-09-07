@@ -1,6 +1,6 @@
 # CLAO 当前项目事实
 
-更新：2026-09-07（F05 再次外部审计 PASS 并合入 main；F01–F05 DONE；M1 COMPLETE；下一任务 R01 TODO）。本文件只记录已实现事实与已知限制；v0.3的设计见 [V03_PLAN.md](V03_PLAN.md)，不能把设计直接写成已完成能力。
+更新：2026-09-07（F05 再次外部审计 PASS 并合入 main；F01–F05 DONE；M1 COMPLETE；R01 IN_REVIEW，M2 IN_PROGRESS）。本文件只记录已实现事实与已知限制；v0.3的设计见 [V03_PLAN.md](V03_PLAN.md)，不能把设计直接写成已完成能力。
 
 ## 1. 版本与基线
 
@@ -9,7 +9,7 @@
 | 产品 | CLAO / Closed-Loop Agent Orchestrator |
 | 已发布版本 | v0.2，Windows本地比赛版 |
 | 已发布源码 | 4d3e8e6b5e70bab868b2eef0d28c7742dea044ba |
-| 开发目标 | v0.3：F01–F05 已合入 main（DONE）；M1 COMPLETE；下一任务 R01 TODO、未开始实现；GUI与模型切换等后续目标待实现 |
+| 开发目标 | v0.3：F01–F05 已合入 main（DONE）；M1 COMPLETE；R01 IN_REVIEW；GUI与模型切换等后续目标待实现 |
 | 主仓库 | zhaoshiyi4246/closed-loop-agent-orchestrator |
 | 产品源码路径 | `clao/`，当前唯一正式产品，内部 Python 包为 `src/loopcore/` |
 | 发布工具 | `packaging/build-release.ps1` 与 `packaging/release-manifest.txt` |
@@ -28,7 +28,7 @@ F03 已通过再次外部审计 PASS，[PR #34](https://github.com/zhaoshiyi4246
 
 F04 已通过外部审计 PASS、无需返修，[PR #35](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/35) rebase 合入 main `c51ccd155f7ab6c226454846c9e1f1fff146956d`，状态 DONE。沿用既有 Windows 定向 224 passed、追加 49 passed（分开报告，均 0 skipped）及浏览器/compileall 证据；合并收尾无新增产品修改、未重跑测试或发布验证，详细边界见 F04 卡。
 
-F05 已通过再次外部审计 PASS，[PR #36](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/36) rebase 合入 main `1e1401f7b55ff71617c0e3ef4ab277490b916cff`，状态 DONE。同一 StateStore 持久 operation intent 与结果，ACK 丢失后对账或 UNKNOWN；Stop 请求与 Worker 停止事实分开记录，HTTP 成功回执以持久 receipt 为准。沿用既有定向故障恢复与返修验证，合并收尾无新增产品修改、未重跑测试或发布验证；AO v0.12.9 契约边界见 F05 卡。M1 COMPLETE，下一任务 R01 TODO，未开始实现。
+F05 已通过再次外部审计 PASS，[PR #36](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/36) rebase 合入 main `1e1401f7b55ff71617c0e3ef4ab277490b916cff`，状态 DONE。同一 StateStore 持久 operation intent 与结果，ACK 丢失后对账或 UNKNOWN；Stop 请求与 Worker 停止事实分开记录，HTTP 成功回执以持久 receipt 为准。沿用既有定向故障恢复与返修验证，合并收尾无新增产品修改、未重跑测试或发布验证；AO v0.12.9 契约边界见 F05 卡。M1 COMPLETE；当前 R01 分支实现见下文，R02 尚未开始。
 
 ## 2. 当前真实架构
 
@@ -66,6 +66,63 @@ F03 共用严格 NUL 路径事实，覆盖 frozen base 之后 committed、staged
 
 materialization 保留正常用户净改动及原有暂存 cache；新交付树将 artifact 精确恢复为 frozen base 的 blob/mode，Mission 合并返回的明确 SHA，使 Worker 已提交的新 cache 不进入最终 integration 树。原 Worker 历史及基线内容保留，不改 ignore/exclude；构造失败进入 HUMAN。该过滤步骤不移动 Worker ref 或修改真实 index，多次 Git 采样仍不承诺并发写入下的原子快照；F05 已将 AO Session 明确终止事实设为 materialization 前置条件，未知停止进入 HUMAN；完整 R02 生命周期仍待实施。
 
+### R01 本分支有效配置与阶段诊断（IN_REVIEW）
+
+CLI / Panel 共用 `loopcore.effective_config`，优先级为内置缺省值 < `config/default.yaml`
+< 新 Mission 的显式参数。CLI `--poll-seconds` / `--cap-seconds` 与 Mission 的 budgets
+在冻结前覆盖；来源逐键保留，revision 为规范化有效值 JSON 的 SHA-256。Panel 默认设置
+原子替换现有 YAML，整份验证后才提交，不修改当前 runtime。原 Panel 的 300 秒 idle/L0
+覆盖和取整移除，统一使用 YAML（默认均 120 秒）；CLI/Panel runner cap 统一为 7200 秒。
+
+新 Mission 在现有 missions payload 中冻结无密钥快照，再做只读 preflight；准备失败仍
+有可查记录。已有快照恢复时严格校验并复用，缺失字段不借用新默认值；历史无快照只显示
+缺失并拒绝执行续跑。旧 attach 的组装副作用不在本卡扩展成 R02 完整恢复设计。
+
+| 配置组 / 键 | 当前实际消费者与单位 |
+|---|---|
+| `runner.poll_seconds` / `cap_seconds` | CLI 和 Panel 共用 run_loop；轮询等待与循环边界 cap，秒 |
+| `worker.model` | AO spawn `--model`；含初始与 replan，保持默认 gpt-5.6-sol |
+| `worker.spawn_max_attempts` / `spawn_backoff_seconds` | F05 已证明未执行时的有界初始 spawn 重试；次数 / 秒 |
+| `worker.spawn/send/kill_timeout_seconds` | 相应 AO CLI 请求的等待秒数；timeout 不证明外部失败，不绕过 UNKNOWN |
+| `roles.planner/auditor/verifier.model` / `timeout_seconds` | 各 Codex CLI Provider 实际传入模型与每次调用秒数；未新增取样/供应商参数 |
+| `ao.base_url` / `request_timeout_seconds` | AOAdapter 的 loopback REST fallback / 秒；有效 AO runfile 端口优先，外部发现事实不伪装成模型确认 |
+| `gate.timeout_seconds` / `output_limit_chars` | Task、baseline、Final 的每条命令秒数 / 每个 stdout、stderr 的证据正文字符上限 |
+| `observer.*_seconds` / `turn_diff_counts_as_progress` | ClosedLoop 的 L0/idle/audit/审批等待；保留小数时间戳；EventNormalizer 的 diff 进展开关 |
+| `thresholds.repeated_error.*` / `no_progress.*` | Observer 的窗口/冷却（秒）、次数和 weak/strong 进展规则 |
+| `fingerprint.*` | Fingerprinter 的规范化开关与 max_length 整数字符数 |
+| `budgets.*` / `budgets.subtask_budgets.*` | Mission / ClosedLoop / ActionExecutor 的分解、重规划、局部修复、重复告警和运行预算 |
+| `bus.*` | 原 LoopBus 投影约束；明确不等于 Controller 权限或 Mission 预算 |
+
+时间参数为有限数且 `0 < value <= 604800` 秒，不取整、不钳制；计数为整数且不超过
+1000000，最小值随语义为 0 或 1，max_subtasks 为 1–2；布尔不当数字。模型为 1–128
+字符的明确 ID；AO URL 仅 loopback HTTP、合法端口，无凭据/query/fragment。页面列出
+逐键范围、来源和消费者，配置不接收密钥、Prompt 或环境变量映射。
+
+旧 `roles.worker.model` 迁移到 `worker.model`，相同层同时出现且不同则拒绝；相同值也
+提示迁移。旧 Panel 顶层四个时间字段迁移到 runner/observer。以下旧无消费者配置从
+有效值中移除，并在读取旧文件时明确标为 deprecated / NOT effective，设置 API 拒绝
+保存这些键：observer.interval/stall_threshold/failure_threshold/early_warning、
+activity_kinds/progress_kinds、auditor.audit_interval、ao.poll_interval/sse_idle_timeout、
+roles.max_parallel_workers、Worker transient 重试配置。其他未知键及 YAML 重复键拒绝。
+
+Gate 保留原始 exit/integrity/scope 与 overall。输出上限作用于持久化/后续证据正文，
+每个流额外保留原长度、SHA-256、截断标记；失败 ID 在截断前提取，因此 baseline/Final
+不会漏掉尾部新失败。现有子进程捕获仍在内存中，此参数不是进程内存限制。截断会触发
+F01 的证据不完整边界，必要时进入人工处理，不将片段当完整验证输入。
+
+阶段诊断写入同一 StateStore 的 execution_phases，开始事实先于慢调用，结束事实记录
+耗时、attempt、结果及错误类别；不保存完整 Prompt/异常 argv，不触发额外动作。重入后
+未完成的旧阶段为 unknown，不伪补结束时间。角色传输计时不取 Mission 总耗时；未调用
+角色和历史缺字段分开。Worker 状态复用现有 AO 读取，只有公开
+[conversation.modelReroute](https://github.com/Untrivial-ai/agent-orchestrator/blob/4cbb4b6ced1ad93f79641a2347d2342f1ffd218a/backend/internal/httpd/controllers/conversations.go)
+事实可确认替换模型；它是 conversation 级事实，不是单次调用计时。Codex CLI 没有被当前
+输出契约确认的模型字段，保持 unknown；未报告用量/费用也为 unknown。
+
+Panel 沿用 F04 的 Host/Origin/JSON/nonce 与 textContent 安全渲染；显示默认设置与冻结
+配置、在途阶段、独立请求耗时和持久错误。SSE 每次服务实例 epoch + 单调 sequence，
+携带 mission_id，重连发送完整快照替换；旧/重复顺序不再应用，不累计事件或重提交动作。
+HTTP 接收/响应、浏览器往返、状态快照查询耗时分别展示，不用这些数据宣称模型更快。
+
 ## 4. 已验证外部前提
 
 Windows、CPython3.12、Git、AO Desktop0.12.9、Codex CLI0.150.1及ChatGPT登录是v0.2的已验证组合。bootstrap只管理本地Python venv，不安装Python/Git/AO/Codex。
@@ -78,7 +135,7 @@ AO executable通过CLAO_AO_BIN或PATH解析；runfile通过CLAO_AO_RUN_FILE或~/
 
 - A04/A05：F04 已实现 Gate 表专用只读 DTO 与 command/integrity/scope/overall 记录、历史 unknown/read_error 区分及常驻错误；本地写 API 校验 Host/Origin/JSON/会话 nonce，路径包含性与安全 DOM/pending 去重已补齐。外部审计 PASS、已合入 main（DONE），已发布 v0.2 不变；验证和支持边界见 F04 卡。
 - A07：F05 使用精确持久随机标记对账 spawn；普通 send 无唯一公开回执则保持 UNKNOWN、不重发；kill 需同一 Session 的 isTerminated=true / status=terminated。逻辑终止依赖 AO 公共契约，不承诺 OS 级证明或 exactly-once；再次外部审计 PASS、已合入 main（DONE）。
-- A06 / A08—A10：完整指令生效、停止恢复、基线/依赖和有效配置仍待后续卡。
+- A10：R01 本分支接通有效配置与阶段诊断，待外部审计；A06 / A08 / A09 的完整指令生效、停止恢复和基线/依赖仍待 R02。
 - A11/A12 其余范围：多模型、后续 Git 取证边界、结果导出和普通用户使用体验；不因 F01 完成宣称所有证据路径或模型真实性已验收。
 
 状态与证据等级请查 [V03_BACKLOG.md](V03_BACKLOG.md)。不能因为历史R5 COMPLETE把这些问题写成RESOLVED。
@@ -91,7 +148,7 @@ AO executable通过CLAO_AO_BIN或PATH解析；runfile通过CLAO_AO_RUN_FILE或~/
 |---|---|---|
 | GUI | 技术拓扑＋任务表单＋SSE | 四入口、iPhone风格层级、任务/结果中心 |
 | 模型 | Codex CLI与AO Codex | GLM/Kimi语义profile，Worker单独准入 |
-| 配置 | 有重复和未接线项 | 唯一effective config与Mission快照 |
+| 配置 | R01 候选：唯一解析、原子保存默认值、Mission 快照与来源/阶段诊断 | R02 恢复生命周期等后续契约 |
 | 结果 | integration路径与日志 | 可独立应用的patch导出与证据摘要 |
 | 停止 | F05 已实现：HUMAN 接收停止请求；持久 operation / worker_stop 区分确认与 UNKNOWN | 准确取消、崩溃恢复、关联attempt |
 

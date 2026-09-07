@@ -556,7 +556,8 @@ def test_http_stop_acknowledges_durable_receipt_not_worker_termination(
             assert not ao.calls and not store.operations()
         else:
             assert status == 200
-            assert data == {"ok": True, "stop_requested": True}
+            assert data["ok"] is True and data["stop_requested"] is True
+            assert data["request_timing"]["handler_seconds"] >= 0
             assert store.mission_stop_requested(mc.mission.mission_id)
             assert mc._read_state()["stop_request"]["source"] == "user"
             assert mc._read_state()["worker_stop"]["status"] == "UNKNOWN"

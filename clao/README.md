@@ -28,8 +28,8 @@ CLAO 不安装或启动 Git、AO Desktop、Codex CLI，也不读取 API Key 作�
 
 `origin` 可以指向 GitHub/GitLab，也可以指向完全本地的 bare Git repository；这一
 要求本身不需要互联网。CLAO 不会自动执行 `git fetch`、添加 remote、设置 remote
-HEAD 或修改 AO Project config。Panel 与 CLI 会在创建 runtime 前通过共享 preflight
-报告缺失项。
+HEAD 或修改 AO Project config。Panel 与 CLI 先保存无密钥的有效配置快照，再通过共享的只读 preflight
+报告缺失项；失败的准备阶段也可在 Panel 中查询，尚未创建 Worker。
 
 ## 安装与启动
 
@@ -80,6 +80,35 @@ $env:PYTHONPATH = (Resolve-Path ".\src").Path
 ```
 
 当 `max_subtasks=1` 时，dry-run 不连接 AO、不调用 Codex 模型，也不创建 runtime。
+
+## 新任务默认设置与本次配置（v0.3 R01 开发候选）
+
+Panel 的设置保存到本产品目录的 `config/default.yaml`，重启后仍在。CLI 与 Panel
+使用同一解析入口：内置缺省值 < 此文件 < 新 Mission 的显式输入（CLI 轮询/cap
+参数、Mission budgets）。保存整份校验后原子替换，失败不部分应用。秒数范围为
+`0 < value <= 604800`，允许小数；计数必须是整数（上限 1000000），具体最小值和
+消费者在页面配置详情中列出，`max_subtasks` 仅允许 1 或 2。
+
+当前默认模型继续为 `gpt-5.6-sol`。Worker 使用 `worker.model`，语义角色使用
+`roles.planner/auditor/verifier.model` 和各自 `timeout_seconds`；重复的旧
+`roles.worker.model` 会迁移，同层值冲突则拒绝。没有消费者的旧选项会显示弃用/
+未生效；不支持的键、取样参数、密钥或环境变量配置不会作为有效值保存。
+
+新 Mission 在 StateStore 中固定有效值、来源和内容哈希 revision。修改默认值只影响
+之后的新 Mission，续跑使用已有快照；历史缺快照可查看，但不能自动用最新默认值
+猜测历史参数后执行。默认 CLI/Panel 轮询均为 5 秒、runner cap 均为 7200 秒；
+cap 是 runner 的循环边界检查，不是抢占中断或确认所有 Worker 已停止。
+
+`gate.timeout_seconds` 限制 Task/baseline/Final Gate 的每条命令；
+`gate.output_limit_chars` 分别限制每条命令 stdout/stderr 的持久化和后续证据正文，
+截断标记另计。原长度、SHA-256 和超时类别可查询；失败编号在截断前提取。
+进程捕获仍使用现有 `subprocess.run`，这不是进程内存上限。截断片段无法通过
+F01 的完整证据校验，不能因此假装 Gate 或 Verifier 已通过。
+
+页面显示准备、AO 调用、观察/审批等待、语义角色、各 Gate、materialization/merge
+和重试等真实阶段。独立模型请求记录开始/结束、attempt、耗时和错误类别；未调用、
+历史 unknown、未知模型/用量/费用分开表达。SSE 断连保留最后状态，重连以顺序化
+完整快照替换，不重放写请求。HTTP 处理耗时和状态快照耗时不等于模型调用耗时。
 
 ## 结果与 SCM 边界
 

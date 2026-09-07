@@ -95,6 +95,12 @@ CREATE TABLE IF NOT EXISTS counters (
   name TEXT PRIMARY KEY,
   value INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS execution_phases (
+  seq INTEGER PRIMARY KEY AUTOINCREMENT,
+  mission_id TEXT NOT NULL,
+  phase_id INTEGER,
+  payload_json TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS external_operations (
   operation_id TEXT PRIMARY KEY,
   kind TEXT NOT NULL,
@@ -122,11 +128,102 @@ class StateStore:
         columns = {r[1] for r in self._conn.execute("PRAGMA table_info(gate_runs)")}
         if "assessment_json" not in columns:
             self._conn.execute("ALTER TABLE gate_runs ADD COLUMN assessment_json TEXT")
+        if "output_json" not in columns:
+            self._conn.execute("ALTER TABLE gate_runs ADD COLUMN output_json TEXT")
         self._conn.commit()
 
     def close(self) -> None:
         with self._lock:
             self._conn.close()
+
+    def interrupt_open_phases(self, mission_id):
+        """Diagnostic recovery only; never infers or changes an AO operation."""
+        with self._lock:
+            rows = self._conn.execute("SELECT phase_id,payload_json FROM execution_phases WHERE seq IN "
+                "(SELECT MAX(seq) FROM execution_phases WHERE mission_id=? GROUP BY phase_id)", (mission_id,)).fetchall()
+            for phase_id, raw in rows:
+                value = json.loads(raw)
+                if value.get("status") == "running":
+                    value.update(status="unknown", elapsed_seconds=None, ended_epoch=None,
+                                 error_category="INTERRUPTED", reason="previous execution completion was not recorded before runtime re-entry")
+                    self.record_phase(mission_id, value, phase_id)
+
+    def has_unstarted_operations(self):
+        with self._lock:
+            return self._conn.execute("SELECT 1 FROM external_operations WHERE status='NOT_STARTED' LIMIT 1").fetchone() is not None
+
+    def mission_config(self, mission_id):
+        with self._lock:
+            row = self._conn.execute("SELECT payload_json FROM missions WHERE mission_id=?", (mission_id,)).fetchone()
+            return json.loads(row[0]) if row else None
+
+    def freeze_config(self, mission_id, mission, config):
+        """Insert once, under the same SQLite write lock as Mission state."""
+        with self._lock, self._conn:
+            self._conn.execute("BEGIN IMMEDIATE")
+            row = self._conn.execute("SELECT payload_json FROM missions WHERE mission_id=?", (mission_id,)).fetchone()
+            if row:
+                return json.loads(row[0]).get("effective_config")
+            payload = {"mission": mission, "effective_config": config}
+            self._conn.execute("INSERT INTO missions VALUES(?,?,?)", (mission_id, json.dumps(payload, ensure_ascii=False), now_iso()))
+            return config
+
+    def record_phase(self, mission_id, payload, phase_id=None):
+        import time
+        payload = dict(payload, recorded_epoch=time.time())
+        with self._lock, self._conn:
+            cur = self._conn.execute("INSERT INTO execution_phases(mission_id,phase_id,payload_json) VALUES(?,?,?)",
+                                     (mission_id, phase_id, json.dumps(payload, ensure_ascii=False, allow_nan=False)))
+            seq = cur.lastrowid
+            if phase_id is None:
+                self._conn.execute("UPDATE execution_phases SET phase_id=? WHERE seq=?", (seq, seq))
+            return seq
+
+    @staticmethod
+    def query_phases(conn, mission_id, *, active=False):
+        import time
+        try:
+            exists = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='execution_phases'").fetchone()
+            if not exists:
+                return {"status": "historical_unknown", "sequence": None, "records": []}
+            rows = conn.execute("SELECT seq,phase_id,payload_json FROM execution_phases WHERE seq IN "
+                                "(SELECT MAX(seq) FROM execution_phases WHERE mission_id=? GROUP BY phase_id) "
+                                "ORDER BY seq DESC LIMIT 100", (mission_id,)).fetchall()
+            records = []
+            for seq, phase_id, raw in rows:
+                value = json.loads(raw)
+                value.update(sequence=seq, phase_id=phase_id, mission_id=mission_id)
+                if value["status"] == "running":
+                    value["elapsed_seconds"] = max(0, time.time() - value["started_epoch"]) if active else None
+                    if not active:
+                        value["status"] = "unknown"
+                        value["reason"] = "execution is not attached to an active runner; completion/timing unknown"
+                records.append(value)
+            roles = {}
+            for role in ("planner", "auditor", "verifier", "worker"):
+                # Full history, not just the last 100 observations: an earlier
+                # role call must never turn back into "not called".
+                row = conn.execute("SELECT seq,phase_id,payload_json FROM execution_phases WHERE mission_id=? "
+                    "AND json_extract(payload_json,'$.role')=? AND json_extract(payload_json,'$.phase') IN "
+                    "('model_request','spawn') ORDER BY seq DESC LIMIT 1", (mission_id, role)).fetchone()
+                if row:
+                    value = json.loads(row[2]); value.update(sequence=row[0], phase_id=row[1])
+                    if value["status"] == "running":
+                        value["elapsed_seconds"] = max(0, time.time() - value["started_epoch"]) if active else None
+                        if not active:
+                            value["status"] = "unknown"
+                    roles[role] = value
+            worker_rows = conn.execute("SELECT payload_json FROM execution_phases WHERE seq IN "
+                "(SELECT MAX(seq) FROM execution_phases WHERE mission_id=? AND json_extract(payload_json,'$.phase')='worker_execution' "
+                "GROUP BY json_extract(payload_json,'$.session_id')) ORDER BY seq DESC", (mission_id,)).fetchall()
+            workers = [json.loads(r[0]) for r in worker_rows]
+            for worker in workers:
+                started = worker.get("activity_observed_since")
+                worker["activity_elapsed_seconds"] = max(0, time.time() - started) if started is not None and active else None
+            return {"status": "ok" if records else "not_called", "sequence": records[0]["sequence"] if records else 0,
+                    "records": records, "roles": roles, "workers": workers}
+        except (sqlite3.Error, ValueError, TypeError, KeyError) as exc:
+            return {"status": "read_error", "sequence": None, "records": [], "error": str(exc)}
 
     # --------------------------------------------------- external effects
     def operation(self, operation_id: str) -> Optional[Dict]:
@@ -516,13 +613,14 @@ class StateStore:
     # ------------------------------------------------------------ gate
     def record_gate_run(self, *, task_id: str, command: str, cwd: str,
                        exit_code: Optional[int], started_at: str, ended_at: str,
-                       stdout: str, stderr: str, assessment: Optional[Dict] = None) -> int:
+                       stdout: str, stderr: str, assessment: Optional[Dict] = None, output: Optional[Dict] = None) -> int:
         with self._lock:
             cur = self._conn.execute(
-                "INSERT INTO gate_runs(task_id,command,cwd,exit_code,started_at,ended_at,stdout,stderr,assessment_json)"
-                " VALUES(?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO gate_runs(task_id,command,cwd,exit_code,started_at,ended_at,stdout,stderr,assessment_json,output_json)"
+                " VALUES(?,?,?,?,?,?,?,?,?,?)",
                 (task_id, command, cwd, exit_code, started_at, ended_at,
-                 stdout, stderr, json.dumps(assessment) if assessment is not None else None))
+                 stdout, stderr, json.dumps(assessment) if assessment is not None else None,
+                 json.dumps(output) if output is not None else None))
             self._conn.commit()
             return cur.lastrowid
 
@@ -579,7 +677,7 @@ class StateStore:
             assessment_column = "assessment_json" if "assessment_json" in columns else "NULL"
             cursor = conn.execute(
                 "SELECT id,task_id,command,cwd,exit_code,started_at,ended_at,stdout,stderr," +
-                assessment_column + " FROM gate_runs ORDER BY id DESC LIMIT ?", (limit,))
+                assessment_column + (",output_json" if "output_json" in columns else ",NULL") + " FROM gate_runs ORDER BY id DESC LIMIT ?", (limit,))
             records = []
             for row in cursor:
                 item = dict(zip(("id", "task_id", "command", "cwd", "exit_code",
@@ -607,6 +705,7 @@ class StateStore:
                     raise ValueError("inconsistent Gate overall result")
                 if not legacy and assessment["command_status"] == "pass" and row[4] != 0:
                     raise ValueError("inconsistent Gate command result")
+                item["output"] = json.loads(row[10]) if row[10] else None
                 item.update(assessment)
                 item["command_result"] = ("not_run" if row[4] is None else
                                           "pass" if row[4] == 0 else "fail")
@@ -618,7 +717,7 @@ class StateStore:
             return {"status": "read_error", "records": [], "error": str(exc)}
 
     # ------------------------------------------------------------ counters
-    def counter_get(self, name: str) -> int:
+    def counter_get(self, name: str) -> int | float:
         with self._lock:
             cur = self._conn.execute(
                 "SELECT value FROM counters WHERE name=?", (name,))
@@ -635,12 +734,12 @@ class StateStore:
                 "SELECT value FROM counters WHERE name=?", (name,))
             return cur.fetchone()[0]
 
-    def counter_set(self, name: str, value: int) -> None:
+    def counter_set(self, name: str, value: int | float) -> None:
         with self._lock:
             self._conn.execute(
                 "INSERT INTO counters(name,value) VALUES(?,?) "
                 "ON CONFLICT(name) DO UPDATE SET value=excluded.value",
-                (name, int(value)))
+                (name, value))
             self._conn.commit()
 
     def counter_delete_prefix(self, prefix: str) -> int:

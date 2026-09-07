@@ -1,6 +1,6 @@
 # CLAO v0.3 任务与验收台账
 
-版本：0.3-plan-r1 · 2026-09-06。状态：已批准 / IN EFFECT。DOC-00、F01–F05 已完成（DONE），M1 修复冻结为 `COMPLETE`；当前下一任务 R01 为 `TODO`，尚未开始实现；其余功能卡状态见下表，原报告的发现不等于已复现或已修复。
+版本：0.3-plan-r1 · 2026-09-06。状态：已批准 / IN EFFECT。DOC-00、F01–F05 已完成（DONE），M1 修复冻结为 `COMPLETE`；当前任务 R01 为 `IN_REVIEW`，M2 `IN_PROGRESS`；其余功能卡状态见下表，原报告的发现不等于已复现或已修复。
 
 设计以 [V03_PLAN.md](V03_PLAN.md) 为准。当前唯一任务由根目录 [PLANS.md](../PLANS.md) 指定。本文件保存每张卡的详细状态和证据，PLANS 不重复整张台账。
 
@@ -38,7 +38,7 @@
 | V03-F03 | M1 | Git路径、产物规则与只读取证 | DOC-00 | DONE（PR #34 审计 PASS / merged） |
 | V03-F04 | M1 | Gate查询、本地API与安全渲染 | F01的结果字段约定 | DONE（PR #35 审计 PASS / merged） |
 | V03-F05 | M1 | 停止确认与未知外部动作保护 | DOC-00 | DONE（PR #36 再次审计 PASS / merged） |
-| V03-R01 | M2 | 有效配置与阶段诊断 | F01/F04 | TODO |
+| V03-R01 | M2 | 有效配置与阶段诊断 | F01/F04 | IN_REVIEW |
 | V03-R02 | M2 | 指令回执、取消恢复、固定基线 | F03/F05/R01 | TODO |
 | V03-U01 | M3 | iPhone风格界面骨架与状态夹具 | G1；R01/R02字段设计 | TODO |
 | V03-U02 | M3 | 完整任务GUI与数据接线 | U01/R02/F04 | TODO |
@@ -178,13 +178,21 @@ G1=F01—F05；G2=R01—R02；G3=U01—U03；G4=P01—P02及P03有记录的支�
 
 ## V03-R01｜有效配置与阶段诊断
 
-- 状态：TODO；当前下一任务，尚未开始实现。
+- 状态：IN_REVIEW；base `d59dd8fd630fab573ea4dd80b005106cf7fde207`，分支 `codex/v03-r01-effective-config`；M0/M1 COMPLETE，M2 IN_PROGRESS，R02 TODO。
 - 对应：A10，支持A06/A11。落点：runtime/config、Gate、Adapter、Provider、Panel。
 - 工作：唯一effective config解析；model重复键迁移；Gate时间/输出真正接线；配置来源与revision；phase/attempt/error metrics；敏感项不落库。
 - 必测：保存值等于消费者值；非法范围拒绝；旧配置迁移/提示；运行中默认值改变不改当前Mission；unknown费用不填0；角色请求与实际确认模型分开。
 - 完成：Panel可解释在等什么；已有SSE沿用，稳定cursor/序列与断连状态；本地ACK和事件延迟可测，不假承诺模型速度。
 - 不做：新监控平台、全部配置热更新、同一事实复制多处。
-- 证据：待填。
+- 实现事实：CLI/Panel 同一严格解析入口；整份验证并原子保存现有 YAML；配置来源与 revision 随 Mission 冻结，续跑复用旧快照，历史缺快照不伪补。模型/角色 timeout、AO timeout、runner 等待、watchdog 小数时间与三阶段 Gate 参数已接线；迁移键、弃用项及消费者表见 PROJECT，未新增依赖。
+- Gate：timeout 真实作用于每条命令；每流持久证据正文有长度/hash/截断标记，失败编号在截断前提取，尾部新失败仍阻断 Final，片段不能绕过 F01 完整证据。诊断：执行开始先落现有 StateStore，语义传输 attempt/错误类别、Worker AO 观察与模型请求/传入/确认分开；UNKNOWN 不影响 F05 对账行为。
+- Panel：默认设置与本次冻结配置分开显示；真实 preflight/慢模型/AO 读取在途可见，缺失和 read_error 不混淆；HTTP 处理、浏览器往返、状态记录到快照及请求耗时分别展示。SSE epoch+sequence 完整替换，断连保留最后状态并冻结计时，重连不重发写动作，沿用 F04 写边界与安全 DOM。
+- Windows 定向（产品 venv、src 前置 PYTHONPATH）：`pytest tests/test_r01_effective_config.py tests/test_panel_worker_contract.py tests/test_f04_panel_boundaries.py tests/test_mission_preflight.py tests/test_codex_cli.py tests/test_codex_planner.py tests/test_codex_auditor.py tests/test_codex_verifier.py tests/test_f01_contract_boundary.py tests/sidecar_port/test_budgets.py -q -rs --tb=short`：**311 passed / 213.30s**；含真实 Edge 的配置交互、安全文本、在途/未知诊断、SSE 断连重连检查。新增 AO 只读边界和最后消费者检查另见下条，不将重叠集合相加。
+- 补充命令：`pytest tests/test_r01_effective_config.py tests/test_f05_external_operations.py tests/test_ao_runtime_portability.py tests/test_mission_gate.py tests/test_final_gate_baseline.py tests/test_approval_block.py tests/test_approvals_bridge.py -q -rs --tb=short`：**182 passed、1 failed / 99.48s**；唯一失败是旧 AO Runtime 替身缺 diagnostics 字段，补齐该替身后单独复查 `pytest tests/test_ao_runtime_portability.py -q -rs --tb=short`：**18 passed / 0.27s**。其余 F05/Gate/审批/R01 场景无失败；集合重叠不累计。含在途 AO 只读请求、小数 watchdog 持久化和恢复诊断读取失败的最终负例。
+- 检查中的修正：首次收集发现诊断 import 位于 decorator 与 class 之间，已修正；浏览器探针误读自身 script 文本已修正。旧 preflight/恢复夹具改为真实 SQLite、持久配置事实与无 Worker 副作用断言；停止前先模拟 Worker 存活，停止后才 terminated。检查保留失败/拒绝断言，未删除负例；最后一次上述集合无失败。
+- 最后边界复查：增加超大整数和带控制字符 URL 的拒绝用例后，`pytest tests/test_r01_effective_config.py -q -rs --tb=short`：**37 passed / 22.43s**；compileall（src/panel/run_mission.py 与直接变更测试）、diff-check、5 个变更 Markdown 的 21 个本地链接 PASS。新增源码/测试已由既有 manifest 前缀覆盖，依赖、builder、manifest、AGENTS 与设计主文档不变。
+- NOT_RUN：全量、clean install、打包、smoke、真实 AO Mission/模型、GUI 视觉重设计验收；未新增 tag/Release，未实施 R02 或模型供应商。
+- 剩余边界：当前语义 CLI 无可确认的实际模型/用量/费用字段，均 unknown；AO conversation.modelReroute 只确认 conversation 级替换，复用既有读取不额外请求。Gate 上限限制证据正文，仍使用既有内存捕获；runner cap 仅循环边界。历史无快照只读查看、attach 组装副作用与完整恢复留 R02；阶段记录只诊断，不是新的状态权威。
 
 ## V03-R02｜指令回执、取消恢复、固定基线
 

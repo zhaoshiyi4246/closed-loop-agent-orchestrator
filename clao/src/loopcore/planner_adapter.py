@@ -16,6 +16,8 @@ import json
 from pathlib import Path
 from typing import Optional
 
+from .diagnostics import phase_call
+
 from .codex_cli import run_codex_json
 from .structured import role_result
 from .mission_contracts import (AuditResult, PlannerAction, PlannerActionType,
@@ -145,6 +147,7 @@ class CodexCliPlannerProvider(PlannerProvider):
         prompt = "%s\n\n# Task input\n%s" % (self.system_prompt, task_input)
         return self._run(prompt, self.action_schema_path)
 
+    @phase_call("planner", role="planner")
     def plan(self, audit: AuditResult, task_spec_dict: dict,
              action_id: str, *, target_session_id: Optional[str] = None,
              remaining_replans: int = 0,
@@ -159,6 +162,7 @@ class CodexCliPlannerProvider(PlannerProvider):
                                       target_session_id))
         return role_result(PlannerAction, obj)
 
+    @phase_call("planner", role="planner")
     def plan_decompose(self, mission: dict, plan_id: str) -> "MissionPlan":
         from .mission_contracts import MissionPlan
         max_sub = int((mission.get("budgets") or {}).get("max_subtasks", 1))

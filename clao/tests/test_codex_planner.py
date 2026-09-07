@@ -248,13 +248,6 @@ def test_build_runtime_uses_codex_planner_and_config_model(monkeypatch,
     adapter_calls = []
     executor_calls = []
 
-    class DummyStore:
-        def __init__(self, path):
-            self.path = path
-
-        def close(self):
-            pass
-
     class DummyMemory:
         def __init__(self, path):
             self.memory_path = Path(path) / "memory.md"
@@ -279,7 +272,8 @@ def test_build_runtime_uses_codex_planner_and_config_model(monkeypatch,
 
     def dummy_executor(**kwargs):
         executor_calls.append(kwargs)
-        return object()
+        from types import SimpleNamespace
+        return SimpleNamespace()
 
     monkeypatch.setattr(run_mission, "ROOT", tmp_path)
     monkeypatch.setattr(run_mission, "resolve_ao_bin",
@@ -292,10 +286,8 @@ def test_build_runtime_uses_codex_planner_and_config_model(monkeypatch,
             "ao_bin": str(tmp_path / "ao.exe"),
             "ao_run_file": tmp_path / "running.json",
             "project_path": tmp_path})
-    monkeypatch.setattr(run_mission, "StateStore", DummyStore)
     monkeypatch.setattr(run_mission, "AOAdapter", DummyAdapter)
     monkeypatch.setattr(run_mission, "ActionExecutor", dummy_executor)
-    monkeypatch.setattr(run_mission, "IntegrationGate", lambda store: object())
     monkeypatch.setattr(run_mission, "MissionController", DummyController)
     monkeypatch.setattr(run_mission, "LoopBus", lambda config: object())
     monkeypatch.setattr(run_mission, "ProjectMemory", DummyMemory)
@@ -337,7 +329,12 @@ def test_build_runtime_uses_codex_planner_and_config_model(monkeypatch,
     assert executor_calls[0]["data_dir"] is None
     assert executor_calls[0]["run_file"] == str(tmp_path / "running.json")
 
-    fallback = run_mission.build_runtime(MISSION, {})
+    restored = run_mission.build_runtime(MISSION, {})
+    assert restored._planner.model == "planner-model"
+    assert restored._auditor.model == "auditor-model"
+    assert restored._verifier.model == "verifier-model"
+
+    fallback = run_mission.build_runtime(dict(MISSION, mission_id="MISSION-NEW-DEFAULTS"), {})
     assert fallback._planner.model == "gpt-5.6-sol"
     assert fallback._auditor.model == "gpt-5.6-sol"
     assert fallback._verifier.model == "gpt-5.6-sol"

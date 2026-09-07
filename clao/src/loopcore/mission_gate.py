@@ -16,6 +16,8 @@ or non-artifact untracked content while producing verification evidence.
 from __future__ import annotations
 
 import os
+import hashlib
+from contextlib import nullcontext
 import shlex
 import subprocess
 from dataclasses import dataclass, field
@@ -26,6 +28,8 @@ from . import worktree as wt
 from .mission_contracts import TaskSpec
 from .event_normalizer import now_iso
 from .state_store import StateStore
+from .diagnostics import Diagnostics
+from .test_failures import extract_failure_ids
 
 
 def _to_argv(cmd: str) -> List[str]:
@@ -101,11 +105,22 @@ class GateRun:
 
 
 class IntegrationGate:
-    def __init__(self, store: StateStore):
+    def __init__(self, store: StateStore, *, timeout_seconds=300, output_limit_chars=20000):
         self.store = store
+        self.timeout_seconds = timeout_seconds
+        self.output_limit_chars = output_limit_chars
+        self.diagnostics = None
 
     def run(self, task: TaskSpec, worktree_path: str, *,
             require_clean: bool = False, phase: str = "task") -> GateRun:
+        context = self.diagnostics.phase(phase + "_gate", task_id=task.task_id,
+                                        reason="running configured Gate and repository integrity checks") if isinstance(self.diagnostics, Diagnostics) else nullcontext({})
+        with context as fact:
+            run = self._run(task, worktree_path, require_clean=require_clean, phase=phase)
+            fact["result"] = "pass" if run.ok else "fail"
+            return run
+
+    def _run(self, task, worktree_path, *, require_clean=False, phase="task"):
         results = []
         record_ids = []
         cwd = Path(worktree_path)
@@ -142,6 +157,7 @@ class IntegrationGate:
         command_ok = True
         for cmd in task.gate_commands:
             started = now_iso()
+            error_category = None
             argv = _to_argv(cmd)
             if not argv:
                 exit_code, stdout, stderr = -1, "", \
@@ -150,21 +166,36 @@ class IntegrationGate:
                 try:
                     proc = subprocess.run(argv, shell=False, cwd=str(cwd),
                                           capture_output=True, text=True,
-                                          timeout=300, encoding="utf-8",
+                                          timeout=self.timeout_seconds, encoding="utf-8",
                                           errors="replace")
                     exit_code = proc.returncode
                     stdout = (proc.stdout or "")
                     stderr = (proc.stderr or "")
+                except subprocess.TimeoutExpired:
+                    error_category = "TIMEOUT"
+                    exit_code, stdout, stderr = -1, "", "Gate command timed out after %s seconds" % self.timeout_seconds
                 except Exception as e:
+                    error_category = type(e).__name__
                     exit_code, stdout, stderr = -1, "", str(e)
             ended = now_iso()
+            failures = extract_failure_ids(stdout + stderr) if exit_code != 0 else []
+            output = {"error_category": error_category, "timeout_seconds": self.timeout_seconds}
+            def bounded(value, stream):
+                metadata = {"original_length": len(value), "sha256": hashlib.sha256(value.encode("utf-8")).hexdigest(),
+                            "truncated": len(value) > self.output_limit_chars, "limit_chars": self.output_limit_chars}
+                output[stream] = metadata
+                if metadata["truncated"]:
+                    return value[:self.output_limit_chars] + ("\n[loopcore] ... %d chars elided; original_length=%d sha256=%s" %
+                           (len(value) - self.output_limit_chars, len(value), metadata["sha256"]))
+                return value
+            stdout, stderr = bounded(stdout, "stdout"), bounded(stderr, "stderr")
             results.append({"command": cmd, "argv": argv, "cwd": str(cwd),
-                            "exit_code": exit_code, "stdout": stdout,
+                            "exit_code": exit_code, "failure_ids": failures, "output": output, "stdout": stdout,
                             "stderr": stderr, "started_at": started,
                             "ended_at": ended})
             record_ids.append(self.store.record_gate_run(task_id=task.task_id, command=cmd,
                 cwd=str(cwd), exit_code=exit_code, started_at=started,
-                ended_at=ended, stdout=stdout, stderr=stderr))
+                ended_at=ended, stdout=stdout, stderr=stderr, output=output))
             if exit_code != 0:
                 command_ok = False
 
