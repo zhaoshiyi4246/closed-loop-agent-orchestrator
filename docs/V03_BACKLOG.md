@@ -1,6 +1,6 @@
 # CLAO v0.3 任务与验收台账
 
-版本：0.3-plan-r1 · 2026-09-06。状态：已批准 / IN EFFECT。DOC-00、F01–F05 已完成（DONE），M1 修复冻结为 `COMPLETE`；当前任务 R01 为 `IN_REVIEW`，M2 `IN_PROGRESS`；其余功能卡状态见下表，原报告的发现不等于已复现或已修复。
+版本：0.3-plan-r1 · 2026-09-06。状态：已批准 / IN EFFECT。DOC-00、F01–F05、R01 已完成（DONE），M0 / M1 为 `COMPLETE`；当前下一任务 R02 为 `TODO`，M2 `IN_PROGRESS`；其余功能卡状态见下表，原报告的发现不等于已复现或已修复。
 
 设计以 [V03_PLAN.md](V03_PLAN.md) 为准。当前唯一任务由根目录 [PLANS.md](../PLANS.md) 指定。本文件保存每张卡的详细状态和证据，PLANS 不重复整张台账。
 
@@ -38,7 +38,7 @@
 | V03-F03 | M1 | Git路径、产物规则与只读取证 | DOC-00 | DONE（PR #34 审计 PASS / merged） |
 | V03-F04 | M1 | Gate查询、本地API与安全渲染 | F01的结果字段约定 | DONE（PR #35 审计 PASS / merged） |
 | V03-F05 | M1 | 停止确认与未知外部动作保护 | DOC-00 | DONE（PR #36 再次审计 PASS / merged） |
-| V03-R01 | M2 | 有效配置与阶段诊断 | F01/F04 | IN_REVIEW |
+| V03-R01 | M2 | 有效配置与阶段诊断 | F01/F04 | DONE（PR #37 再次审计 PASS / merged） |
 | V03-R02 | M2 | 指令回执、取消恢复、固定基线 | F03/F05/R01 | TODO |
 | V03-U01 | M3 | iPhone风格界面骨架与状态夹具 | G1；R01/R02字段设计 | TODO |
 | V03-U02 | M3 | 完整任务GUI与数据接线 | U01/R02/F04 | TODO |
@@ -178,7 +178,7 @@ G1=F01—F05；G2=R01—R02；G3=U01—U03；G4=P01—P02及P03有记录的支�
 
 ## V03-R01｜有效配置与阶段诊断
 
-- 状态：IN_REVIEW；base `d59dd8fd630fab573ea4dd80b005106cf7fde207`，分支 `codex/v03-r01-effective-config`；[PR #37](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/37)，实现提交 `38d474c`；SessionView.model 缺口已返修，等待再次外部审计；M0/M1 COMPLETE，M2 IN_PROGRESS，R02 TODO。
+- 状态：DONE；base `d59dd8fd630fab573ea4dd80b005106cf7fde207`，分支 `codex/v03-r01-effective-config`；[PR #37](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/37)，实现提交 `38d474c`、返修后已审计 head `e88c698a211ee5cd179709701ada1a7aa3079d3a`；再次外部审计 PASS、无其他返修，2026-09-07 已 rebase merge 到 main `551f7f49198e033b1331ec341ff0d352553bacb1`；M0/M1 COMPLETE，M2 IN_PROGRESS，R02 TODO。
 - 对应：A10，支持A06/A11。落点：runtime/config、Gate、Adapter、Provider、Panel。
 - 工作：唯一effective config解析；model重复键迁移；Gate时间/输出真正接线；配置来源与revision；phase/attempt/error metrics；敏感项不落库。
 - 必测：保存值等于消费者值；非法范围拒绝；旧配置迁移/提示；运行中默认值改变不改当前Mission；unknown费用不填0；角色请求与实际确认模型分开。
@@ -195,10 +195,12 @@ G1=F01—F05；G2=R01—R02；G3=U01—U03；G4=P01—P02及P03有记录的支�
 - 剩余边界：当前语义 CLI 无可确认的实际模型/用量/费用字段，均 unknown；Worker 的 AO SessionView.model 可确认 spawn 时 resolved model，conversation.modelReroute 单列 conversation 级替换，复用既有读取不额外请求。Gate 上限限制证据正文，仍使用既有内存捕获；runner cap 仅循环边界。历史无快照只读查看、attach 组装副作用与完整恢复留 R02；阶段记录只诊断，不是新的状态权威。
 - 审计返修（2026-09-07）：外部审计指出正常 Session 无 reroute 时仍显示 confirmed unknown；核对固定 AO `4cbb4b6ced1ad93f79641a2347d2342f1ffd218a` 的公开 `dto.go SessionView.model` 与 `sessions.go sessionView()`，确认前次只看 domain Session 遗漏了公开映射。Mission 正常轮询及既有 Session 详情读取得到独立 `spawn_resolved_model` / 来源；conversation 记录 `model_reroute` 的 from/to/source，不互相覆盖；缺失/非法字段为 unknown，不从 requested/passed 推导，不增加 AO 请求。沿用 StateStore JSON 记录，无表迁移，配置和 F05 控制逻辑不变。
 - 返修验证：Windows 产品 venv，`pytest tests/test_r01_effective_config.py tests/test_ao_runtime_portability.py tests/test_f04_panel_boundaries.py -q -rs --tb=short`：**184 passed / 37.84s**。覆盖真实 Mission 轮询→StateStore→Panel HTTP、合法/缺失/非法 Session model、两种事实先后合并、错误 Session 关联、请求数量不增加、未知 usage/cost 与配置快照；真实 Edge 检查 resolved/reroute 的来源、旧 reroute 兼容、安全文本及 SSE 重连。compileall（src/panel/run_mission.py 与直接测试）、diff-check、4 个相关文档的 13 个本地链接 PASS。
-- 本次返修 NOT_RUN：此前 311 项大集合、全量、clean install、打包、smoke、真实 AO/模型、GUI 视觉重设计验收。R01 继续 IN_REVIEW，M2 IN_PROGRESS；不新建 PR、不合并、不实施 R02，不创建 tag/Release。
+- 返修阶段 NOT_RUN：此前 311 项大集合、全量、clean install、打包、smoke、真实 AO/模型、GUI 视觉重设计验收。当时 R01 保持 IN_REVIEW，M2 IN_PROGRESS；未新建 PR、未合并、未实施 R02，未创建 tag/Release。
+- 合并收尾（2026-09-07）：合入 tree 与已审计 head 完全相同，本地 main 正常 fast-forward 同步；仅更新 PLANS、BACKLOG、PROJECT、根 README 与 clao/README 的状态和当前事实，产品代码、配置、测试及发布工具未变。文档本地链接、路径与 diff-check 通过；沿用已有 184 / 311 项定向证据，未重跑测试、安装、打包、smoke 或真实 AO/模型。R01 DONE，M2 IN_PROGRESS；下一任务 R02 TODO，未开始实现；无 tag/Release。
 
 ## V03-R02｜指令回执、取消恢复、固定基线
 
+- 状态：TODO；当前下一任务，本轮仅推进指针，未开始实现。
 - 对应：A06、A08、A09。落点：directives、Controller、Store、Panel和Git基线。
 - 工作：received/applied/rejected/unknown回执；final verifier notes真实消费；Worker prompt范围完整；取消中与已取消区分；崩溃恢复只读检查材料；终态新attempt关联；Mission固定source commit。
 - 必测：指令无消费者；入队与落盘失败；取消发生在Worker/语义角色/Gate；旧HUMAN不重新变running；旧记录字段缺失；source main/remote分歧；S2缺依赖代码。

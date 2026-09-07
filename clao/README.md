@@ -81,7 +81,7 @@ $env:PYTHONPATH = (Resolve-Path ".\src").Path
 
 当 `max_subtasks=1` 时，dry-run 不连接 AO、不调用 Codex 模型，也不创建 runtime。
 
-## 新任务默认设置与本次配置（v0.3 R01 开发候选）
+## 新任务默认设置与本次配置（v0.3 R01 已合入）
 
 Panel 的设置保存到本产品目录的 `config/default.yaml`，重启后仍在。CLI 与 Panel
 使用同一解析入口：内置缺省值 < 此文件 < 新 Mission 的显式输入（CLI 轮询/cap

@@ -1,6 +1,6 @@
 # CLAO 当前项目事实
 
-更新：2026-09-07（F05 再次外部审计 PASS 并合入 main；F01–F05 DONE；M1 COMPLETE；R01 IN_REVIEW，M2 IN_PROGRESS）。本文件只记录已实现事实与已知限制；v0.3的设计见 [V03_PLAN.md](V03_PLAN.md)，不能把设计直接写成已完成能力。
+更新：2026-09-07（R01 再次外部审计 PASS 并合入 main，状态 DONE；F01–F05 DONE；M0 / M1 COMPLETE；M2 IN_PROGRESS，下一任务 R02 TODO）。本文件只记录已实现事实与已知限制；v0.3的设计见 [V03_PLAN.md](V03_PLAN.md)，不能把设计直接写成已完成能力。
 
 ## 1. 版本与基线
 
@@ -9,7 +9,7 @@
 | 产品 | CLAO / Closed-Loop Agent Orchestrator |
 | 已发布版本 | v0.2，Windows本地比赛版 |
 | 已发布源码 | 4d3e8e6b5e70bab868b2eef0d28c7742dea044ba |
-| 开发目标 | v0.3：F01–F05 已合入 main（DONE）；M1 COMPLETE；R01 IN_REVIEW；GUI与模型切换等后续目标待实现 |
+| 开发目标 | v0.3：F01–F05、R01 已合入 main（DONE）；M0 / M1 COMPLETE，M2 IN_PROGRESS；下一任务 R02 TODO；GUI与模型切换等后续目标待实现 |
 | 主仓库 | zhaoshiyi4246/closed-loop-agent-orchestrator |
 | 产品源码路径 | `clao/`，当前唯一正式产品，内部 Python 包为 `src/loopcore/` |
 | 发布工具 | `packaging/build-release.ps1` 与 `packaging/release-manifest.txt` |
@@ -28,7 +28,7 @@ F03 已通过再次外部审计 PASS，[PR #34](https://github.com/zhaoshiyi4246
 
 F04 已通过外部审计 PASS、无需返修，[PR #35](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/35) rebase 合入 main `c51ccd155f7ab6c226454846c9e1f1fff146956d`，状态 DONE。沿用既有 Windows 定向 224 passed、追加 49 passed（分开报告，均 0 skipped）及浏览器/compileall 证据；合并收尾无新增产品修改、未重跑测试或发布验证，详细边界见 F04 卡。
 
-F05 已通过再次外部审计 PASS，[PR #36](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/36) rebase 合入 main `1e1401f7b55ff71617c0e3ef4ab277490b916cff`，状态 DONE。同一 StateStore 持久 operation intent 与结果，ACK 丢失后对账或 UNKNOWN；Stop 请求与 Worker 停止事实分开记录，HTTP 成功回执以持久 receipt 为准。沿用既有定向故障恢复与返修验证，合并收尾无新增产品修改、未重跑测试或发布验证；AO v0.12.9 契约边界见 F05 卡。M1 COMPLETE；当前 R01 分支实现见下文，R02 尚未开始。
+F05 已通过再次外部审计 PASS，[PR #36](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/36) rebase 合入 main `1e1401f7b55ff71617c0e3ef4ab277490b916cff`，状态 DONE。同一 StateStore 持久 operation intent 与结果，ACK 丢失后对账或 UNKNOWN；Stop 请求与 Worker 停止事实分开记录，HTTP 成功回执以持久 receipt 为准。沿用既有定向故障恢复与返修验证，合并收尾无新增产品修改、未重跑测试或发布验证；AO v0.12.9 契约边界见 F05 卡。M1 COMPLETE；R01 已合入，实现见下文，R02 尚未开始。
 
 ## 2. 当前真实架构
 
@@ -66,7 +66,9 @@ F03 共用严格 NUL 路径事实，覆盖 frozen base 之后 committed、staged
 
 materialization 保留正常用户净改动及原有暂存 cache；新交付树将 artifact 精确恢复为 frozen base 的 blob/mode，Mission 合并返回的明确 SHA，使 Worker 已提交的新 cache 不进入最终 integration 树。原 Worker 历史及基线内容保留，不改 ignore/exclude；构造失败进入 HUMAN。该过滤步骤不移动 Worker ref 或修改真实 index，多次 Git 采样仍不承诺并发写入下的原子快照；F05 已将 AO Session 明确终止事实设为 materialization 前置条件，未知停止进入 HUMAN；完整 R02 生命周期仍待实施。
 
-### R01 本分支有效配置与阶段诊断（IN_REVIEW）
+### R01 有效配置与阶段诊断（DONE）
+
+[PR #37](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/37) 再次外部审计 PASS，2026-09-07 已 rebase merge 到 main `551f7f49198e033b1331ec341ff0d352553bacb1`。合入 tree 与已审计 head 相同，沿用已有 184 / 311 项定向验证，收尾仅同步背景文档，未追加产品修改或重跑测试。
 
 CLI / Panel 共用 `loopcore.effective_config`，优先级为内置缺省值 < `config/default.yaml`
 < 新 Mission 的显式参数。CLI `--poll-seconds` / `--cap-seconds` 与 Mission 的 budgets
@@ -141,7 +143,7 @@ AO executable通过CLAO_AO_BIN或PATH解析；runfile通过CLAO_AO_RUN_FILE或~/
 
 - A04/A05：F04 已实现 Gate 表专用只读 DTO 与 command/integrity/scope/overall 记录、历史 unknown/read_error 区分及常驻错误；本地写 API 校验 Host/Origin/JSON/会话 nonce，路径包含性与安全 DOM/pending 去重已补齐。外部审计 PASS、已合入 main（DONE），已发布 v0.2 不变；验证和支持边界见 F04 卡。
 - A07：F05 使用精确持久随机标记对账 spawn；普通 send 无唯一公开回执则保持 UNKNOWN、不重发；kill 需同一 Session 的 isTerminated=true / status=terminated。逻辑终止依赖 AO 公共契约，不承诺 OS 级证明或 exactly-once；再次外部审计 PASS、已合入 main（DONE）。
-- A10：R01 本分支接通有效配置与阶段诊断，待外部审计；A06 / A08 / A09 的完整指令生效、停止恢复和基线/依赖仍待 R02。
+- A10：R01 已接通有效配置与阶段诊断，再次外部审计 PASS 并合入（DONE）；A06 / A08 / A09 的完整指令生效、停止恢复和基线/依赖仍待 R02。
 - A11/A12 其余范围：多模型、后续 Git 取证边界、结果导出和普通用户使用体验；不因 F01 完成宣称所有证据路径或模型真实性已验收。
 
 状态与证据等级请查 [V03_BACKLOG.md](V03_BACKLOG.md)。不能因为历史R5 COMPLETE把这些问题写成RESOLVED。
@@ -154,7 +156,7 @@ AO executable通过CLAO_AO_BIN或PATH解析；runfile通过CLAO_AO_RUN_FILE或~/
 |---|---|---|
 | GUI | 技术拓扑＋任务表单＋SSE | 四入口、iPhone风格层级、任务/结果中心 |
 | 模型 | Codex CLI与AO Codex | GLM/Kimi语义profile，Worker单独准入 |
-| 配置 | R01 候选：唯一解析、原子保存默认值、Mission 快照与来源/阶段诊断 | R02 恢复生命周期等后续契约 |
+| 配置 | R01 已实现：唯一解析、原子保存默认值、Mission 快照与来源/阶段诊断 | R02 恢复生命周期等后续契约 |
 | 结果 | integration路径与日志 | 可独立应用的patch导出与证据摘要 |
 | 停止 | F05 已实现：HUMAN 接收停止请求；持久 operation / worker_stop 区分确认与 UNKNOWN | 准确取消、崩溃恢复、关联attempt |
 
