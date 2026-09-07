@@ -1,6 +1,6 @@
 # CLAO v0.3 任务与验收台账
 
-版本：0.3-plan-r1 · 2026-09-06。状态：已批准 / IN EFFECT。DOC-00、F01 / F02 / F03 / F04 已完成；当前任务 F05 为 `IN_REVIEW`，M1 继续 `IN_PROGRESS`；其余功能卡状态见下表，原报告的发现不等于已复现或已修复。
+版本：0.3-plan-r1 · 2026-09-06。状态：已批准 / IN EFFECT。DOC-00、F01–F05 已完成（DONE），M1 修复冻结为 `COMPLETE`；当前下一任务 R01 为 `TODO`，尚未开始实现；其余功能卡状态见下表，原报告的发现不等于已复现或已修复。
 
 设计以 [V03_PLAN.md](V03_PLAN.md) 为准。当前唯一任务由根目录 [PLANS.md](../PLANS.md) 指定。本文件保存每张卡的详细状态和证据，PLANS 不重复整张台账。
 
@@ -37,7 +37,7 @@
 | V03-F02 | M1 | 审批命令与路径包含性 | DOC-00 | DONE（PR #33 审计 PASS / merged） |
 | V03-F03 | M1 | Git路径、产物规则与只读取证 | DOC-00 | DONE（PR #34 审计 PASS / merged） |
 | V03-F04 | M1 | Gate查询、本地API与安全渲染 | F01的结果字段约定 | DONE（PR #35 审计 PASS / merged） |
-| V03-F05 | M1 | 停止确认与未知外部动作保护 | DOC-00 | IN_REVIEW |
+| V03-F05 | M1 | 停止确认与未知外部动作保护 | DOC-00 | DONE（PR #36 再次审计 PASS / merged） |
 | V03-R01 | M2 | 有效配置与阶段诊断 | F01/F04 | TODO |
 | V03-R02 | M2 | 指令回执、取消恢复、固定基线 | F03/F05/R01 | TODO |
 | V03-U01 | M3 | iPhone风格界面骨架与状态夹具 | G1；R01/R02字段设计 | TODO |
@@ -154,7 +154,7 @@ G1=F01—F05；G2=R01—R02；G3=U01—U03；G4=P01—P02及P03有记录的支�
 
 ## V03-F05｜停止确认与未知外部动作保护
 
-- 状态：IN_REVIEW；base `fe1d12c42f780e6bbf6af272d0aca38ddb50026a`，分支 `codex/v03-f05-external-operations`；实现提交 `7b2df59b1ff1e3fa36ac2fbf83793795093a377b`，[PR #36](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/36) OPEN，等待外部审计；F01–F04 DONE，M1 IN_PROGRESS，R01 TODO。
+- 状态：DONE；base `fe1d12c42f780e6bbf6af272d0aca38ddb50026a`，分支 `codex/v03-f05-external-operations`；[PR #36](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/36) 再次外部审计 PASS，已审计 head `9620adced463f479a693f67667e90397a9521ef7`；2026-09-07 已 rebase merge 到 main `1e1401f7b55ff71617c0e3ef4ab277490b916cff`。F01–F05 DONE，M1 COMPLETE；下一任务 R01 TODO，未开始实现。
 
 - 对应：A07。落点：Executor、Mission、Store，必要AO官方只读查询。
 - 工作：同Store intent/operation_id/result；spawn/send超时先对账；无法确认则UNKNOWN+人工处理。materialization须已停止事实；不忽略kill失败继续提交。
@@ -171,12 +171,14 @@ G1=F01—F05；G2=R01—R02；G3=U01—U03；G4=P01—P02及P03有记录的支�
 - 最终 operation/预算检查：`python -m pytest tests/test_f05_external_operations.py tests/sidecar_port/test_budgets.py tests/test_terminal_cleanup_and_total_replans.py tests/test_spawn_and_boundary.py tests/test_crash_resume.py tests/sidecar_port/test_phase2.py -q -rs --tb=short`：**114 passed / 79.75s**，0 failed / 0 skipped；包括已证明 CLI 未创建的 send/replan 重启重试、耗尽后 FAILED、恢复成功仅计一次，及迟到弱对账不覆盖已确认成功或产生误报。最后为 pending 重试补齐 ClosedLoop 不消费新事件/另起 action 的入口断言：`python -m pytest tests/test_f05_external_operations.py::test_closed_loop_unstarted_resume_keeps_one_pending_action tests/test_crash_resume.py -q -rs --tb=short`：**9 passed / 29.08s**，0 failed / 0 skipped。集合存在重叠，不累计为全量回归计数。变更 Python 文件 compileall、diff-check 和 4 份 Markdown 的 20 个本地链接检查通过。
 - 故障注入覆盖：真实隔离 SQLite 关闭/重开、临时 Git、按官方响应形状实现的 loopback HTTP fake；spawn 成功丢 ACK/timeout/crash 后精确采用、多/零候选 UNKNOWN、send 外部生效但保存前/后 crash、kill false/timeout/transport/crash 的存活与终止分支、late ACK 遇 Stop、停止事实先于真实 materialization、成功预算只计一次、进程未创建的有界重试及真实缺失 executable。运行次数断言保证不重复 spawn/send/kill。
 - 残余 AO 边界：displayName 可被外部改名/复制，不能代替官方唯一键；普通 send 缺少可唯一关联的公开回执，未知结果可能长期需人工。Session terminated 是 AO 公开的逻辑终止事实；AO chat stop 内部有 best-effort 清理，不能据此承诺独立 OS 进程级证明、不可被外部 restore 或分布式 exactly-once。现有终态不自动恢复为 running，完整取消/新 attempt/只读 attach 留给 R02。
-- PR #36 审计返修：其余 F05 实现外部审计 PASS，唯一 blocker 为 `/api/stop` 吞掉 receipt 持久化失败后仍返回成功。本轮基于 `0542fc932c0fd9ad733152f88cfbc8d863632e5f`，仅修改 Panel 接收结果传递：无法确认持久 receipt 时 HTTP 503 / ok=false，保留错误且不设置 stop flag；无加载任务时 HTTP 409。正常返回明确的 ok=true / stop_requested=true；若后续清理抛错，先查同一 StateStore 的既有 receipt，已持久接收不因停止 UNKNOWN 被误报为未接收。路由返回该实际结果，沿用前端 writeAction 错误处理，不修改 index.html、写安全边界或已审计的 operation/spawn/send/kill 逻辑。F05 保持 IN_REVIEW，等待再次审计。
+- PR #36 审计返修：其余 F05 实现外部审计 PASS，唯一 blocker 为 `/api/stop` 吞掉 receipt 持久化失败后仍返回成功。本轮基于 `0542fc932c0fd9ad733152f88cfbc8d863632e5f`，仅修改 Panel 接收结果传递：无法确认持久 receipt 时 HTTP 503 / ok=false，保留错误且不设置 stop flag；无加载任务时 HTTP 409。正常返回明确的 ok=true / stop_requested=true；若后续清理抛错，先查同一 StateStore 的既有 receipt，已持久接收不因停止 UNKNOWN 被误报为未接收。路由返回该实际结果，沿用前端 writeAction 错误处理，不修改 index.html、写安全边界或已审计的 operation/spawn/send/kill 逻辑。该返修已通过再次外部审计 PASS，无其他需要返修的问题。
 - 返修验证：同一 Windows 产品 venv、Scripts 前置 PATH / src 为 PYTHONPATH，在 `clao/` 执行 `python -m pytest tests/test_f05_external_operations.py tests/test_f04_panel_boundaries.py::test_unauthorized_http_writes_never_reach_actions tests/test_f04_panel_boundaries.py::test_same_origin_page_nonce_allows_normal_write tests/test_f04_panel_boundaries.py::test_invalid_json_never_writes tests/test_f04_panel_boundaries.py::test_duplicate_host_and_missing_host_cannot_write tests/test_f04_panel_boundaries.py::test_rejected_split_request_receives_error_without_writing tests/test_f04_panel_boundaries.py::test_real_browser_text_rendering_nonce_and_pending_writes -q -rs --tb=short`：**122 passed / 44.87s**，0 failed / 0 skipped。新增真实 Panel HTTP + MissionController + 隔离 SQLite/fake AO 回归：receipt 写失败无 stop_request、两层 stop flag 或 kill；receipt 成功但 kill false/timeout 时 200 接收且 worker_stop=UNKNOWN；receipt 后清理抛错仍按持久接收事实响应。既有真实浏览器夹具追加 Stop 失败错误提示与无假成功断言，保留双击去重、nonce、渲染断言。`python -m compileall -q panel/server.py tests/test_f05_external_operations.py tests/test_f04_panel_boundaries.py`、diff-check 通过；NOT_RUN 边界沿用下述内容。
-- NOT_RUN：全量回归、clean install、打包、smoke、真实 AO Mission/收费模型、GUI 视觉验收。未合并、未创建 tag/Release，未实施 R01/R02/U01/U02 或模型切换。
+- NOT_RUN：全量回归、clean install、打包、smoke、真实 AO Mission/收费模型、GUI 视觉验收；本次合并收尾也未重跑既有 F05 定向测试或 compileall。未创建 tag/Release，未实施 R01/R02/U01/U02 或模型切换。
+- 合并收尾：合入 tree 与已审计 head 完全相同，本地 main 正常 fast-forward 同步；仅更新 PLANS、BACKLOG、根 README 与 PROJECT 的状态和当前事实，产品及发布工具 blob 未变。文档 diff-check、本地链接及产品 blob 核对通过，沿用既有验证；F05 DONE、M1 COMPLETE，下一任务 R01 TODO，已发布 v0.2 不变。
 
 ## V03-R01｜有效配置与阶段诊断
 
+- 状态：TODO；当前下一任务，尚未开始实现。
 - 对应：A10，支持A06/A11。落点：runtime/config、Gate、Adapter、Provider、Panel。
 - 工作：唯一effective config解析；model重复键迁移；Gate时间/输出真正接线；配置来源与revision；phase/attempt/error metrics；敏感项不落库。
 - 必测：保存值等于消费者值；非法范围拒绝；旧配置迁移/提示；运行中默认值改变不改当前Mission；unknown费用不填0；角色请求与实际确认模型分开。

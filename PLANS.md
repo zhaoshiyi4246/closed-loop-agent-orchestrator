@@ -6,16 +6,14 @@
 
 ## 当前唯一执行指针
 
-- 当前阶段：**M1 IN_PROGRESS**；M0 COMPLETE。
-- 当前唯一任务：**V03-F05 — 停止确认与未知外部动作保护**，IN_REVIEW；base `fe1d12c42f780e6bbf6af272d0aca38ddb50026a`，分支 `codex/v03-f05-external-operations`；[PR #36](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/36) 已完成 Stop receipt HTTP 回执返修，等待再次外部审计，本轮不合并。
-- 最近完成：**V03-F04 — Gate查询、本地API与安全渲染**，DONE；[PR #35](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/35) 外部审计 PASS、无需返修；2026-09-07 已 rebase merge 到 main `c51ccd155f7ab6c226454846c9e1f1fff146956d`。
-- F01 / F02 / F03 保持 DONE；[PR #32](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/32) / [PR #33](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/33) / [PR #34](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/34) 均已审计 PASS 并合入，历史证据仍有效，详见对应卡。
-- F05 候选：同一 StateStore 持久 intent / IN_FLIGHT / confirmed result / UNKNOWN；spawn 精确随机标记对账、普通 send 未确认不重发、kill 需 AO Session 终止事实。Stop 先持久接收，未知停止阻断 replan 和 materialization；不扩展 Mission 生命周期。
-- F04 既有验证：Windows 定向 **224 passed / 160.98s**；追加历史 Verifier/契约检查 **49 passed / 316.91s**，均 0 failed / 0 skipped，分开报告、不累计数量；浏览器、compileall 等证据见 F04 卡，本轮未重跑这两个完整集合。收尾文档 diff-check、4 个变更文档的 20 个本地链接与产品 blob 核对通过。
-- 验证边界：实现结束时集中定向 Windows/fault injection、compileall、diff-check 与文档检查；不运行全量、clean install、打包、smoke、真实模型或 GUI 视觉验收。不实施 R01/R02/U01/U02 或模型任务，不合并、不创建 tag/Release。
-- F05 此前验证：Windows 产品 venv 最终 operation/预算定向 **114 passed / 79.75s**，ClosedLoop 恢复入口 **9 passed / 29.08s**（集合重叠不累计）；compileall、diff-check、4 份文档的 20 个本地链接通过。更大消费者集合与夹具修正过程见 F05 卡。
-- 本轮审计返修：仅修 Panel `/api/stop` 接收结果传递；无法确认持久 receipt 返回 HTTP 503，已持久接收但 Worker stop UNKNOWN 仍确认请求已接收。Windows F05/Panel 定向 **122 passed / 44.87s**（含真实 HTTP 与浏览器错误提示）；compileall、diff-check 通过，详见 F05 卡。
-- 下一步：停止等待 F05 再次外部审计；M1 保持 IN_PROGRESS，R01 TODO，不开始下一任务。
+- 当前阶段：**M1 COMPLETE（修复冻结）**；M0 COMPLETE，M2 TODO。
+- 当前唯一执行指针：**V03-R01 — 有效配置与阶段诊断**，TODO；仅作为下一任务，尚未开始实现。
+- 最近完成：**V03-F05 — 停止确认与未知外部动作保护**，DONE；[PR #36](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/36) 再次外部审计 PASS、无其他返修；2026-09-07 已 rebase merge 到 main `1e1401f7b55ff71617c0e3ef4ab277490b916cff`，合入 tree 与已审计 head `9620adced463f479a693f67667e90397a9521ef7` 完全相同。
+- F01 / F02 / F03 / F04 保持 DONE；[PR #32](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/32) / [PR #33](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/33) / [PR #34](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/34) / [PR #35](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/35) 均已审计 PASS 并合入，历史证据仍有效，详见对应卡。
+- F05 已实现：同一 StateStore 持久 intent / IN_FLIGHT / confirmed result / UNKNOWN；spawn 精确随机标记对账、普通 send 未确认不重发、kill 需 AO Session 终止事实。Stop 先持久接收，HTTP 回执反映 receipt 保存事实；未知停止阻断 replan 和 materialization，不扩展 Mission 生命周期。
+- 沿用 F05 既有验证：Windows operation/预算定向 **114 passed / 79.75s**、ClosedLoop 恢复入口 **9 passed / 29.08s**（集合重叠不累计）；Stop receipt 返修 F05/Panel 定向 **122 passed / 44.87s**，含真实 HTTP 与浏览器错误提示。compileall 等详细证据及 AO 契约边界见 F05 卡。
+- 本轮仅合并和状态收尾：本地 main 正常 fast-forward 同步；状态文档 diff-check、本地链接及产品/发布工具 blob 核对通过。未重跑 F05 定向测试、compileall、全量、安装、打包、smoke、真实 AO/模型或 GUI 验收；已发布 v0.2 不变，未创建 tag/Release。
+- 下一步：停止，等待负责人授权 R01；不实施 R01/R02、GUI 或模型任务。
 
 ## 快速查询
 
@@ -29,7 +27,7 @@
 | 阶段 | 状态 | 退出条件 |
 |---|---|---|
 | M0 基线与目录整理 | COMPLETE（DOC-00 / LAYOUT DONE） | 规划已批准入库；纯路径迁移验证；副本分类整理含保留项；人工审计 PASS |
-| M1 修复冻结 | IN_PROGRESS（F01 / F02 / F03 / F04 DONE；F05 IN_REVIEW） | F01—F05负例与正常路径通过 |
+| M1 修复冻结 | COMPLETE（F01–F05 DONE，均已审计 PASS 并合入） | F01—F05负例与正常路径通过 |
 | M2 使用契约 | TODO | 配置、回执、取消恢复、基线可追溯 |
 | M3 GUI与交付体验 | TODO | 四入口＋任务旅程＋结果导出＋浏览器验收 |
 | M4 模型扩展 | TODO | GLM与Kimi语义profile；Worker明确支持/拒绝决策 |

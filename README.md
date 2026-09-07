@@ -4,7 +4,7 @@ Closed-Loop Agent Orchestrator
 
 CLAO 是构建在 Agent Orchestrator（AO）上的本地闭环软件开发控制层。默认单Worker执行任务，通过确定性Gate、集成和Mission终局复核保存可检查结果。
 
-**已发布：v0.2（Windows本地比赛版）。v0.3 规划已批准，M0 COMPLETE，M1 IN_PROGRESS；V03-F01 的 [PR #32](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/32)、V03-F02 的 [PR #33](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/33)、V03-F03 的 [PR #34](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/34) 与 V03-F04 的 [PR #35](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/35) 均已外部审计 PASS 并合入 main（DONE）。当前 V03-F05 — 停止确认与未知外部动作保护已提交候选实现（IN_REVIEW，等待外部审计）；其余规划能力待实施。**
+**已发布：v0.2（Windows本地比赛版）。v0.3 规划已批准，M0 / M1 COMPLETE；V03-F01 的 [PR #32](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/32)、V03-F02 的 [PR #33](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/33)、V03-F03 的 [PR #34](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/34)、V03-F04 的 [PR #35](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/35) 与 V03-F05 的 [PR #36](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/36) 均已外部审计 PASS 并合入 main（DONE）。下一任务为 V03-R01 — 有效配置与阶段诊断（TODO，未开始实现）；其余规划能力待实施。**
 
 ## 使用已发布产品
 
@@ -27,7 +27,7 @@ CLAO 是构建在 Agent Orchestrator（AO）上的本地闭环软件开发控制
 - [原审计报告](docs/reference/CLAO_v0.2_audit_20260905.pdf)
 - [Codex实施规则](AGENTS.md)
 
-当前唯一正式产品源码为 `clao/`；发布工具位于 `packaging/`，历史来源归档在 `legacy/`。内部 `loopcore` 包名保留；main 已包含 F01 / F02 / F03 / F04 修复，已发布 v0.2 保持不变。
+当前唯一正式产品源码为 `clao/`；发布工具位于 `packaging/`，历史来源归档在 `legacy/`。内部 `loopcore` 包名保留；main 已包含 F01–F05 修复，已发布 v0.2 保持不变。
 
 ```text
 closed-loop-agent-orchestrator/
