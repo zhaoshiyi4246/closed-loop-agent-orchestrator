@@ -178,7 +178,7 @@ G1=F01—F05；G2=R01—R02；G3=U01—U03；G4=P01—P02及P03有记录的支�
 
 ## V03-R01｜有效配置与阶段诊断
 
-- 状态：IN_REVIEW；base `d59dd8fd630fab573ea4dd80b005106cf7fde207`，分支 `codex/v03-r01-effective-config`；[PR #37](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/37)，实现提交 `38d474c`，等待外部审计；M0/M1 COMPLETE，M2 IN_PROGRESS，R02 TODO。
+- 状态：IN_REVIEW；base `d59dd8fd630fab573ea4dd80b005106cf7fde207`，分支 `codex/v03-r01-effective-config`；[PR #37](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/37)，实现提交 `38d474c`；SessionView.model 缺口已返修，等待再次外部审计；M0/M1 COMPLETE，M2 IN_PROGRESS，R02 TODO。
 - 对应：A10，支持A06/A11。落点：runtime/config、Gate、Adapter、Provider、Panel。
 - 工作：唯一effective config解析；model重复键迁移；Gate时间/输出真正接线；配置来源与revision；phase/attempt/error metrics；敏感项不落库。
 - 必测：保存值等于消费者值；非法范围拒绝；旧配置迁移/提示；运行中默认值改变不改当前Mission；unknown费用不填0；角色请求与实际确认模型分开。
@@ -192,7 +192,10 @@ G1=F01—F05；G2=R01—R02；G3=U01—U03；G4=P01—P02及P03有记录的支�
 - 检查中的修正：首次收集发现诊断 import 位于 decorator 与 class 之间，已修正；浏览器探针误读自身 script 文本已修正。旧 preflight/恢复夹具改为真实 SQLite、持久配置事实与无 Worker 副作用断言；停止前先模拟 Worker 存活，停止后才 terminated。检查保留失败/拒绝断言，未删除负例；最后一次上述集合无失败。
 - 最后边界复查：增加超大整数和带控制字符 URL 的拒绝用例后，`pytest tests/test_r01_effective_config.py -q -rs --tb=short`：**37 passed / 22.43s**；compileall（src/panel/run_mission.py 与直接变更测试）、diff-check、5 个变更 Markdown 的 21 个本地链接 PASS。新增源码/测试已由既有 manifest 前缀覆盖，依赖、builder、manifest、AGENTS 与设计主文档不变。
 - NOT_RUN：全量、clean install、打包、smoke、真实 AO Mission/模型、GUI 视觉重设计验收；未新增 tag/Release，未实施 R02 或模型供应商。
-- 剩余边界：当前语义 CLI 无可确认的实际模型/用量/费用字段，均 unknown；AO conversation.modelReroute 只确认 conversation 级替换，复用既有读取不额外请求。Gate 上限限制证据正文，仍使用既有内存捕获；runner cap 仅循环边界。历史无快照只读查看、attach 组装副作用与完整恢复留 R02；阶段记录只诊断，不是新的状态权威。
+- 剩余边界：当前语义 CLI 无可确认的实际模型/用量/费用字段，均 unknown；Worker 的 AO SessionView.model 可确认 spawn 时 resolved model，conversation.modelReroute 单列 conversation 级替换，复用既有读取不额外请求。Gate 上限限制证据正文，仍使用既有内存捕获；runner cap 仅循环边界。历史无快照只读查看、attach 组装副作用与完整恢复留 R02；阶段记录只诊断，不是新的状态权威。
+- 审计返修（2026-09-07）：外部审计指出正常 Session 无 reroute 时仍显示 confirmed unknown；核对固定 AO `4cbb4b6ced1ad93f79641a2347d2342f1ffd218a` 的公开 `dto.go SessionView.model` 与 `sessions.go sessionView()`，确认前次只看 domain Session 遗漏了公开映射。Mission 正常轮询及既有 Session 详情读取得到独立 `spawn_resolved_model` / 来源；conversation 记录 `model_reroute` 的 from/to/source，不互相覆盖；缺失/非法字段为 unknown，不从 requested/passed 推导，不增加 AO 请求。沿用 StateStore JSON 记录，无表迁移，配置和 F05 控制逻辑不变。
+- 返修验证：Windows 产品 venv，`pytest tests/test_r01_effective_config.py tests/test_ao_runtime_portability.py tests/test_f04_panel_boundaries.py -q -rs --tb=short`：**184 passed / 37.84s**。覆盖真实 Mission 轮询→StateStore→Panel HTTP、合法/缺失/非法 Session model、两种事实先后合并、错误 Session 关联、请求数量不增加、未知 usage/cost 与配置快照；真实 Edge 检查 resolved/reroute 的来源、旧 reroute 兼容、安全文本及 SSE 重连。compileall（src/panel/run_mission.py 与直接测试）、diff-check、4 个相关文档的 13 个本地链接 PASS。
+- 本次返修 NOT_RUN：此前 311 项大集合、全量、clean install、打包、smoke、真实 AO/模型、GUI 视觉重设计验收。R01 继续 IN_REVIEW，M2 IN_PROGRESS；不新建 PR、不合并、不实施 R02，不创建 tag/Release。
 
 ## V03-R02｜指令回执、取消恢复、固定基线
 

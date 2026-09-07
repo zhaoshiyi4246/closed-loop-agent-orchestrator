@@ -7,6 +7,7 @@ from functools import wraps
 import time
 
 CURRENT = ContextVar("clao_phase", default=None)
+_NOT_OBSERVED = object()
 
 
 class Diagnostics:
@@ -24,8 +25,13 @@ class Diagnostics:
             del self.errors[:-10]
             return None
 
-    def worker_fact(self, session_id, *, activity=None, confirmed_model=None, requested_model=None):
-        import re
+    def worker_fact(self, session_id, *, activity=None, requested_model=None,
+                    spawn_resolved_model=_NOT_OBSERVED, reroute=_NOT_OBSERVED):
+        # External model facts are display-only strings, not configuration or
+        # proof of a particular provider call. AO's public model bound is 256.
+        def model_id(value):
+            return value if (isinstance(value, str) and 0 < len(value) <= 256
+                             and value == value.strip() and value.isprintable()) else None
         if not isinstance(session_id, str):
             return
         old = self._worker_facts.get(session_id, {})
@@ -37,9 +43,15 @@ class Diagnostics:
         if requested_model is not None:
             value["requested_model"] = requested_model
             value["passed_model"] = requested_model
-        if isinstance(confirmed_model, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,127}", confirmed_model):
-            value["confirmed_model"] = confirmed_model
-            value["model_evidence"] = "AO conversation.modelReroute.toModel (conversation-level, not per-call timing)"
+        if spawn_resolved_model is not _NOT_OBSERVED:
+            value["spawn_resolved_model"] = model_id(spawn_resolved_model)
+            value["spawn_model_evidence"] = ("AO SessionView.model (resolved at spawn, not per-call provider evidence)"
+                                              if value["spawn_resolved_model"] is not None else None)
+        if reroute is not _NOT_OBSERVED:
+            target = model_id(reroute.get("toModel")) if isinstance(reroute, dict) else None
+            value["model_reroute"] = ({"from_model": model_id(reroute.get("fromModel")), "to_model": target,
+                                       "source": "AO conversation.modelReroute (conversation-level, not per-call timing)"}
+                                      if target is not None else None)
         if value == old:
             return
         self._worker_facts[session_id] = value

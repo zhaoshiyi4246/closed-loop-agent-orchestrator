@@ -256,14 +256,20 @@ def test_existing_ao_read_reports_rerouted_model_without_extra_call(tmp_path, mo
     diag = Diagnostics(store, "M")
     adapter = AOAdapter(run_file=tmp_path / "absent")
     adapter.diagnostics = diag
-    diag.worker_fact("w1", requested_model="requested-model", activity="working")
+    diag.worker_fact("w1", requested_model="requested-model", activity="working", spawn_resolved_model="spawn-model")
     get = MagicMock(return_value={"sessionId": "w1", "messages": [], "settings": {"model": "requested-model"},
                                  "modelReroute": {"fromModel": "requested-model", "toModel": "confirmed-model", "reason": "provider"}})
     monkeypatch.setattr(adapter, "_get", get)
     adapter.get_worker_conversation("w1")
     get.assert_called_once_with("/api/v1/sessions/w1/conversation")
     worker = StateStore.query_phases(store._conn, "M")["workers"][0]
-    assert worker["confirmed_model"] == "confirmed-model" and worker["passed_model"] == "requested-model"
+    assert worker["spawn_resolved_model"] == "spawn-model"
+    assert worker["spawn_model_evidence"].startswith("AO SessionView.model")
+    assert worker["model_reroute"]["to_model"] == "confirmed-model"
+    assert worker["model_reroute"]["from_model"] == "requested-model"
+    assert worker["model_reroute"]["source"].startswith("AO conversation.modelReroute")
+    assert worker["requested_model"] == worker["passed_model"] == "requested-model"
+    assert "confirmed_model" not in worker
     assert worker["elapsed_seconds"] is None
     store.close()
 
@@ -290,6 +296,15 @@ def test_browser_config_phases_and_sse_reconnect_are_safe(http_panel, monkeypatc
     cfg = config.resolve_config()
     http_panel.store.record_mission("M-F04", {"effective_config": cfg.snapshot()})
     diag = Diagnostics(http_panel.store, "M-F04")
+    diag.worker_fact("w-resolved", requested_model="requested-worker", spawn_resolved_model="resolved-worker",
+                     reroute={"fromModel": "resolved-worker", "toModel": "rerouted-worker"})
+    diag.worker_fact("w-unknown", requested_model="requested-worker", spawn_resolved_model=None)
+    diag.worker_fact("w-text", requested_model='模型 中文 < > & " \'',
+                     spawn_resolved_model='<img src=x onerror=window.PWNED=1>',
+                     reroute={"toModel": '<svg onload=window.PWNED=1>'})
+    http_panel.store.record_phase("M-F04", {"phase": "worker_execution", "session_id": "w-history",
+        "status": "observed", "confirmed_model": "old-reroute",
+        "model_evidence": "AO conversation.modelReroute.toModel (conversation-level, not per-call timing)"})
     phase = diag.phase("model_request", role="planner", requested_model="requested", passed_model="passed",
                        reason='waiting 中文 <img src=x onerror=window.PWNED=1> " &', attempt=2)
     phase.__enter__()
@@ -321,6 +336,18 @@ def test_browser_config_phases_and_sse_reconnect_are_safe(http_panel, monkeypatc
   check(!window.PWNED && !document.querySelector('img,[onerror]'),'phase XSS');
   check(document.getElementById('modelStatus').textContent.includes('外部确认=unknown'),'guessed model');
   check(document.getElementById('modelStatus').textContent.includes('auditor：未调用'),'guessed called role');
+  const modelLines=document.getElementById('modelStatus').textContent.split('\n');
+  const resolved=modelLines.find(t=>t.startsWith('Worker w-resolved '));
+  check(resolved.includes('请求=requested-worker') && resolved.includes('传入=requested-worker'),'lost requested/passed');
+  check(resolved.includes('AO spawn-resolved=resolved-worker') && !resolved.includes('spawn-resolved=unknown'),'ignored Session model');
+  check(resolved.includes('conversation reroute=resolved-worker → rerouted-worker'),'lost separate reroute');
+  check(resolved.includes('AO SessionView.model') && resolved.includes('AO conversation.modelReroute'),'lost sources');
+  check(resolved.includes('单次 provider 请求模型/耗时 unknown') && resolved.includes('usage=unknown · cost=unknown'),'guessed provider facts');
+  check(modelLines.find(t=>t.startsWith('Worker w-unknown ')).includes('spawn-resolved=unknown'),'guessed missing Session model');
+  const historical=modelLines.find(t=>t.startsWith('Worker w-history '));
+  check(historical.includes('spawn-resolved=unknown') && historical.includes('unknown → old-reroute'),'historical reroute relabeled');
+  check(modelLines.find(t=>t.startsWith('Worker w-text ')).includes('<img src=x onerror=window.PWNED=1>'),'lost model text');
+  check(!window.PWNED && !document.querySelector('img,[onerror],[onload]'),'model facts XSS');
   const original=structuredClone(LAST), originalSeq=STREAM_SEQ;
   const duplicate=structuredClone(original);duplicate.mission.reason='STALE';
   check(acceptSnapshot(duplicate)===false && LAST.mission.reason!=='STALE','duplicate snapshot applied');
@@ -497,3 +524,71 @@ def test_ao_read_is_visible_before_slow_response_without_extra_request(http_pane
     assert results == [{"id": "w1", "status": "working"}]
     transport.assert_called_once()
     assert not http_panel.store.operations()
+
+
+@pytest.mark.parametrize("fields, reroute, expected", [
+    ({"model": "spawn-resolved-model"}, None, "spawn-resolved-model"),
+    ({}, None, None),
+    ({}, {"fromModel": "spawn-resolved-model", "toModel": "conversation-model"}, None),
+    ({"model": "spawn-resolved-model"}, {"fromModel": "spawn-resolved-model", "toModel": "conversation-model"}, "spawn-resolved-model"),
+    ({"model": None}, None, None), ({"model": 42}, None, None),
+    ({"model": " "}, None, None), ({"model": "invalid\nmodel"}, None, None),
+    ({"model": "m" * 257}, None, None),
+])
+def test_mission_poll_session_model_through_panel_without_extra_ao_calls(http_panel, monkeypatch, fields, reroute, expected):
+    from loopcore.ao_adapter import AOAdapter
+    from loopcore.mission import MissionController
+    cfg = config.resolve_config(overrides={"worker": {"model": "requested-worker"}})
+    m = mission("M-F04")
+    http_panel.store.record_mission("M-F04", {"mission": m, "effective_config": cfg.snapshot()})
+    adapter = AOAdapter()
+    diag = Diagnostics(http_panel.store, "M-F04")
+    adapter.diagnostics = diag
+    controller = MissionController(MissionSpec.from_dict(m), cfg, adapter=adapter, store=http_panel.store,
+                                   executor=MagicMock(), gate=MagicMock(), planner=MagicMock(), auditor=MagicMock(), verifier=MagicMock())
+    controller.diagnostics = diag
+    task = TaskSpec.from_dict(_task_spec()); task.worker_session_id = "w1"
+    loop = controller._build_loop(task)
+    session = {"id": "w1", "projectId": "P", "status": "working", "isTerminated": False, **fields}
+    responses = {"/api/v1/sessions": {"sessions": [session]},
+                 "/api/v1/sessions/w1/conversation": {"sessionId": "w1", "turns": [], "activities": [], "modelReroute": reroute}}
+    read = MagicMock(side_effect=responses.__getitem__)
+    monkeypatch.setattr(adapter, "_get", read)
+    controller._collect_all_events()
+    controller._route_events(loop, "w1")
+    status, _, data = request(http_panel)
+    assert status == 200 and data["ok"]
+    worker = data["phases"]["workers"][0]
+    assert worker["spawn_resolved_model"] == expected
+    assert worker["spawn_model_evidence"] == ("AO SessionView.model (resolved at spawn, not per-call provider evidence)" if expected else None)
+    assert worker["requested_model"] == worker["passed_model"] == "requested-worker"
+    if reroute:
+        assert worker["model_reroute"] == {"from_model": "spawn-resolved-model", "to_model": "conversation-model",
+                                           "source": "AO conversation.modelReroute (conversation-level, not per-call timing)"}
+    else:
+        assert worker["model_reroute"] is None
+    assert worker["usage"] is worker["cost"] is worker["elapsed_seconds"] is None
+    assert "confirmed_model" not in worker
+    assert [call.args[0] for call in read.call_args_list] == list(responses)
+    assert not http_panel.store.operations()
+    assert data["mission_config"]["snapshot"] == cfg.snapshot()
+
+
+def test_existing_session_detail_records_resolved_model_and_rejects_wrong_session(tmp_path, monkeypatch):
+    from loopcore.ao_adapter import AOAdapter
+    store = StateStore(tmp_path / "state.db")
+    adapter = AOAdapter()
+    adapter.diagnostics = Diagnostics(store, "M")
+    read = MagicMock(return_value={"session": {"id": "w1", "model": "detail-model"}})
+    monkeypatch.setattr(adapter, "_get", read)
+    adapter.get_worker_status("w1")
+    read.assert_called_once_with("/api/v1/sessions/w1")
+    worker = StateStore.query_phases(store._conn, "M")["workers"][0]
+    assert worker["spawn_resolved_model"] == "detail-model"
+    read.return_value = {"session": {"id": "some-other-session", "model": "wrong-model"}}
+    adapter.get_worker_status("w1")
+    assert StateStore.query_phases(store._conn, "M")["workers"][0] == worker
+    read.return_value = {"session": {"id": "w1"}}
+    adapter.get_worker_status("w1")
+    assert StateStore.query_phases(store._conn, "M")["workers"][0]["spawn_resolved_model"] is None
+    store.close()

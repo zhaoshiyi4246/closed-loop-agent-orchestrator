@@ -393,8 +393,17 @@ function renderPhases(){
   $("modelStatus").textContent=["worker","planner","auditor","verifier"].map(role=>{
     const p=query?.roles?.[role] || records.find(p=>p.role===role && ["model_request","spawn"].includes(p.phase));
     return !p?role+"："+((LAST?.mission_config?.status==="ok" && ["ok","not_called"].includes(query?.status))?"未调用":"历史 unknown"):
-      role+"：请求="+text(p.requested_model ?? "unknown")+" · 传入="+text(p.passed_model ?? "unknown")+" · 外部确认="+text(p.confirmed_model ?? "unknown")+" · transport="+text(p.transport ?? "unknown")+" · attempt="+text(p.attempt)+" · 调用耗时="+seconds(elapsed(p))+" · usage="+text(p.usage ?? "unknown")+" · cost="+text(p.cost ?? "unknown");
-  }).join("\n") + (query?.workers || []).map(w=>"\nWorker "+text(w.session_id)+" · AO activity="+text(w.activity ?? "unknown")+" · 请求/传入="+text(w.requested_model ?? "unknown")+" · 外部确认="+text(w.confirmed_model ?? "unknown")+" · "+text(w.model_evidence ?? "无可确认模型事实")+" · 本次观察到该 activity 持续="+seconds(w.activity_elapsed_seconds)+"（非模型请求耗时） · 单次调用耗时 unknown").join("");
+      role+"：请求="+text(p.requested_model ?? "unknown")+" · 传入="+text(p.passed_model ?? "unknown")+(role==="worker"?" · 模型确认见下方 AO Session 事实":" · 外部确认="+text(p.confirmed_model ?? "unknown"))+" · transport="+text(p.transport ?? "unknown")+" · attempt="+text(p.attempt)+" · 调用耗时="+seconds(elapsed(p))+" · usage="+text(p.usage ?? "unknown")+" · cost="+text(p.cost ?? "unknown");
+  }).join("\n") + (query?.workers || []).map(w=>{
+    // Old R01 records confirmed only a reroute; never relabel it as spawn model.
+    const legacy=w.model_evidence==="AO conversation.modelReroute.toModel (conversation-level, not per-call timing)";
+    const reroute=w.model_reroute ?? (legacy?{to_model:w.confirmed_model,source:w.model_evidence}:null);
+    return "\nWorker "+text(w.session_id)+" · AO activity="+text(w.activity ?? "unknown")+
+      " · 请求="+text(w.requested_model ?? "unknown")+" · 传入="+text(w.passed_model ?? "unknown")+
+      " · AO spawn-resolved="+text(w.spawn_resolved_model ?? "unknown")+"（创建时解析） · 来源="+text(w.spawn_model_evidence ?? "Session model 未提供/unknown")+
+      " · conversation reroute="+(reroute?text(reroute.from_model ?? "unknown")+" → "+text(reroute.to_model ?? "unknown")+" · 来源="+text(reroute.source):"未提供/unknown")+
+      "（会话后续模型变更） · 本次观察到该 activity 持续="+seconds(w.activity_elapsed_seconds)+"（非模型请求耗时） · 单次 provider 请求模型/耗时 unknown · usage="+text(w.usage ?? "unknown")+" · cost="+text(w.cost ?? "unknown");
+  }).join("");
   renderTiming();
 }
 function render(s){
