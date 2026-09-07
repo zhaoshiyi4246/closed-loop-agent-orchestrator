@@ -7,13 +7,13 @@
 ## 当前唯一执行指针
 
 - 当前阶段：**M1 IN_PROGRESS**；M0 COMPLETE。
-- 当前唯一任务：**V03-F04 — Gate查询、本地API与安全渲染**，IN_REVIEW；base `9a55a6c20f8828246723d66e18c91dbc4a23e122`，分支 `codex/v03-f04-panel-boundaries`；实现完成，独立 PR 交付中，等待外部审计。
+- 当前唯一任务：**V03-F04 — Gate查询、本地API与安全渲染**，IN_REVIEW；[PR #35](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/35) 已提交、等待外部审计；base `9a55a6c20f8828246723d66e18c91dbc4a23e122`，分支 `codex/v03-f04-panel-boundaries`，产品提交 `3d1e693b5f9bef6eea926c4bbb9ef12383762302`。
 - 最近完成：**V03-F03 — Git路径、产物规则与只读取证**，DONE；[PR #34](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/34) 再次外部审计 PASS，已提交 artifact 的交付缺口闭环、无其他返修项；2026-09-07 已 rebase merge 到 main `35a67d07ae196368434fbd83a95693b288c6bc6e`。
 - F01 / F02 保持 DONE；[PR #32](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/32) / [PR #33](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/33) 均已审计 PASS 并合入，历史证据仍有效，详见对应卡。
 - 本轮范围：Gate 查询/结果记录、Panel 错误显示、同源写 API、路径包含性、安全文本渲染及直接重复提交保护；沿用 StateStore / Controller，不新增控制面或框架。
 - F04 验证：Windows 定向 **224 passed / 160.98s**，0 failed / 0 skipped；包含真实 SQLite、隔离 Git、临时 runtime/HTTP 与真实 Edge 安全交互；历史 Task Verifier scope 记录的追加检查见 F04 卡，重叠集合不累计计数。
 - NOT_RUN：全量回归、clean install、打包、smoke、真实 AO/模型、GUI 视觉重设计验收；不将浏览器中的外部动作替身视作真实 Mission 验收。不实施 F05/R01/R02/U01/U02，不合并、不创建 tag/Release，不改已发布 v0.2。
-- 下一步：交付 F04 PR 后停止，等待外部审计；F05 保持 TODO，不开始实现。
+- 下一步：停止，等待 PR #35 外部审计；F05 保持 TODO，不开始实现。
 
 ## 快速查询
 

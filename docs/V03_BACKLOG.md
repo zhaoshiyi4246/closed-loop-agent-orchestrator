@@ -135,7 +135,7 @@ G1=F01—F05；G2=R01—R02；G3=U01—U03；G4=P01—P02及P03有记录的支�
 
 ## V03-F04｜Gate查询、本地API与安全渲染
 
-- 状态：IN_REVIEW；2026-09-07；base `9a55a6c20f8828246723d66e18c91dbc4a23e122`，分支 `codex/v03-f04-panel-boundaries`；实现完成，独立 PR 交付中；F01/F02/F03 保持 DONE，F05 TODO。
+- 状态：IN_REVIEW；2026-09-07；[PR #35](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/35) 已提交、等待外部审计；base `9a55a6c20f8828246723d66e18c91dbc4a23e122`，分支 `codex/v03-f04-panel-boundaries`，产品提交 `3d1e693b5f9bef6eea926c4bbb9ef12383762302`；F01/F02/F03 保持 DONE，F05 TODO。
 - 对应：A04、A05。落点：StateStore查询、Panel server/index及新直接测试。
 - 工作：专用Gate DTO；command/integrity/scope/overall分别表达；数据库异常保留read_error；完整错误字段。Host/Origin/JSON/nonce；id与文件路径包含性；安全DOM渲染。
 - 必测：真实SQLite Gate row到/api/state到页面；exit0+integrity失败显示失败；无记录与读失败不同；跨源请求、非法Host、缺token、穿越、引号、双击写请求。
