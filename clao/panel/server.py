@@ -157,13 +157,23 @@ class PanelState:
         # The Controller persists receipt before latching/cleanup. A failed
         # receipt must not become an in-memory-only successful Stop request.
         rt = self.rt
-        if rt is not None:
+        if rt is None:
+            raise ClientError("没有已加载的任务", 409)
+        try:
+            rt.controller.request_stop()
+        except Exception as e:
+            self.errors.append("%s: stop: %s" % (now_iso(), e))
+            # Cleanup can fail AFTER receipt committed. Only the existing
+            # durable fact may turn that exception into an accepted request.
             try:
-                rt.controller.request_stop()
-            except Exception as e:
-                self.errors.append("%s: stop: %s" % (now_iso(), e))
-                return
+                received = rt.controller.store.mission_stop_requested(
+                    rt.controller.mission.mission_id)
+            except Exception:
+                received = False
+            if not received:
+                raise ClientError("无法确认停止请求已持久接收: %s" % e, 503) from e
         self.stop_flag.set()
+        return {"ok": True, "stop_requested": True}
 
     def running(self) -> bool:
         # Once a stop is requested the mission does no further work (stop
@@ -595,8 +605,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(self._attach(body))
                 return
             if path == "/api/stop":
-                PANEL.stop()
-                self._json({"ok": True})
+                self._json(PANEL.stop())
                 return
             if path == "/api/directive":
                 d = PANEL.post_directive(str(body.get("target") or ""),
