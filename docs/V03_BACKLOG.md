@@ -154,7 +154,7 @@ G1=F01—F05；G2=R01—R02；G3=U01—U03；G4=P01—P02及P03有记录的支�
 
 ## V03-F05｜停止确认与未知外部动作保护
 
-- 状态：IN_REVIEW；base `fe1d12c42f780e6bbf6af272d0aca38ddb50026a`，分支 `codex/v03-f05-external-operations`；F01–F04 DONE，M1 IN_PROGRESS，R01 TODO。
+- 状态：IN_REVIEW；base `fe1d12c42f780e6bbf6af272d0aca38ddb50026a`，分支 `codex/v03-f05-external-operations`；实现提交 `7b2df59b1ff1e3fa36ac2fbf83793795093a377b`，[PR #36](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/36) OPEN，等待外部审计；F01–F04 DONE，M1 IN_PROGRESS，R01 TODO。
 
 - 对应：A07。落点：Executor、Mission、Store，必要AO官方只读查询。
 - 工作：同Store intent/operation_id/result；spawn/send超时先对账；无法确认则UNKNOWN+人工处理。materialization须已停止事实；不忽略kill失败继续提交。
