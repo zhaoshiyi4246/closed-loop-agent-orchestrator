@@ -107,7 +107,9 @@ F01 的完整证据校验，不能因此假装 Gate 或 Verifier 已通过。
 
 页面显示准备、AO 调用、观察/审批等待、语义角色、各 Gate、materialization/merge
 和重试等真实阶段。独立模型请求记录开始/结束、attempt、耗时和错误类别；未调用、
-历史 unknown、未知模型/用量/费用分开表达。SSE 断连保留最后状态，重连以顺序化
+历史 unknown、未知模型/用量/费用分开表达。Worker 的配置请求/传入值、AO Session 创建时
+resolved model、conversation 后续 reroute 各自显示来源；缺字段不从配置猜测，也不把
+Session 或 reroute 事实当成单次 provider 请求模型/精确耗时。SSE 断连保留最后状态，重连以顺序化
 完整快照替换，不重放写请求。HTTP 处理耗时和状态快照耗时不等于模型调用耗时。
 
 ## 结果与 SCM 边界

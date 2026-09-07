@@ -7,13 +7,14 @@
 ## 当前唯一执行指针
 
 - 当前阶段：**M2 IN_PROGRESS**；M0 / M1 COMPLETE。
-- 当前唯一执行指针：**V03-R01 — 有效配置与阶段诊断**，IN_REVIEW；base `d59dd8fd630fab573ea4dd80b005106cf7fde207`，分支 `codex/v03-r01-effective-config`；[PR #37](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/37) 已提交，等待外部审计。
+- 当前唯一执行指针：**V03-R01 — 有效配置与阶段诊断**，IN_REVIEW；base `d59dd8fd630fab573ea4dd80b005106cf7fde207`，分支 `codex/v03-r01-effective-config`；[PR #37](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/37) 已补齐 SessionView.model 审计缺口，等待再次外部审计。
 - 最近完成：**V03-F05 — 停止确认与未知外部动作保护**，DONE；[PR #36](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/36) 再次外部审计 PASS、无其他返修；2026-09-07 已 rebase merge 到 main `1e1401f7b55ff71617c0e3ef4ab277490b916cff`，合入 tree 与已审计 head `9620adced463f479a693f67667e90397a9521ef7` 完全相同。
 - F01 / F02 / F03 / F04 保持 DONE；[PR #32](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/32) / [PR #33](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/33) / [PR #34](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/34) / [PR #35](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/35) 均已审计 PASS 并合入，历史证据仍有效，详见对应卡。
 - F05 已实现：同一 StateStore 持久 intent / IN_FLIGHT / confirmed result / UNKNOWN；spawn 精确随机标记对账、普通 send 未确认不重发、kill 需 AO Session 终止事实。Stop 先持久接收，HTTP 回执反映 receipt 保存事实；未知停止阻断 replan 和 materialization，不扩展 Mission 生命周期。
 - 沿用 F05 既有验证：Windows operation/预算定向 **114 passed / 79.75s**、ClosedLoop 恢复入口 **9 passed / 29.08s**（集合重叠不累计）；Stop receipt 返修 F05/Panel 定向 **122 passed / 44.87s**，含真实 HTTP 与浏览器错误提示。compileall 等详细证据及 AO 契约边界见 F05 卡。
 - R01 当前实现：CLI/Panel 共用严格配置解析与原子默认设置保存；Mission 快照冻结；模型、AO/轮询与各 Gate 参数接到真实消费者；同一 StateStore 记录在途阶段与请求计时，SSE 用有序完整快照恢复。配置迁移、消费者及剩余边界见 PROJECT / R01 卡。
 - R01 定向证据：Windows 配置/Panel/角色/契约集合 311 passed；最终 R01 37 passed，含 Edge 配置与 SSE 交互；补充 F05/Gate/审批及 AO 适配复查见 R01 卡，重叠不累计。compileall、diff-check、21 个本地链接及现有发布映射前缀检查通过。NOT_RUN：全量、安装、打包、smoke、真实 AO/模型、GUI 视觉重设计验收。
+- R01 审计返修：复用正常 Session/详情读取中的公开 `model`，记录独立 spawn-resolved 事实；conversation reroute 单列，缺失不猜测，旧 reroute 不重标为 spawn。Windows R01/AO/Panel 定向 **184 passed / 37.84s**，含 Edge 模型来源/安全渲染/SSE；compileall、diff-check、本地链接通过，未重跑 311 项大集合或 live。
 - 本轮交付独立 PR 后停止等待外部审计；不合并、不开始 R02、新版 GUI 或模型扩展，不创建 tag/Release。
 
 ## 快速查询

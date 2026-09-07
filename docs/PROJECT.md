@@ -113,10 +113,16 @@ F01 的证据不完整边界，必要时进入人工处理，不将片段当完�
 阶段诊断写入同一 StateStore 的 execution_phases，开始事实先于慢调用，结束事实记录
 耗时、attempt、结果及错误类别；不保存完整 Prompt/异常 argv，不触发额外动作。重入后
 未完成的旧阶段为 unknown，不伪补结束时间。角色传输计时不取 Mission 总耗时；未调用
-角色和历史缺字段分开。Worker 状态复用现有 AO 读取，只有公开
+角色和历史缺字段分开。Worker 状态复用现有 AO 读取：公开
+[SessionView.model](https://github.com/Untrivial-ai/agent-orchestrator/blob/4cbb4b6ced1ad93f79641a2347d2342f1ffd218a/backend/internal/httpd/controllers/dto.go)
+经 sessions controller 的 `sessionView()` 返回 spawn 时 resolved model，诊断记录为
+`spawn_resolved_model` / `spawn_model_evidence`；配置仍是 requested / passed，不能代填缺失外部事实。
 [conversation.modelReroute](https://github.com/Untrivial-ai/agent-orchestrator/blob/4cbb4b6ced1ad93f79641a2347d2342f1ffd218a/backend/internal/httpd/controllers/conversations.go)
-事实可确认替换模型；它是 conversation 级事实，不是单次调用计时。Codex CLI 没有被当前
-输出契约确认的模型字段，保持 unknown；未报告用量/费用也为 unknown。
+单列为 `model_reroute`（from/to/source），不会覆盖 Session 的创建时模型。外部模型值需是非空、
+无控制字符、无首尾空白且不超过 AO 256 字符上限的字符串；缺失/非法为 unknown。
+页面兼容旧记录时，仅将有明确 reroute 来源的旧 confirmed_model 显示为历史 reroute，
+不回填 spawn 事实。两种事实均不是某次 provider 请求模型或精确计时的证据。
+Codex CLI 没有被当前输出契约确认的模型字段，保持 unknown；未报告用量/费用也为 unknown。
 
 Panel 沿用 F04 的 Host/Origin/JSON/nonce 与 textContent 安全渲染；显示默认设置与冻结
 配置、在途阶段、独立请求耗时和持久错误。SSE 每次服务实例 epoch + 单调 sequence，

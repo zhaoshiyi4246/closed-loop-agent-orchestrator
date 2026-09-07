@@ -191,7 +191,11 @@ class AOAdapter:
     def get_worker_status(self, worker_id: str) -> Dict:
         """Full session record of one worker."""
         data = self._get("/api/v1/sessions/%s" % worker_id)
-        return (data or {}).get("session", data or {})
+        session = (data or {}).get("session", data or {})
+        diag = getattr(self, "diagnostics", None)
+        if diag is not None and isinstance(session, dict) and session.get("id") == worker_id:
+            diag.worker_fact(worker_id, spawn_resolved_model=session.get("model"))
+        return session
 
     def _operation_json(self, path: str):
         def unique_fields(pairs):
@@ -253,9 +257,7 @@ class AOAdapter:
         data = self._get("/api/v1/sessions/%s/conversation" % worker_id)
         diag = getattr(self, "diagnostics", None)
         if diag is not None and isinstance(data, dict) and data.get("sessionId") == worker_id:
-            reroute = data.get("modelReroute")
-            if isinstance(reroute, dict):
-                diag.worker_fact(worker_id, confirmed_model=reroute.get("toModel"))
+            diag.worker_fact(worker_id, reroute=data.get("modelReroute"))
         return data
 
     def get_recent_events(self, project_id: str, since: int = 0) -> List[Dict]:

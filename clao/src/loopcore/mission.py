@@ -640,7 +640,8 @@ class MissionController:
                 if isinstance(session, dict) and session.get("id") == worker_id:
                     activity = session.get("activity")
                     diag.worker_fact(worker_id, activity=(activity.get("state") if isinstance(activity, dict) else None) or session.get("status"),
-                                     requested_model=self.cfg["worker"]["model"])
+                                     requested_model=self.cfg["worker"]["model"],
+                                     spawn_resolved_model=session.get("model"))
         turn_times: Dict[str, Dict[str, str]] = {}
         pid = self.mission.project_id
         since = loop._event_since.get(worker_id, 0)
