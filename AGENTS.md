@@ -21,6 +21,7 @@
 以下是实施约束，包含 v0.3 待补齐的安全要求；当前实现和已知差距以 docs/PROJECT.md 为准，不以规则文字宣称功能已实现。
 
 - 保留 MissionController + per-task ClosedLoop；StateStore 为逻辑运行状态权威；AO公开接口是Session/Worker/workspace外部事实源。
+- AO 是当前执行后端，不是未来产品的强制用户前置依赖；独立项目/执行适配按后续授权卡实施，保留上述控制职责、状态权威及安全边界。
 - Bus、Markdown、JSONL、前端缓存是投影，不变成第二控制面。恢复材料含Git和相关证据，不宣称state.db单文件足够。
 - 默认单Worker；Observer和Gate是确定性程序。正常路径gate-first、Mission终局Verifier；Auditor/Verifier不直接控制Worker。
 - Planner结果、确定性L0和用户override都通过受控程序执行，不要求每条消息调用Planner LLM。

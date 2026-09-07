@@ -31,7 +31,7 @@ PANEL_ASSETS = {
     "/" + name: (PANEL_DIR / name, mime)
     for name, mime in (
         ("app.css", "text/css"), ("app.js", "text/javascript"),
-        ("fixtures.js", "text/javascript"), ("icons.svg", "image/svg+xml"),
+        ("icons.svg", "image/svg+xml"),
         ("icons-LICENSE.txt", "text/plain"),
     )
 }

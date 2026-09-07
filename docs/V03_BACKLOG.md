@@ -225,12 +225,18 @@ G1=F01—F05；G2=R01—R02；G3=U01—U03；G4=P01—P02及P03有记录的支�
 - 完成：负责人审核1440/1366/768/390宽截图与键盘流程；不把mock原型写成真实功能；无字体/图标许可遗漏。
 - 不做：iPhone外框、网页远程手机接入、大面积模糊/发光、换框架。
 - 实现：同一页面四入口、12 个本地 Lucide 符号、浅/深/系统主题、响应式分组卡片；四步新建表单保留输入，原始状态/拓扑移至高级详情。真实接口/状态权威不变，默认设置仅影响新任务；现有历史/指令/取消/恢复入口保留，UNKNOWN 不画为成功。
-- 预览：`/?preview=empty|running|approval|success|failure|cancelling|cancelled|stop_unknown|disconnected|gate_read_error`（选其中一个值）；使用真实组件，明确样例标识，零项目/文件/SSE 读取、统一阻断写 API。正常模式无样例回填。[正常启动与预览说明](../clao/README.md#工作台与状态预览v03-u01-开发分支)；保留后端启动时完整 preflight/source 检查，未提前实施 U02。
+- 产品收敛返修（2026-09-07，PR #39）：去除标语、重复说明、产品预览入口；主层归并六类生命周期状态，断连/证据读取错误分开呈现；Gate 分项失败保留，技术字段折叠。“重新执行”仍创建关联新 attempt，权限与 Controller 不变。
+- 开发隔离：`dev/panel/` 位于现有 manifest 全部映射之外；产品不加载/提供 fixtures.js，旧 `?preview=` 仍读真实状态。开发服务只服务原产品 shell/assets 与夹具，CSP 禁止网络连接，传输替身拒绝写操作，HTTP 也拒绝全部 POST；没有第二套 UI 或假 Controller。取消夹具使用实际 `cancelled`，Worker 停止与原子任务历史状态分开显示。
+- 开发预览（仅源码仓库）：从仓库根运行 `clao/.venv/Scripts/python.exe dev/panel/preview.py --port 8768`，打开 `http://127.0.0.1:8768/?state=running`；开发页明确标识样例，可选择原 10 种状态。正式入口仍为 `clao/panel/server.py`，不能用 URL 参数启用夹具。
+- 以下为首轮历史验证（head `d6cef4bc56a23696ada8c9dff63f4d0d722919ce`），不代表返修后的当前画面：
 - Windows 定向命令（产品 venv、src/PATH 环境）：`python -m pytest tests/test_u01_panel.py tests/test_f04_panel_boundaries.py tests/test_panel_worker_contract.py tests/test_r01_effective_config.py::test_browser_config_phases_and_sse_reconnect_are_safe tests/test_r01_effective_config.py::test_http_defaults_restart_fractional_atomic_failure tests/test_r02_lifecycle.py::test_real_edge_r02_status_receipts_and_new_attempt_pending -q` → **166 passed / 29.07s**。保留原负例/副作用计数，更新测试以操作新详情/渐进表单；增加 UNKNOWN 禁止新 attempt 的 UI 负例。
 - 最终窄屏修正后：`python -m pytest tests/test_u01_panel.py::test_edge_workbench_preview_keyboard_themes_and_actual_200_percent_zoom -q -s` → **1 passed / 8.68s，实际 Edge 184 项断言**；图标精确子集/完整许可复查 **1 passed / 1.15s**。与上列集合重叠，不累计为额外产品用例。
 - 浏览器覆盖：1440×900、1366×768、768×1024、390×844 浅/深主题与四入口；实际 browser zoom=200%（临时隔离 profile/测试扩展，非 CSS zoom）；语义文本对比度 ≥4.5:1、主要操作高度 ≥44px；键盘弹层/焦点恢复、字段错误/草稿保留、长文本/XSS、断连保留/SSE 去重、预览零 API 请求。正常 `panel/server.py --no-browser` 启动方式已打开四入口预览，未创建真实任务。
 - 静态检查：compileall、Node JS 语法、diff-check、本地文档路径及既有 `panel/` manifest 前缀覆盖检查通过；Python 仅增加五个固定静态资源路径，不扩大文件访问或 CSP 脚本权限。
-- 截图：以下 **19 张实际 Edge 截图**由实现直接产生，已逐张自查并修正空图标与模型页窄屏挤压；代码与视觉最终结论 **PENDING，等待负责人审计**。不把自动化检查或截图生成写成视觉 PASS。
+- 首轮历史截图：以下 **19 张实际 Edge 截图**由实现直接产生，已逐张自查并修正空图标与模型页窄屏挤压；代码与视觉最终结论 **PENDING，等待负责人审计**。不把自动化检查或截图生成写成视觉 PASS。
+
+<details>
+<summary>首轮历史截图（返修前，仅留作对照）</summary>
 
 | 主界面尺寸 | 浅色 | 深色 |
 |---|---|---|
@@ -241,14 +247,20 @@ G1=F01—F05；G2=R01—R02；G3=U01—U03；G4=P01—P02及P03有记录的支�
 
 代表性页面：[任务](assets/u01/tasks-light.png)、[模型](assets/u01/models-light.png)、[设置](assets/u01/settings-light.png)、[审批等待](assets/u01/overview-approval-light.png)、[范围失败](assets/u01/detail-failure-light.png)、[停止未知](assets/u01/detail-stop_unknown-light.png)、[Gate read_error](assets/u01/detail-gate_read_error-light.png)、[确认表单/特殊字符](assets/u01/form-confirm-light.png)、[200% 缩放操作可达](assets/u01/form-200-percent-light.png)、[390 深色模型页](assets/u01/models-390-dark.png)、[390 深色表单](assets/u01/form-390-dark.png)。
 
+</details>
+
+- 本轮截图（正式 Panel、隔离 SQLite/HTTP 的执行事实；没有真实 Worker 或模型调用）：[正常概览](assets/u01/revision-overview-light.png)、[任务详情](assets/u01/revision-detail-light.png)、[设置](assets/u01/revision-settings-light.png)、[窄屏深色概览](assets/u01/revision-overview-390-dark.png)、[窄屏深色详情](assets/u01/revision-detail-390-dark.png)。只更新这五张，已自行查看，负责人最终代码/视觉审计 PENDING。
+- 本轮 Windows 定向：首次 U01/F04/Worker contract/R01/R02 集合 **171 passed / 1 failed / 33.18s**；修正开发传输的异步等待、详情返回顺序与夹具运行事实后，`pytest tests/test_u01_panel.py tests/test_f04_panel_boundaries.py::test_real_browser_text_rendering_nonce_and_pending_writes tests/test_r01_effective_config.py::test_browser_config_phases_and_sse_reconnect_are_safe tests/test_r02_lifecycle.py::test_real_edge_r02_status_receipts_and_new_attempt_pending -q` → **28 passed / 13.98s**。过程中保留并修正状态/焦点负例，不删断言。
+- 最后补齐表单错误的单处展示/关闭后保留：F04/R01/R02 三个浏览器回归通过；U01 最终浏览器 **1 passed / 8.73s**，含原四宽度/浅深主题/200% 缩放、10 状态、键盘草稿、开发 HTTP POST 拒绝、旧 preview URL 真实数据、子任务失败/完成、仅阶段变更的列表更新；这些集合重叠不累计。compileall、JS 语法、diff-check、51 个本地文档路径、开发资源不在发布映射检查通过。
 - NOT_RUN：全量回归、clean install、打包、smoke、真实 AO Mission/收费模型、完整 U02 任务旅程与负责人最终视觉验收。没有 GLM/Kimi 接入、结果导出、Controller/Store 重构、tag 或 Release。
 - 下一步：仅等待本 PR 的代码与视觉审计；M0/M1/M2 COMPLETE，M3 IN_PROGRESS，U02/U03 TODO。
 
 ## V03-U02｜完整任务GUI与数据接线
 
 - 对应：A04/A05/A06/A08。依赖：U01+G2。
+- 顺序（D10，尚未实现）：先完成独立项目入口与本地执行，再完成完整任务旅程。用户无需预先使用或配置 AO，能在 CLAO 内打开/创建项目并执行；普通本地项目不要求 GitHub/origin。优先复用成熟编码引擎，Codex App Server 是候选；具体适配在后续专门切片落实，本 PR 不改执行后端。
 - 工作：真实就绪卡；显式Project与base确认；目标/范围/Gate/模型摘要；运行阶段、审批、取消、历史与重试；大错误常驻；真实角色调用与证据scope。
-- 必测：从新建到结果；断连重连不双发；停止请求不假完成；Gate read_error；引用/中文/超长文本；200%缩放；旧Mission只读。
+- 必测：未预先使用/配置 AO 的本地项目入口与执行；无 GitHub/origin 的普通本地项目；从新建到结果；断连重连不双发；停止请求不假完成；Gate read_error；引用/中文/超长文本；200%缩放；旧Mission只读。
 - 完成：Playwright或等价浏览器测试在开发环境通过；用户实际GUI确认；不把API200当视觉PASS。
 - 不做：未经授权后台创建Mission验证界面；浏览器依赖打入产品。
 - 证据：待填。
@@ -290,7 +302,8 @@ G1=F01—F05；G2=R01—R02；G3=U01—U03；G4=P01—P02及P03有记录的支�
 ## V03-Q01｜新Windows产品验收与发布候选
 
 - 依赖：G1—G4；无未处置高等级正确性／权限缺陷。
-- 工作：单一manifest包；依赖锁定、来源许可、代码/脚本边界；从新ZIP开始bootstrap；两套干净Windows环境；普通用户首次任务；真实CLI/GUI与失败恢复；各已支持模型profile live。
+- 工作：独立安装包、依赖准备、干净机器首次任务验收；现有源码 ZIP 不等于独立产品。继续单一 manifest 映射；依赖锁定、来源许可、代码/脚本边界；从新ZIP开始bootstrap；两套干净Windows环境；普通用户首次任务；真实CLI/GUI与失败恢复；各已支持模型profile live。
+- 评测：预先批准有限次数/时长/费用预算，固定同任务/source/Gate/成功标准做对照与角色消融；评估完成质量、人工介入、耗时和用量，未知用量不伪补，不以 Agent 数量证明优势。演示视频在产品完成后制作，开发夹具不作为用户功能。
 - 完成：固定source SHA、最终artifact hash、任务/Gate/Verifier/SCM证据、浏览器记录、明确模型支持矩阵、已知限制和回滚说明。所有查询/字段错误不能被空成功吞掉。
 - 发布纪律：旧v0.2不可覆盖；产品文件若变，重新验证受影响路径；仅开发文档变可用manifest blob等价性，不重跑昂贵live。
 - 证据：待填。
