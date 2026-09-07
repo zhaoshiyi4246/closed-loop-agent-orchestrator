@@ -4,7 +4,7 @@ Closed-Loop Agent Orchestrator
 
 CLAO 是构建在 Agent Orchestrator（AO）上的本地闭环软件开发控制层。默认单Worker执行任务，通过确定性Gate、集成和Mission终局复核保存可检查结果。
 
-**已发布：v0.2（Windows本地比赛版）。v0.3 规划已批准，M0 COMPLETE；V03-F01 的 [PR #32](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/32) 与 V03-F02 的 [PR #33](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/33) 均已外部审计 PASS 并合入 main（DONE）。当前 V03-F03 — Git路径、产物规则与只读取证已提交 [PR #34](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/34)，等待外部审计（IN_REVIEW，尚未合入 main）；其余规划能力待实施。**
+**已发布：v0.2（Windows本地比赛版）。v0.3 规划已批准，M0 COMPLETE；V03-F01 的 [PR #32](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/32)、V03-F02 的 [PR #33](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/33) 与 V03-F03 的 [PR #34](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/34) 均已外部审计 PASS 并合入 main（DONE）。下一任务为 V03-F04 — Gate查询、本地API与安全渲染（TODO，未开始实现）；其余规划能力待实施。**
 
 ## 使用已发布产品
 
@@ -27,7 +27,7 @@ CLAO 是构建在 Agent Orchestrator（AO）上的本地闭环软件开发控制
 - [原审计报告](docs/reference/CLAO_v0.2_audit_20260905.pdf)
 - [Codex实施规则](AGENTS.md)
 
-当前唯一正式产品源码为 `clao/`；发布工具位于 `packaging/`，历史来源归档在 `legacy/`。内部 `loopcore` 包名保留；main 已包含 F01 / F02 修复，已发布 v0.2 保持不变。
+当前唯一正式产品源码为 `clao/`；发布工具位于 `packaging/`，历史来源归档在 `legacy/`。内部 `loopcore` 包名保留；main 已包含 F01 / F02 / F03 修复，已发布 v0.2 保持不变。
 
 ```text
 closed-loop-agent-orchestrator/

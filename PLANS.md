@@ -7,13 +7,13 @@
 ## 当前唯一执行指针
 
 - 当前阶段：**M1 IN_PROGRESS**；M0 COMPLETE。
-- 当前唯一任务：**V03-F03 — Git路径、产物规则与只读取证**，IN_REVIEW；[PR #34](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/34) 已提交，等待外部审计；base `3af98d46e3495aa0154f8701152a11274b42a7c2`，分支 `codex/v03-f03-git-evidence`。GitHub API 已确认远端 main 与本地基线一致。
-- 最近完成：**V03-F02 — 审批命令与路径包含性**，DONE；[PR #33](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/33) 外部审计 PASS、无需返修，2026-09-06 已 rebase merge 到 main `62f5851a72490074a6cb6030803275a9846d9f45`。
-- F01 保持 DONE；[PR #32](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/32) 已审计 PASS 并合入，历史证据仍有效，详见 F01 卡。
-- 本轮授权：PR #34 外部审计仅发现 Worker 已提交 artifact 仍进入 integration 的 blocker，其余实现通过；在当前分支最小返修该 materialization 缺口，更新同一 PR 后等待再次审计，F03 保持 IN_REVIEW。
-- F03 本轮返修实测：Windows 定向 5 模块 **145 passed / 210.22s**，0 failed / 0 skipped；变更源码及直接测试 compileall、diff-check、2 个变更文档的 8 个本地链接通过。新增 17 个隔离 Git 场景覆盖已提交 cache、基线条目保留、失败保护及精确路径；命令和此前证据见 F03 卡，重叠集合不累计计数。
-- 边界：实现结束时集中运行直接相关 Windows 检查、compileall、diff-check；不运行全量、干净安装、打包、smoke 或真实模型/AO Mission。不实施 F04/F05/R02，不合并、不创建 tag/Release，不改已发布 v0.2。
-- 下一步：推送本轮返修后停止，等待 PR #34 再次外部审计；F03 不提前标 DONE，不合并、不开始 F04。
+- 当前唯一任务（下一任务）：**V03-F04 — Gate查询、本地API与安全渲染**，TODO；本轮仅推进指针，未开始实现。
+- 最近完成：**V03-F03 — Git路径、产物规则与只读取证**，DONE；[PR #34](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/34) 再次外部审计 PASS，已提交 artifact 的交付缺口闭环、无其他返修项；2026-09-07 已 rebase merge 到 main `35a67d07ae196368434fbd83a95693b288c6bc6e`。
+- F01 / F02 保持 DONE；[PR #32](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/32) / [PR #33](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/33) 均已审计 PASS 并合入，历史证据仍有效，详见对应卡。
+- 本轮收尾：按负责人授权合并 PR #34，本地 main 正常 fast-forward 同步；仅更新动态状态文档，产品与发布工具 blob 保持已审计版本。
+- F03 既有验证：Windows 定向 5 模块 **145 passed / 210.22s**，0 failed / 0 skipped；定向测试与 compileall 证据沿用，本轮不重跑。收尾仅检查文档 diff-check、4 个变更文档的 20 个本地链接及产品 blob 未变，均通过；既有命令和边界见 F03 卡，重叠集合不累计计数。
+- 边界：本轮只做合并、同步与文档检查；不运行定向/全量测试、安装、打包、smoke、真实 AO/模型或 GUI。不实施 F04/F05/R01/R02，不创建 tag/Release，不改已发布 v0.2。
+- 下一步：收尾完成后停止，等待负责人授权 F04；F04 保持 TODO。
 
 ## 快速查询
 
@@ -27,7 +27,7 @@
 | 阶段 | 状态 | 退出条件 |
 |---|---|---|
 | M0 基线与目录整理 | COMPLETE（DOC-00 / LAYOUT DONE） | 规划已批准入库；纯路径迁移验证；副本分类整理含保留项；人工审计 PASS |
-| M1 修复冻结 | IN_PROGRESS（F01 / F02 DONE；F03 IN_REVIEW） | F01—F05负例与正常路径通过 |
+| M1 修复冻结 | IN_PROGRESS（F01 / F02 / F03 DONE；F04 TODO） | F01—F05负例与正常路径通过 |
 | M2 使用契约 | TODO | 配置、回执、取消恢复、基线可追溯 |
 | M3 GUI与交付体验 | TODO | 四入口＋任务旅程＋结果导出＋浏览器验收 |
 | M4 模型扩展 | TODO | GLM与Kimi语义profile；Worker明确支持/拒绝决策 |
