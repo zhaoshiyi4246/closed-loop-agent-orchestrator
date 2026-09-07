@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import secrets
 import sqlite3
 import sys
 import threading
@@ -33,8 +35,60 @@ from loopcore.envelope import MessageKind  # noqa: E402
 from loopcore.mission import MISSION_TERMINAL  # noqa: E402
 from loopcore.mission_contracts import new_mission_max_subtasks  # noqa: E402
 from loopcore.event_normalizer import now_iso  # noqa: E402
+from loopcore.state_store import StateStore  # noqa: E402
 
 PORT = int(os.environ.get("PANEL_PORT", "7100"))
+
+
+class ClientError(ValueError):
+    def __init__(self, message, code=400):
+        super().__init__(message)
+        self.code = code
+
+
+def _mission_id(value):
+    if (not isinstance(value, str)
+            or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", value)
+            or re.fullmatch(r"CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9]", value, re.I)):
+        raise ClientError("invalid mission_id: use 1–128 ASCII letters, digits, '-' or '_'")
+    return value
+
+
+def _contained(root: Path, path: Path) -> Path:
+    try:
+        resolved = path.resolve()
+        resolved.relative_to(root.resolve())
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise ClientError("file path escapes its allowed directory or cannot be resolved") from exc
+    return resolved
+
+
+def _runtime_dir(mid):
+    base = _contained(ROOT, ROOT / "runtime")
+    return _contained(base, base / _mission_id(mid))
+
+
+def _runtime_file(rt, name):
+    root = _runtime_dir(rt.mission.mission_id)
+    if Path(rt.runtime).resolve() != root:
+        raise ClientError("mission runtime does not match mission_id")
+    return _contained(root, root / name)
+
+
+def _saved_mission(mid):
+    root = _runtime_dir(mid)
+    db = _contained(root, root / "state.db")
+    if not db.is_file():
+        raise ClientError("找不到该任务的运行存档: " + mid)
+    conn = _ro_conn(db)
+    try:
+        rows = _rows(conn, "SELECT payload_json FROM missions LIMIT 1")
+        mission = json.loads(rows[0][0]).get("mission") if rows else None
+    finally:
+        conn.close()
+    if not isinstance(mission, dict) or _mission_id(mission.get("mission_id")) != mid:
+        raise ClientError("存档 mission 定义或 mission_id 不匹配")
+    return mission
 
 
 # ------------------------------------------------------------------ state
@@ -58,6 +112,7 @@ class PanelState:
 
     # ---- mission lifecycle
     def start_mission(self, mission_dict: dict) -> str:
+        _runtime_dir(mission_dict.get("mission_id"))
         with self.lock:
             if self.thread and self.thread.is_alive():
                 raise RuntimeError("已有任务在运行，先停止或等待完成")
@@ -187,7 +242,7 @@ def _load_ao_projects() -> list[dict]:
 
 # --------------------------------------------------------------- snapshot
 def _ro_conn(db_path: Path) -> sqlite3.Connection:
-    conn = sqlite3.connect("file:%s?mode=ro" % db_path.as_posix(), uri=True,
+    conn = sqlite3.connect(db_path.resolve().as_uri() + "?mode=ro", uri=True,
                            timeout=3)
     return conn
 
@@ -196,23 +251,25 @@ def _rows(conn, sql, args=(), retries=3):
     for i in range(retries):
         try:
             return conn.execute(sql, args).fetchall()
-        except sqlite3.OperationalError:
-            if i == retries - 1:
-                return []
+        except sqlite3.OperationalError as exc:
+            if i == retries - 1 or not any(word in str(exc).lower() for word in ("locked", "busy")):
+                raise
             time.sleep(0.15)
-    return []
 
 
 def list_missions() -> list:
     out = []
-    base = ROOT / "runtime"
+    base = _contained(ROOT, ROOT / "runtime")
     if not base.exists():
         return out
     for d in sorted(base.iterdir(), reverse=True):
-        db = d / "state.db"
-        if not db.exists():
+        if not d.is_dir():
             continue
         try:
+            root = _runtime_dir(d.name)
+            db = _contained(root, root / "state.db")
+            if not db.exists():
+                continue
             conn = _ro_conn(db)
             try:
                 r = _rows(conn, "SELECT payload_json FROM missions LIMIT 1")
@@ -221,13 +278,14 @@ def list_missions() -> list:
                     payload = json.loads(r[0][0])
                     state = payload.get("state", "?")
                     objective = (payload.get("mission") or {}
-                                 ).get("objective", "")[:80]
+                                 ).get("objective", "")
                 out.append({"mission_id": d.name, "state": state,
                             "objective": objective})
             finally:
                 conn.close()
-        except Exception:
-            continue
+        except (OSError, sqlite3.Error, ValueError, TypeError, AttributeError) as exc:
+            out.append({"mission_id": d.name, "state": "unknown", "objective": "",
+                        "status": "read_error", "error": str(exc)})
     return out
 
 
@@ -240,16 +298,30 @@ def snapshot() -> dict:
         summary = PANEL.last_summary
     snap = {"ok": True, "running": running, "config": live,
             "panel_errors": errs, "last_summary": summary,
-            "missions": list_missions(), "elapsed": None}
+            "missions": [], "elapsed": None, "read_errors": [],
+            "gate_query": {"status": "not_run", "records": [],
+                           "error": None, "reason": "没有已加载的任务"}}
+
+    def read(source, action, default):
+        try:
+            return action()
+        except (OSError, sqlite3.Error, ValueError, TypeError, AttributeError) as exc:
+            snap["ok"] = False
+            snap["read_errors"].append({"source": source, "error": str(exc)})
+            return default
+
+    snap["missions"] = read("missions", list_missions, [])
     if not rt:
         snap["mission"] = None
         return snap
     if PANEL.started_mono and running:
         snap["elapsed"] = round(time.monotonic() - PANEL.started_mono, 1)
-    db_path = rt.runtime / "state.db"
     try:
-        conn = _ro_conn(db_path)
+        conn = _ro_conn(_runtime_file(rt, "state.db"))
     except Exception as e:
+        snap["ok"] = False
+        snap["read_errors"].append({"source": "state.db", "error": str(e)})
+        snap["gate_query"] = {"status": "read_error", "records": [], "error": str(e)}
         snap["mission"] = {"id": rt.mission.mission_id, "state": "?",
                            "error": str(e)}
         return snap
@@ -261,37 +333,33 @@ def snapshot() -> dict:
             # swallow, e.g. verifications showed 0 rows).
             rows = _rows(conn, "SELECT payload_json FROM %s ORDER BY rowid DESC "
                                "LIMIT ?" % table, (limit,))
-            out = []
-            for (p,) in rows:
-                try:
-                    out.append(json.loads(p))
-                except Exception:
-                    pass
+            out = [json.loads(p) for (p,) in rows]
+            if any(not isinstance(p, dict) for p in out):
+                raise ValueError("invalid " + table + " payload")
             return out
 
-        mission_row = _rows(conn, "SELECT payload_json FROM missions LIMIT 1")
-        mission_payload = json.loads(mission_row[0][0]) if mission_row else {}
-        mstate = mission_payload.get("state") or \
-            ("MISSION_READY" if running else "?")
-        counters = {n: v for n, v in _rows(conn,
-                                           "SELECT name, value FROM counters")}
-        transitions = _rows(conn,
+        mission_rows = read("mission", lambda: _payloads("missions", 1), [])
+        mission_payload = mission_rows[0] if mission_rows else {}
+        mstate = mission_payload.get("state") or "unknown"
+        counters = dict(read("counters", lambda: _rows(conn,
+                                           "SELECT name, value FROM counters"), []))
+        transitions = read("transitions", lambda: _rows(conn,
             "SELECT task_id, to_state, actor, reason, timestamp FROM "
-            "state_transitions ORDER BY id DESC LIMIT 40")
-        latest_state = {}
-        for task_id, to_state, actor, reason, ts in transitions:
-            latest_state.setdefault(task_id, (to_state, actor, ts))
+            "state_transitions ORDER BY id DESC LIMIT 40"), [])
+        latest_state = {r[0]: r[1:] for r in read("task states", lambda: _rows(conn,
+            "SELECT task_id,to_state,actor,timestamp FROM state_transitions WHERE id IN "
+            "(SELECT MAX(id) FROM state_transitions GROUP BY task_id)"), [])}
         tasks = []
-        for (spec,) in [(r[0],) for r in _rows(conn,
-                        "SELECT spec_json FROM tasks")]:
-            try:
-                t = json.loads(spec)
-            except Exception:
+        for (spec,) in read("tasks", lambda: _rows(conn, "SELECT spec_json FROM tasks"), []):
+            t = read("task spec", lambda: json.loads(spec), {})
+            if not isinstance(t, dict) or not isinstance(t.get("task_id"), str):
+                snap["ok"] = False
+                snap["read_errors"].append({"source": "task spec", "error": "invalid task record"})
                 continue
             tid = t.get("task_id", "?")
-            st = latest_state.get(tid, ("TASK_READY", "", ""))
+            st = latest_state.get(tid, ("unknown", "", ""))
             tasks.append({
-                "task_id": tid, "objective": (t.get("objective") or "")[:120],
+                "task_id": tid, "objective": t.get("objective") or "",
                 "state": st[0], "actor": st[1], "at": st[2],
                 "worker_session_id": t.get("worker_session_id"),
                 "local_fixes": counters.get("local_fixes:" + tid, 0),
@@ -305,46 +373,61 @@ def snapshot() -> dict:
                 "id": rt.mission.mission_id,
                 "state": mstate,
                 "reason": mission_payload.get("reason", ""),
-                "objective": rt.mission_dict.get("objective", "")[:200],
+                "objective": rt.mission_dict.get("objective", ""),
             },
             "subtasks": sorted(tasks, key=lambda t: t["task_id"]),
             "transitions": [{"task": t[0], "to": t[1], "actor": t[2],
-                             "reason": (t[3] or "")[:100], "at": t[4]}
+                             "reason": t[3] or "", "at": t[4]}
                             for t in transitions[:25]],
-            "gate_runs": _payloads("gate_runs", 6),
-            "audits": _payloads("audits", 4),
-            "verifications": _payloads("verifications", 4),
-            "alerts": _payloads("alerts", 10),
+            "gate_query": StateStore.query_gate_runs(conn),
+            "audits": read("audits", lambda: _payloads("audits", 4), []),
+            "verifications": read("verifications", lambda: _payloads("verifications", 4), []),
+            "alerts": read("alerts", lambda: _payloads("alerts", 10), []),
             "counters": counters,
             "directives_pending": rt.controller.directives.pending_count(),
         })
+        if snap["gate_query"]["status"] == "read_error":
+            snap["ok"] = False
+    except (OSError, sqlite3.Error, ValueError, TypeError, AttributeError) as exc:
+        snap["ok"] = False
+        snap["read_errors"].append({"source": "snapshot", "error": str(exc)})
+        snap.setdefault("mission", {"id": rt.mission.mission_id, "state": "unknown"})
+        snap["gate_query"] = StateStore.query_gate_runs(conn)
     finally:
         try:
             conn.close()
         except Exception:
             pass
     # traffic tail
-    log = rt.runtime / "bus_traffic.jsonl"
-    if log.exists():
-        try:
+    def traffic():
+        log = _runtime_file(rt, "bus_traffic.jsonl")
+        if log.exists():
             lines = log.read_text(encoding="utf-8",
                                   errors="replace").splitlines()[-30:]
-            snap["traffic"] = [json.loads(x) for x in lines if x.strip()]
-        except Exception:
-            snap["traffic"] = []
-    else:
-        snap["traffic"] = []
+            return [json.loads(x) for x in lines if x.strip()]
+        return []
+    snap["traffic"] = read("traffic", traffic, [])
     return snap
 
 
 def read_file(rt, name: str) -> str:
-    p = rt.runtime / name
+    if name not in ("memory.md", "project.md"):
+        raise ClientError("bad name")
+    p = _runtime_file(rt, name)
     if p.exists():
         return p.read_text(encoding="utf-8", errors="replace")
     return "(尚未生成)"
 
 
 # ---------------------------------------------------------------- handler
+class PanelHTTPServer(ThreadingHTTPServer):
+    def __init__(self, address, handler=None):
+        if address[0] != "127.0.0.1":
+            raise ValueError("Panel must bind to 127.0.0.1")
+        self.panel_nonce = secrets.token_urlsafe(32)
+        super().__init__(address, handler or Handler)
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "ClosedLoopPanel/1.0"
 
@@ -352,12 +435,61 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     # -- helpers
+    def _host(self):
+        hosts = self.headers.get_all("Host", [])
+        port = self.server.server_address[1]
+        allowed = {"127.0.0.1:%d" % port, "localhost:%d" % port}
+        if port == 80:
+            allowed.update(("127.0.0.1", "localhost"))
+        if len(hosts) != 1 or hosts[0].lower() not in allowed:
+            raise ClientError("unsupported Host", 403)
+        return hosts[0].lower()
+
+    def _write_boundary(self):
+        host = self._host()
+        if self.headers.get_all("Origin", []) != ["http://" + host]:
+            raise ClientError("same-origin Origin required", 403)
+        if (len(self.headers.get_all("Content-Type", [])) != 1
+                or self.headers.get_content_type() != "application/json"
+                or self.headers.get_content_charset("utf-8").lower() != "utf-8"):
+            raise ClientError("application/json with UTF-8 required", 415)
+        tokens = self.headers.get_all("X-Panel-Nonce", [])
+        if len(tokens) != 1 or not secrets.compare_digest(
+                tokens[0].encode("utf-8"), self.server.panel_nonce.encode("ascii")):
+            raise ClientError("valid Panel session nonce required", 403)
+
+    def _security_headers(self):
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Referrer-Policy", "no-referrer")
+
+    def _discard_rejected_body(self):
+        """Avoid a TCP reset masking the error response when a small body is
+        still arriving. Never trust ambiguous framing or wait without a cap.
+        """
+        lengths = self.headers.get_all("Content-Length", [])
+        if (self.headers.get("Transfer-Encoding") is not None or len(lengths) != 1
+                or not re.fullmatch(r"[0-9]+", lengths[0])):
+            return
+        size = int(lengths[0])
+        if not 0 < size <= 10 * 1024 * 1024:
+            return
+        timeout = self.connection.gettimeout()
+        try:
+            self.connection.settimeout(1)
+            self.rfile.read(size)
+        except OSError:
+            pass
+        finally:
+            self.connection.settimeout(timeout)
+
     def _json(self, obj, code=200):
         body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        self._security_headers()
         self.end_headers()
         self.wfile.write(body)
 
@@ -365,27 +497,48 @@ class Handler(BaseHTTPRequestHandler):
         # Bound the body size (local panel, but a malformed Content-Length
         # like 999999999 must not trigger a huge read / OOM) and tolerate a
         # non-numeric Content-Length without crashing the connection.
+        lengths = self.headers.get_all("Content-Length", [])
+        if (self.headers.get("Transfer-Encoding") is not None or len(lengths) != 1
+                or not re.fullmatch(r"[0-9]+", lengths[0])):
+            raise ClientError("one valid Content-Length required")
+        n = int(lengths[0])
+        if not 0 < n <= 10 * 1024 * 1024:
+            raise ClientError("JSON body size outside allowed range", 413)
         try:
-            n = int(self.headers.get("Content-Length") or 0)
-        except (ValueError, TypeError):
-            n = 0
-        if not n:
-            return {}
-        if n > 10 * 1024 * 1024:  # 10 MB cap; a directive/mission is tiny
-            return {}
-        try:
-            return json.loads(self.rfile.read(n).decode("utf-8"))
-        except Exception:
-            return {}
+            def reject_constant(value):
+                raise ValueError("non-finite JSON value")
+            body = json.loads(self.rfile.read(n).decode("utf-8"), parse_constant=reject_constant)
+        except (ValueError, UnicodeError) as exc:
+            raise ClientError("invalid UTF-8 JSON body") from exc
+        if not isinstance(body, dict):
+            raise ClientError("JSON object required")
+        return body
 
     # -- routing
     def do_GET(self):
+        try:
+            self._host()
+            self._get()
+        except ClientError as exc:
+            self._json({"ok": False, "error": str(exc)}, exc.code)
+        except (OSError, sqlite3.Error, ValueError) as exc:
+            self._json({"ok": False, "status": "read_error", "error": str(exc)}, 500)
+
+    def _get(self):
         path = urllib.parse.urlparse(self.path).path
         if path == "/" or path == "/index.html":
-            html = (PANEL_DIR / "index.html").read_bytes()
+            html = (PANEL_DIR / "index.html").read_text(encoding="utf-8").replace(
+                "__PANEL_NONCE__", self.server.panel_nonce).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(html)))
+            self.send_header("Cache-Control", "no-store")
+            self._security_headers()
+            self.send_header("Content-Security-Policy",
+                             "default-src 'self'; script-src 'nonce-%s'; "
+                             "style-src 'self' 'unsafe-inline'; connect-src 'self'; "
+                             "object-src 'none'; base-uri 'none'; frame-ancestors 'none'; "
+                             "form-action 'self'" % self.server.panel_nonce)
             self.end_headers()
             self.wfile.write(html)
             return
@@ -401,8 +554,16 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/stream":
             self._sse()
             return
-        if path.startswith("/api/file"):
-            q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        if path == "/api/file":
+            query = urllib.parse.urlparse(self.path).query
+            if re.search(r"%(?![0-9a-fA-F]{2})", query):
+                raise ClientError("invalid query encoding")
+            try:
+                q = urllib.parse.parse_qs(query, keep_blank_values=True, errors="strict")
+            except UnicodeError as exc:
+                raise ClientError("invalid query encoding") from exc
+            if set(q) != {"name"} or len(q["name"]) != 1:
+                raise ClientError("one file name required")
             name = (q.get("name") or [""])[0]
             if name not in ("memory.md", "project.md"):
                 self._json({"ok": False, "error": "bad name"}, 400)
@@ -419,8 +580,13 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = urllib.parse.urlparse(self.path).path
-        body = self._body()
         try:
+            try:
+                self._write_boundary()
+            except ClientError:
+                self._discard_rejected_body()
+                raise
+            body = self._body()
             if path == "/api/mission":
                 self._json(self._start_mission(body))
                 return
@@ -443,6 +609,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"ok": True,
                             "config": PANEL.set_config(body)})
                 return
+        except ClientError as e:
+            self._json({"ok": False, "error": str(e)}, e.code)
+            return
         except Exception as e:
             self._json({"ok": False, "error": str(e)}, 400)
             return
@@ -457,7 +626,7 @@ class Handler(BaseHTTPRequestHandler):
         objective = (body.get("objective") or "").strip()
         if not objective:
             raise RuntimeError("objective 不能为空")
-        mid = "MISSION-PANEL-%s" % time.strftime("%Y%m%d-%H%M%S")
+        mid = "MISSION-PANEL-%s-%s" % (time.strftime("%Y%m%d-%H%M%S"), secrets.token_hex(4))
         allowed = [p.strip() for p in (body.get("allowed_paths") or "")
                    .splitlines() if p.strip()] or ["app.py", "math2.py",
                                                    "tests/**"]
@@ -492,44 +661,25 @@ class Handler(BaseHTTPRequestHandler):
                             "max_runtime_seconds": 1800}},
         }
         # persist for resume/reference
-        tasks_dir = ROOT / "tasks"
+        _runtime_dir(mid)
+        tasks_dir = _contained(ROOT, ROOT / "tasks")
         tasks_dir.mkdir(exist_ok=True)
-        (tasks_dir / ("%s.json" % mid.lower())).write_text(
+        _contained(tasks_dir, tasks_dir / ("%s.json" % mid.lower())).write_text(
             json.dumps(mission, ensure_ascii=False, indent=2), "utf-8")
         PANEL.start_mission(mission)
         return {"ok": True, "mission_id": mid}
 
     def _resume(self, body: dict) -> dict:
-        mid = (body.get("mission_id") or "").strip()
-        db = ROOT / "runtime" / mid / "state.db"
-        if not db.exists():
-            raise RuntimeError("找不到该任务的运行存档: " + mid)
-        conn = _ro_conn(db)
-        r = _rows(conn, "SELECT payload_json FROM missions LIMIT 1")
-        conn.close()
-        if not r:
-            raise RuntimeError("存档中没有 mission 定义")
-        mission = json.loads(r[0][0]).get("mission")
-        if not mission:
-            raise RuntimeError("存档 mission 定义损坏")
+        mid = _mission_id(body.get("mission_id"))
+        mission = _saved_mission(mid)
         PANEL.start_mission(mission)          # store resumes in place
         return {"ok": True, "mission_id": mid, "resumed": True}
 
     def _attach(self, body: dict) -> dict:
         """Load a stored mission READ-ONLY for inspection (no runner thread,
         no provider calls — the kernel is never stepped)."""
-        mid = (body.get("mission_id") or "").strip()
-        db = ROOT / "runtime" / mid / "state.db"
-        if not db.exists():
-            raise RuntimeError("找不到该任务的运行存档: " + mid)
-        conn = _ro_conn(db)
-        r = _rows(conn, "SELECT payload_json FROM missions LIMIT 1")
-        conn.close()
-        if not r:
-            raise RuntimeError("存档中没有 mission 定义")
-        mission = json.loads(r[0][0]).get("mission")
-        if not mission:
-            raise RuntimeError("存档 mission 定义损坏")
+        mid = _mission_id(body.get("mission_id"))
+        mission = _saved_mission(mid)
         with PANEL.lock:
             if PANEL.running():
                 raise RuntimeError("任务运行中，先停止再查看其它存档")
@@ -561,7 +711,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def main() -> int:
     run_mission.setup_environment()
-    srv = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
+    srv = PanelHTTPServer(("127.0.0.1", PORT))
     url = "http://127.0.0.1:%d/" % PORT
     print("[panel] %s  (Ctrl+C 停止)" % url, flush=True)
     if "--no-browser" not in sys.argv:

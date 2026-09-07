@@ -401,6 +401,9 @@ def test_closed_loop_real_gate_blocks_scope(repo, tmp_path, monkeypatch, kind):
     assert loop.state == ProjectState.HUMAN
     record = store._conn.execute("SELECT stderr FROM gate_runs ORDER BY id DESC LIMIT 1").fetchone()
     assert "path violations" in record[0]
+    gate = StateStore.query_gate_runs(store._conn)["records"][0]
+    assert gate["scope"]["status"] == "fail"
+    assert gate["overall"] == "fail" and gate["command_result"] == "not_run"
 
 
 def test_final_scope_copy_source_blocks_passing_verifier(tmp_path):
@@ -417,6 +420,10 @@ def test_final_scope_copy_source_blocks_passing_verifier(tmp_path):
     assert mc.state == "HUMAN"
     assert mc.verifier.calls == 0
     assert "app.py" in mc._read_state()["reason"]
+    gate = StateStore.query_gate_runs(store._conn)["records"][0]
+    assert gate["phase"] == "final" and gate["command_result"] == "pass"
+    assert gate["scope"]["status"] == "fail" and gate["overall"] == "fail"
+    assert "app.py" in gate["scope"]["reason"]
 
 
 @pytest.mark.parametrize("mode", ["source_mutation", "index_mutation", "probe_error"])
