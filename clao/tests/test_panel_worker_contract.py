@@ -72,7 +72,7 @@ def test_project_api_uses_current_ao_registry_and_public_runtime_config(
                         lambda: run_file)
     response = MagicMock()
 
-    panel_server.Handler.do_GET(SimpleNamespace(
+    panel_server.Handler._get(SimpleNamespace(
         path="/api/projects", _json=response))
 
     adapter_type.assert_called_once_with(
@@ -92,7 +92,7 @@ def test_project_api_reports_ao_failure_without_fabricated_project(monkeypatch):
         MagicMock(side_effect=RuntimeError("AO daemon unavailable")))
     response = MagicMock()
 
-    panel_server.Handler.do_GET(SimpleNamespace(
+    panel_server.Handler._get(SimpleNamespace(
         path="/api/projects", _json=response))
 
     response.assert_called_once_with(

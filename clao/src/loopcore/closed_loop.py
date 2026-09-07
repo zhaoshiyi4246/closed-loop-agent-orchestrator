@@ -1021,9 +1021,12 @@ class ClosedLoop:
         violations = forbidden + outside
         if violations:
             self.store.record_gate_run(task_id=self.task.task_id,
-                command="path-gate", cwd=worktree, exit_code=1,
+                command="path-gate", cwd=worktree, exit_code=None,
                 started_at=now_iso(), ended_at=now_iso(), stdout="",
-                stderr="path violations: " + ", ".join(violations))
+                stderr="path violations: " + ", ".join(violations),
+                assessment=self.store.gate_assessment(
+                    command="not_run", scope="fail",
+                    scope_reason="path violations: " + ", ".join(violations)))
             self._transition(ProjectState.HUMAN, "gate",
                 "path violations: %s" % ", ".join(violations),
                 {"forbidden": forbidden, "outside_allowed": outside})
@@ -1035,6 +1038,7 @@ class ClosedLoop:
             # the gate — violating the dry-run contract.)
             return
         run = self.gate.run(self.task, worktree)
+        self.store.record_gate_scope(run, status="pass")
         target = ProjectState.DONE if run.ok \
             else ProjectState.AUDIT_PENDING
         if is_legal_transition(self.state, target):
@@ -1133,6 +1137,9 @@ class ClosedLoop:
             findings.append("path violation (forbidden): %s" % v)
         for v in outside:
             findings.append("path violation (outside allowed): %s" % v)
+        self.store.record_gate_scope(
+            run, status="fail" if forbidden or outside else "pass",
+            reason="; ".join(findings))
         if forbidden or outside:
             self._transition(ProjectState.HUMAN, "gate", "path violations: " +
                              ", ".join(forbidden + outside), {})
@@ -1143,6 +1150,7 @@ class ClosedLoop:
             # Iterating None crashed the whole runner (verified); verifying
             # against unknown evidence would be worse. Fail closed to HUMAN
             # (mirrors mission.py's final-gate None handling).
+            self.store.record_gate_scope(run, status="unknown", reason="Git scope evidence unavailable")
             self._transition(ProjectState.HUMAN, "verifier",
                              "verification evidence unavailable: git error",
                              {})

@@ -1,6 +1,6 @@
 # CLAO v0.3 任务与验收台账
 
-版本：0.3-plan-r1 · 2026-09-06。状态：已批准 / IN EFFECT。DOC-00、F01 / F02 / F03 已完成；下一任务 F04 为 `TODO`，未开始实现；其余功能卡状态见下表，原报告的发现不等于已复现或已修复。
+版本：0.3-plan-r1 · 2026-09-06。状态：已批准 / IN EFFECT。DOC-00、F01 / F02 / F03 已完成；当前任务 F04 为 `IN_REVIEW`；其余功能卡状态见下表，原报告的发现不等于已复现或已修复。
 
 设计以 [V03_PLAN.md](V03_PLAN.md) 为准。当前唯一任务由根目录 [PLANS.md](../PLANS.md) 指定。本文件保存每张卡的详细状态和证据，PLANS 不重复整张台账。
 
@@ -36,7 +36,7 @@
 | V03-F01 | M1 | 完整契约与终局一致性 | DOC-00 | DONE（PR #32 审计 PASS / merged） |
 | V03-F02 | M1 | 审批命令与路径包含性 | DOC-00 | DONE（PR #33 审计 PASS / merged） |
 | V03-F03 | M1 | Git路径、产物规则与只读取证 | DOC-00 | DONE（PR #34 审计 PASS / merged） |
-| V03-F04 | M1 | Gate查询、本地API与安全渲染 | F01的结果字段约定 | TODO |
+| V03-F04 | M1 | Gate查询、本地API与安全渲染 | F01的结果字段约定 | IN_REVIEW |
 | V03-F05 | M1 | 停止确认与未知外部动作保护 | DOC-00 | TODO |
 | V03-R01 | M2 | 有效配置与阶段诊断 | F01/F04 | TODO |
 | V03-R02 | M2 | 指令回执、取消恢复、固定基线 | F03/F05/R01 | TODO |
@@ -135,13 +135,21 @@ G1=F01—F05；G2=R01—R02；G3=U01—U03；G4=P01—P02及P03有记录的支�
 
 ## V03-F04｜Gate查询、本地API与安全渲染
 
-- 状态：TODO；F03 收尾后的下一任务，本轮未开始实现。
+- 状态：IN_REVIEW；2026-09-07；base `9a55a6c20f8828246723d66e18c91dbc4a23e122`，分支 `codex/v03-f04-panel-boundaries`；实现完成，独立 PR 交付中；F01/F02/F03 保持 DONE，F05 TODO。
 - 对应：A04、A05。落点：StateStore查询、Panel server/index及新直接测试。
 - 工作：专用Gate DTO；command/integrity/scope/overall分别表达；数据库异常保留read_error；完整错误字段。Host/Origin/JSON/nonce；id与文件路径包含性；安全DOM渲染。
 - 必测：真实SQLite Gate row到/api/state到页面；exit0+integrity失败显示失败；无记录与读失败不同；跨源请求、非法Host、缺token、穿越、引号、双击写请求。
 - 完成：离线API/浏览器合同全绿；loopback不变；不会因错误toast消失而丢失根因。
 - 不做：美化大重构、公网访问、让客户端自行裁决PASS。
-- 证据：待填。
+- Gate：复用 `gate_runs`，仅新增可空 `assessment_json`；IntegrationGate 记录 command/integrity，Controller 将实际 scope 结论写回同批记录 ID，标识 task/baseline/final。专用只读查询保留旧表兼容；历史缺字段为 unknown，SQLite/损坏记录为 read_error，不伪装为空记录或 PASS。无加载任务为 not_run，已加载库无记录为 no_records；命令尚未执行单独为 command not_run。exit=0 不能覆盖 integrity/scope failure。
+- Panel：常驻显示 Mission reason、runner/read error、alert summary/description/error/reason 及 Gate 原因/完整输出；动态内容用 DOM/textContent、受限状态 class 和安全属性赋值，保留中文、引号与长错误。写动作在单页面内 pending 去重，任务启动/续跑/查看共用锁；不自动重试写请求。
+- API：仅监听 127.0.0.1；Host 限实际端口的 127.0.0.1/localhost，POST 必须精确同源 Origin、UTF-8 JSON、每次 Panel HTTP 服务启动随机生成的内存 nonce（页面/script nonce 和请求头，不进 URL/日志/任务数据）。严格 JSON/framing 与大小限制；Windows 分段到达的被拒请求有界排空请求体，保留明确错误响应，不先执行动作。页面附 CSP/no-store 等响应头。
+- 路径：HTTP mission_id 限 1–128 位 ASCII 字母/数字/下划线/连字符并排除 Windows 保留设备名；校验 runtime/tasks、存档 mission_id 一致性及解析后的文件包含性，拒绝穿越、绝对路径、异常编码和越界 junction。`/api/file` 仍仅允许 memory.md/project.md。
+- Windows 定向：从 `clao/` 前置 `.venv\Scripts` 到 PATH、`src` 到 PYTHONPATH，以本目录 CPython 3.12.7 venv 执行 `python -m pytest tests/test_f04_panel_boundaries.py tests/test_panel_worker_contract.py tests/test_mission_gate.py tests/test_gate_first_completion.py tests/test_final_gate_baseline.py tests/sidecar_port/test_mission.py tests/test_ao_runtime_portability.py tests/test_f03_git_evidence.py::test_closed_loop_real_gate_blocks_scope tests/test_f03_git_evidence.py::test_final_scope_copy_source_blocks_passing_verifier -q -rs --tb=short`：**224 passed / 160.98s**，0 failed / 0 skipped。
+- 浏览器证据：真实本机 Edge headless 消费隔离 SQLite 的 HTTP/SSE 页面，断言不可信文本未形成 DOM/属性注入、command pass 与 overall fail 分离、错误不随 toast 消失、六类写按钮快速双击各执行一次，并用另一 localhost 端口页面验证跨源 POST 无副作用。外部动作使用替身，测试 SSE 发送真实快照后关闭以结束虚拟时钟；不等于真实 AO Mission 或视觉重设计验收。未新增浏览器依赖或框架。
+- 追加验证：最终复查补齐历史 Task Verifier 已计算的 scope 记录（仅记录，不改决策/恢复），以同一 Windows venv 运行 `python -m pytest tests/test_f04_panel_boundaries.py::test_historical_task_verifier_records_its_known_scope tests/sidecar_port/test_verifier.py tests/test_f01_contract_boundary.py -q -rs --tb=short`：**49 passed / 316.91s**，0 failed / 0 skipped；与前述选择分开报告，不累计数量。改动 Python 文件 compileall、`git diff --check` 和 4 份变更 Markdown 的 20 个本地链接检查均通过。
+- 残余边界：历史缺失事实不回填猜测；Gate 原始命令失败仍显示失败，既有 Mission 对已识别 baseline 失败的容忍规则不变。nonce 是本地浏览器 CSRF 边界，不是 OS 客户端认证；pending 仅处理同页在途重复提交；路径解析不承诺抵御有本机写权限者并发替换目录。attach/停止/有效配置的生命周期语义仍由 F05/R01/R02 处理。
+- NOT_RUN：全量回归、clean install、打包、smoke、真实 AO Mission/模型、GUI 视觉重设计验收。交付后停止，等待外部审计；不合并、不 tag/Release、不开始下一卡。
 
 ## V03-F05｜停止确认与未知外部动作保护
 

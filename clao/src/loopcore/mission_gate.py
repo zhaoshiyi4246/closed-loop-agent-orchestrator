@@ -67,6 +67,7 @@ class GateRun:
     initial_clean: Optional[bool] = None
     state_digest_before: Optional[str] = None
     state_digest_after: Optional[str] = None
+    record_ids: List[int] = field(default_factory=list)
 
     @property
     def head_mutated(self) -> bool:
@@ -104,23 +105,39 @@ class IntegrationGate:
         self.store = store
 
     def run(self, task: TaskSpec, worktree_path: str, *,
-            require_clean: bool = False) -> GateRun:
+            require_clean: bool = False, phase: str = "task") -> GateRun:
         results = []
+        record_ids = []
         cwd = Path(worktree_path)
+
+        def finish(run):
+            if not record_ids:
+                record_ids.append(self.store.record_gate_run(
+                    task_id=task.task_id, command="", cwd=str(cwd), exit_code=None,
+                    started_at=now_iso(), ended_at=now_iso(), stdout="", stderr=""))
+            run.record_ids = record_ids
+            self.store.annotate_gate_runs(record_ids, self.store.gate_assessment(
+                phase=phase,
+                command=("pass" if run.command_ok else "fail") if results else "not_run",
+                integrity="pass" if run.integrity_ok else "fail",
+                integrity_reason=run.integrity_error or "",
+                scope="not_applicable" if phase == "baseline" else "unknown"))
+            return run
+
         try:
             before = wt.git_state_snapshot(str(cwd))
         except wt.GitStateSnapshotError as exc:
-            return GateRun(
+            return finish(GateRun(
                 ok=False, results=results, command_ok=False,
                 integrity_ok=False,
                 integrity_error=("pre-Gate Git probe failed: %s" %
-                                 str(exc)[:1000]))
+                                 str(exc)[:1000])))
         if require_clean and not before.clean:
-            return GateRun(
+            return finish(GateRun(
                 ok=False, results=results, head_before=before.head,
                 command_ok=False, integrity_ok=False,
                 integrity_error="initial repository not clean",
-                initial_clean=False, state_digest_before=before.digest)
+                initial_clean=False, state_digest_before=before.digest))
 
         command_ok = True
         for cmd in task.gate_commands:
@@ -145,22 +162,22 @@ class IntegrationGate:
                             "exit_code": exit_code, "stdout": stdout,
                             "stderr": stderr, "started_at": started,
                             "ended_at": ended})
-            self.store.record_gate_run(task_id=task.task_id, command=cmd,
+            record_ids.append(self.store.record_gate_run(task_id=task.task_id, command=cmd,
                 cwd=str(cwd), exit_code=exit_code, started_at=started,
-                ended_at=ended, stdout=stdout, stderr=stderr)
+                ended_at=ended, stdout=stdout, stderr=stderr))
             if exit_code != 0:
                 command_ok = False
 
         try:
             after = wt.git_state_snapshot(str(cwd))
         except wt.GitStateSnapshotError as exc:
-            return GateRun(
+            return finish(GateRun(
                 ok=False, results=results, head_before=before.head,
                 command_ok=command_ok, integrity_ok=False,
                 integrity_error=("post-Gate Git probe failed: %s" %
                                  str(exc)[:1000]),
                 initial_clean=before.clean,
-                state_digest_before=before.digest)
+                state_digest_before=before.digest))
 
         integrity_error = None
         if before.head != after.head:
@@ -168,7 +185,7 @@ class IntegrationGate:
         elif before.digest != after.digest:
             integrity_error = "Gate changed repository state"
         integrity_ok = integrity_error is None
-        return GateRun(
+        return finish(GateRun(
             ok=command_ok and integrity_ok,
             results=results,
             head_before=before.head,
@@ -179,4 +196,4 @@ class IntegrationGate:
             initial_clean=before.clean,
             state_digest_before=before.digest,
             state_digest_after=after.digest,
-        )
+        ))

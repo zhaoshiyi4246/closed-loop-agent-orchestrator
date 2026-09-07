@@ -671,7 +671,7 @@ class MissionController:
             forbidden_paths=list(self.mission.forbidden_paths),
             acceptance_criteria=self.mission.acceptance_criteria,
             gate_commands=list(self.mission.gate_commands))
-        run = self.gate.run(task, integ, require_clean=True)
+        run = self.gate.run(task, integ, require_clean=True, phase="baseline")
         failures = sorted({failure for result in run.results
                            if result.get("exit_code") != 0
                            for failure in extract_failure_ids(
@@ -807,7 +807,7 @@ class MissionController:
             forbidden_paths=list(self.mission.forbidden_paths),
             acceptance_criteria=self.mission.acceptance_criteria,
             gate_commands=list(self.mission.gate_commands))
-        run = self.gate.run(final_task, integ, require_clean=True)
+        run = self.gate.run(final_task, integ, require_clean=True, phase="final")
         integrity_value = getattr(run, "integrity_ok", True)
         integrity_ok = integrity_value \
             if isinstance(integrity_value, bool) else True
@@ -826,6 +826,7 @@ class MissionController:
         if changed is None:
             # fail-closed: an unauditable merged tree must not reach the
             # verifier as 'clean' (review 簇四).
+            self.store.record_gate_scope(run, status="fail", reason="Git scope evidence unavailable")
             self._set_state("HUMAN", "final evidence unavailable: git error "
                                      "reading the integration tree")
             return
@@ -857,6 +858,9 @@ class MissionController:
         forbidden, outside = wt.scope_violations(
             changed, allowed_paths=self.mission.allowed_paths,
             forbidden_paths=self.mission.forbidden_paths)
+        self.store.record_gate_scope(
+            run, status="fail" if forbidden or outside else "pass",
+            reason="; ".join("path violation: " + p for p in forbidden + outside))
         if forbidden or outside or not gate_clean:
             self._set_state("HUMAN", "final deterministic failure: " +
                             "; ".join(findings + ["path violation: " + p for p in forbidden + outside]))

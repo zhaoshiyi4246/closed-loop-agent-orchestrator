@@ -88,7 +88,8 @@ CREATE TABLE IF NOT EXISTS gate_runs (
   started_at TEXT,
   ended_at TEXT,
   stdout TEXT,
-  stderr TEXT
+  stderr TEXT,
+  assessment_json TEXT
 );
 CREATE TABLE IF NOT EXISTS counters (
   name TEXT PRIMARY KEY,
@@ -106,6 +107,9 @@ class StateStore:
         self._conn = sqlite3.connect(self.path, check_same_thread=False)
         self._conn.execute("PRAGMA journal_mode=WAL;")
         self._conn.executescript(_SCHEMA)
+        columns = {r[1] for r in self._conn.execute("PRAGMA table_info(gate_runs)")}
+        if "assessment_json" not in columns:
+            self._conn.execute("ALTER TABLE gate_runs ADD COLUMN assessment_json TEXT")
         self._conn.commit()
 
     def close(self) -> None:
@@ -378,15 +382,107 @@ class StateStore:
 
     # ------------------------------------------------------------ gate
     def record_gate_run(self, *, task_id: str, command: str, cwd: str,
-                       exit_code: int, started_at: str, ended_at: str,
-                       stdout: str, stderr: str) -> None:
+                       exit_code: Optional[int], started_at: str, ended_at: str,
+                       stdout: str, stderr: str, assessment: Optional[Dict] = None) -> int:
         with self._lock:
-            self._conn.execute(
-                "INSERT INTO gate_runs(task_id,command,cwd,exit_code,started_at,ended_at,stdout,stderr)"
-                " VALUES(?,?,?,?,?,?,?,?)",
+            cur = self._conn.execute(
+                "INSERT INTO gate_runs(task_id,command,cwd,exit_code,started_at,ended_at,stdout,stderr,assessment_json)"
+                " VALUES(?,?,?,?,?,?,?,?,?)",
                 (task_id, command, cwd, exit_code, started_at, ended_at,
-                 stdout, stderr))
+                 stdout, stderr, json.dumps(assessment) if assessment is not None else None))
             self._conn.commit()
+            return cur.lastrowid
+
+    @staticmethod
+    def gate_assessment(*, phase="task", command="unknown", integrity="unknown",
+                        integrity_reason="", scope="unknown", scope_reason="") -> Dict:
+        statuses = (command, integrity, scope)
+        overall = ("fail" if "fail" in statuses else
+                   "unknown" if "unknown" in statuses else
+                   "not_run" if "not_run" in statuses else
+                   "pass" if all(s in ("pass", "not_applicable") for s in statuses)
+                   else "unknown")
+        return {"phase": phase, "command_status": command,
+                "integrity": {"status": integrity, "reason": integrity_reason},
+                "scope": {"status": scope, "reason": scope_reason}, "overall": overall}
+
+    def annotate_gate_runs(self, record_ids: list, assessment: Dict) -> None:
+        with self._lock:
+            self._conn.executemany("UPDATE gate_runs SET assessment_json=? WHERE id=?",
+                                   [(json.dumps(assessment, ensure_ascii=False), i)
+                                    for i in record_ids])
+            self._conn.commit()
+
+    def record_gate_scope(self, run, *, status: str, reason: str = "") -> None:
+        """Persist the Controller's scope finding on exactly this Gate batch."""
+        ids = getattr(run, "record_ids", None)
+        if not isinstance(ids, list) or not ids:
+            return
+        with self._lock:
+            for record_id in ids:
+                row = self._conn.execute(
+                    "SELECT assessment_json FROM gate_runs WHERE id=?", (record_id,)).fetchone()
+                if not row or not row[0]:
+                    continue
+                old = json.loads(row[0])
+                assessment = self.gate_assessment(
+                    phase=old["phase"], command=old["command_status"],
+                    integrity=old["integrity"]["status"],
+                    integrity_reason=old["integrity"]["reason"],
+                    scope=status, scope_reason=reason)
+                self._conn.execute("UPDATE gate_runs SET assessment_json=? WHERE id=?",
+                                   (json.dumps(assessment, ensure_ascii=False), record_id))
+            self._conn.commit()
+
+    @staticmethod
+    def query_gate_runs(conn: sqlite3.Connection, limit: int = 12) -> Dict:
+        """Panel DTO from the existing table; reading never migrates old stores.
+
+        Missing historical assessment is unknown. SQLite/JSON failures are
+        explicit read_error, never a successful empty list or guessed PASS.
+        """
+        try:
+            columns = {r[1] for r in conn.execute("PRAGMA table_info(gate_runs)")}
+            assessment_column = "assessment_json" if "assessment_json" in columns else "NULL"
+            cursor = conn.execute(
+                "SELECT id,task_id,command,cwd,exit_code,started_at,ended_at,stdout,stderr," +
+                assessment_column + " FROM gate_runs ORDER BY id DESC LIMIT ?", (limit,))
+            records = []
+            for row in cursor:
+                item = dict(zip(("id", "task_id", "command", "cwd", "exit_code",
+                                 "started_at", "ended_at", "stdout", "stderr"), row[:9]))
+                legacy = row[9] is None
+                assessment = (StateStore.gate_assessment(
+                    phase="unknown", command="unknown" if row[4] is None else
+                    "pass" if row[4] == 0 else "fail") if legacy
+                              else json.loads(row[9]))
+                if (not isinstance(assessment, dict)
+                        or assessment.get("phase") not in ("task", "baseline", "final", "unknown")
+                        or assessment.get("command_status") not in ("pass", "fail", "not_run", "unknown")):
+                    raise ValueError("invalid Gate assessment")
+                for key in ("integrity", "scope"):
+                    part = assessment.get(key)
+                    if (not isinstance(part, dict) or part.get("status") not in
+                            ("pass", "fail", "not_run", "unknown", "not_applicable")
+                            or not isinstance(part.get("reason"), str)):
+                        raise ValueError("invalid Gate " + key)
+                expected = StateStore.gate_assessment(
+                    phase=assessment["phase"], command=assessment["command_status"],
+                    integrity=assessment["integrity"]["status"],
+                    scope=assessment["scope"]["status"])["overall"]
+                if assessment.get("overall") != expected:
+                    raise ValueError("inconsistent Gate overall result")
+                if not legacy and assessment["command_status"] == "pass" and row[4] != 0:
+                    raise ValueError("inconsistent Gate command result")
+                item.update(assessment)
+                item["command_result"] = ("not_run" if row[4] is None else
+                                          "pass" if row[4] == 0 else "fail")
+                item["historical_fields_missing"] = legacy
+                records.append(item)
+            return {"status": "ok" if records else "no_records", "records": records,
+                    "error": None}
+        except (sqlite3.Error, ValueError, TypeError) as exc:
+            return {"status": "read_error", "records": [], "error": str(exc)}
 
     # ------------------------------------------------------------ counters
     def counter_get(self, name: str) -> int:
