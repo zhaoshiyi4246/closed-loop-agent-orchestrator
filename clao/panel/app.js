@@ -2,6 +2,7 @@
 let LAST = null, ACTIVE_TAB = "ev", PROJECTS = [];
 let SOURCE=null, LIVE=null, HISTORY=null, HISTORY_REQUEST=0;
 let FORM_BASE=null, FORM_CONFIG=null, CONFIG_VERSION=0;
+let EXTERNAL_CONSENT=null;
 const DIRECTIVE_DRAFTS=new Map();let DIRECTIVE_MISSION=null;
 const RESULTS=new Map(), RESULT_NOTICES=new Map();
 let VIEW="overview", DETAIL_ID=null, WIZARD_STEP=0, PROJECT_ERROR="";
@@ -623,6 +624,25 @@ function roleLabel(values,role){
     profile?"BigModel · "+profile.model+" · "+id+" · "+profile.timeout_seconds+"秒 / 最多"+profile.max_attempts+"次":"连接缺失";
 }
 function hasExternal(values){return SEMANTIC_ROLES.some(r=>values?.roles?.[r]?.profile && values.roles[r].profile!=="codex");}
+function externalConsentScope(values){
+  if(!$("f_project").value || !hasExternal(values)) return null;
+  // Bind only the sending scope, not unrelated draft text or polling/config revisions.
+  const roles=SEMANTIC_ROLES.filter(r=>values.roles[r].profile!=="codex").map(role=>{
+    const profile=values.model_profiles.find(p=>p.id===values.roles[role].profile);
+    return [role,...["id","service","endpoint","model","credential_ref"].map(k=>profile?.[k])];
+  });
+  return {project:$("f_project").value,roles:JSON.stringify(roles)};
+}
+function clearExternalConsent(){EXTERNAL_CONSENT=null;$("externalConsent").checked=false;$("externalConsentError").textContent="";}
+function hasCurrentExternalConsent(values){
+  const scope=externalConsentScope(values);
+  return $("externalConsent").checked && !!scope && EXTERNAL_CONSENT?.project===scope.project && EXTERNAL_CONSENT.roles===scope.roles;
+}
+$("externalConsent").onchange=()=>{
+  EXTERNAL_CONSENT=$("externalConsent").checked?externalConsentScope(FORM_CONFIG?.values):null;
+  if(!EXTERNAL_CONSENT) clearExternalConsent();
+  else $("externalConsentError").textContent="";
+};
 function renderBindings(id,values,prefix,change){
   const box=$(id);box.replaceChildren();
   for(const role of SEMANTIC_ROLES){const label=el("label",({planner:"规划 · Planner",auditor:"审计 · Auditor",verifier:"最终复核 · Verifier"})[role]),select=el("select");select.id=prefix+role;
@@ -683,6 +703,7 @@ function closeDialog(id){$(id).close();}
 for(const id of ["newMission","retryMission"]) $(id).addEventListener("close",()=>{const opener=DIALOG_OPENERS.get(id);if(opener?.isConnected) opener.focus();showClientErrors();});
 $("closeMission").onclick=()=>closeDialog("newMission");
 function showSelectedProject(){
+  if(EXTERNAL_CONSENT && EXTERNAL_CONSENT.project!==$("f_project").value) clearExternalConsent();
   const selected=PROJECTS.find(p=>String(p.id)===$("f_project").value);
   $("f_project_meta").textContent=selected?"项目路径："+text(selected.path || "未提供")+" · 类型："+text(selected.kind || "未提供"):"尚未选择项目。";
   syncButtons();
@@ -784,12 +805,13 @@ function configValue(values,path){return path.split(".").reduce((v,k)=>v?.[k],va
 function configSet(values,path,value){const parts=path.split(".");let node=values;for(const key of parts.slice(0,-1)) node=node[key] ||= {};node[parts.at(-1)]=value;}
 function initializeParameters(){
   if(FORM_BASE || !LIVE?.default_config) return;
+  clearExternalConsent();
   FORM_BASE=structuredClone(LIVE.default_config);
   const box=$("missionParameters");
   for(const [path,label,kind] of MISSION_FIELDS){const l=el("label",label),input=el("input");input.id="param_"+path.replaceAll(".","_");input.dataset.configPath=path;input.type=kind==="model"?"text":"number";input.value=configValue(FORM_BASE.values,path);if(kind!=="model")input.step=kind==="seconds"?"any":"1";input.oninput=()=>{FORM_CONFIG=null;CONFIG_VERSION++;$("configConfirmStatus").textContent="配置已修改，正在核对…";confirmConfig();};l.append(input);box.append(l);}
   if(!$("f_sub").dataset.dirty) $("f_sub").value=String(FORM_BASE.values.budgets.max_subtasks);
   renderBindings("missionRoleBindings",FORM_BASE.values,"mission_profile_",()=>{
-    $("externalConsent").checked=false;FORM_CONFIG=null;CONFIG_VERSION++;confirmConfig();
+    clearExternalConsent();FORM_CONFIG=null;CONFIG_VERSION++;confirmConfig();
   });
 }
 async function confirmConfig(){
@@ -831,6 +853,7 @@ function renderReview(){
   }
   box.append(el("p","执行后端：Codex App Server · 来源："+text(SOURCE?.path || "尚未确认")+" · "+text(SOURCE?.file_count ?? "unknown")+" 个文件"));
   const values=FORM_CONFIG?.values;
+  if(values && EXTERNAL_CONSENT && !hasCurrentExternalConsent(values)) clearExternalConsent();
   if(LIVE?.launch_blocked) box.append(el("p",LIVE.launch_blocked,"notice warning"));
   if(LIVE?.running || LIVE?.preparing) box.append(el("p","当前已有任务运行，不能同时启动另一任务。表单输入会保留。","notice warning"));
   box.append(el("p","Worker："+text(values?.worker?.model || "unknown")+"；"+SEMANTIC_ROLES.map(r=>r+"："+roleLabel(values,r)).join("；"),"notice"));
@@ -873,11 +896,11 @@ $("btnStart").onclick=()=>{
   if(!SOURCE || SOURCE.project_id!==$("f_project").value || !$("sourceConfirmed").checked){$("sourceConfirmError").textContent="请先读取并确认本次来源摘要。";return;}
   $("sourceConfirmError").textContent="";
   if(!FORM_CONFIG){$("missionParametersError").textContent="请等待配置核对完成，或修正参数后重试。";confirmConfig();return;}
-  if(hasExternal(FORM_CONFIG.values) && !$("externalConsent").checked){$("externalConsentError").textContent="请明确确认本次向 BigModel 发送所选角色材料。";$("externalConsent").focus();return;}
+  if(hasExternal(FORM_CONFIG.values) && !hasCurrentExternalConsent(FORM_CONFIG.values)){clearExternalConsent();$("externalConsentError").textContent="请明确确认本次向 BigModel 发送所选角色材料。";$("externalConsent").focus();return;}
   $("externalConsentError").textContent="";
   $("formSubmitStatus").textContent="正在准备任务与隔离工作区…";
   writeAction("mission","/api/mission",{external_service_consent:hasExternal(FORM_CONFIG.values)?"bigmodel_general":null,config_snapshot:FORM_CONFIG,forbidden_paths:$("f_forbidden").value,source_revision:SOURCE.revision,project_id:$("f_project").value,objective:$("f_obj").value,acceptance_criteria:$("f_ac").value,allowed_paths:$("f_paths").value,gate_commands:$("f_gate").value,max_subtasks:Number($("f_sub").value),user_instruction:$("f_instr").value},d=>{
-    toast("任务已启动");closeDialog("newMission");FORM_BASE=null;FORM_CONFIG=null;CONFIG_VERSION++;$("missionParameters").replaceChildren();delete $("f_sub").dataset.dirty;SOURCE=null;$("sourceConfirmed").checked=false;openTask(d.mission_id);
+    clearExternalConsent();toast("任务已启动");closeDialog("newMission");FORM_BASE=null;FORM_CONFIG=null;CONFIG_VERSION++;$("missionParameters").replaceChildren();delete $("f_sub").dataset.dirty;SOURCE=null;$("sourceConfirmed").checked=false;openTask(d.mission_id);
   });
 };
 $("btnSend").onclick=()=>{
