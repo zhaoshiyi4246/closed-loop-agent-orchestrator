@@ -29,12 +29,18 @@ _IDENTITY = re.compile(r'[0-9a-f]{64}')
 _SECRET = re.compile(
     r'-----BEGIN (?:[A-Z ]*PRIVATE KEY|OPENSSH PRIVATE KEY)-----|'
     r'\b(?:sk-[A-Za-z0-9_-]{12,}|gh[pousr]_[A-Za-z0-9]{12,}|AKIA[A-Z0-9]{16})\b|'
-    r'(?i:authorization\s*[:=]\s*["\']?bearer\s+\S+|bearer\s+[A-Za-z0-9._~+/=-]{8,})|'
-    r'(?i:["\']?\b(?:[\w-]*(?:api[_-]?key|access[_-]?token|refresh[_-]?token)|'
-    r'password|secret|token|cookie)["\']?\s*[:=]\s*["\']?[^\s,;"\']{8,})|'
-    r'(?i:["\']?\b(?:[\w-]*(?:api[_-]?key|access[_-]?token|refresh[_-]?token)|'
-    r'password|secret|token|cookie)["\']?\s*[:=]\s*["\'][^"\'\r\n]+["\'])|'
-    r'(?i:--prompt(?:=|\s)|<system>|\[system\]|BEGIN (?:SYSTEM|FULL) PROMPT)')
+    r'(?i:authorization\s*[:=]\s*["\']?(?:bearer|basic)\s+[A-Za-z0-9._~+/=-]+|'
+    r'bearer\s+[A-Za-z0-9._~+/=-]{8,})|'
+    r'(?i:<system>|\[system\]|BEGIN (?:SYSTEM|FULL) PROMPT)')
+# A credential name is not evidence of a secret: its RHS may read an environment
+# variable, a form field or another function. Only match literal string values;
+# unquoted identifiers/expressions are not classified by their name or length.
+# Known credential shapes above are still checked everywhere, including calls.
+_CREDENTIAL_LITERAL = re.compile(
+    r'["\']?\b(?:[\w-]*(?:api[_-]?key|access[_-]?token|refresh[_-]?token)|'
+    r'password|secret|token|cookie)["\']?\s*[:=]\s*'
+    r'(?P<quote>["\'])(?P<value>(?:\\[^\r\n]|(?!(?P=quote))[^\\\r\n])*)(?P=quote)', re.I)
+_ENV_REFERENCE = re.compile(r'\$\{[A-Za-z_][A-Za-z0-9_]*\}')
 
 
 class ResultError(ValueError):
@@ -239,7 +245,9 @@ def _blobs(repo, entries):
 
 
 def _sensitive(text):
-    if _SECRET.search(text):
+    literal_secret = any(m['value'] and not _ENV_REFERENCE.fullmatch(m['value'])
+                         for m in _CREDENTIAL_LITERAL.finditer(text))
+    if _SECRET.search(text) or literal_secret:
         raise ResultError('内容含凭据或完整 Prompt 标记；为保持补丁完整性，拒绝代码包而不改写补丁', 'restricted')
 
 

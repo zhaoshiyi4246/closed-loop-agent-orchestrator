@@ -10,6 +10,7 @@
 - 当前唯一执行任务：**V03-U03 — 结果中心与独立导出**，IN_REVIEW；[PR #42](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/42) 已提交，等待审计；分支 `codex/v03-u03-results-export`，base `f251535e209e14f6e9c698e290cce67aff8a2c16`。U02 完整任务旅程切片与整卡 DONE；U01、U02 首切片保持 DONE，模型扩展/发布任务未推进。
 - U03 已实现：任务内固定结果/差异/AC 与分项验收；复制路径/受保护打开目录；完整文本补丁、清单、摘要与说明的独立 ZIP，原 StateStore 保存已完成包。Git/目录失效后已有包仍可下载；不使用当前 HEAD 或模型证据截断生成补丁。
 - U03 最终 Windows 定向 **39 passed / 84.44s**（真实 Git/SQLite/HTTP、原 Controller/Gate/Verifier + 仅引擎/Provider 替身，含实际 Edge）；U02 四旅程复查 **4 passed / 34 deselected / 35.25s**，此前其余兼容定向 30 passed；另补基线缓存独立应用 1 passed，失败修正及证据分类见 U03 卡。未运行全量、安装、smoke、真实 AO/模型或 CLAO 发行打包；结果包生成/下载/解压/独立应用和内容/Gate 检查已执行。
+- U03 / PR #42 误拦截返修：凭据读取、精确环境占位及普通 CLI prompt 参数不再仅因名称被拒绝；明确凭据/私钥/认证与 Prompt 材料仍拦截。真实 Git/HTTP 补丁独立应用与旧包保留定向已验证，具体结果见 U03 卡。
 - 当前停止条件：提交 U03 PR 后等待审计，不合并、不推进模型卡。U03 的代码/体验审计未完成；“任务闭环运行视图”仍仅为未授权候选。
 - 最近完成：**V03-U02 — 完整任务旅程与 GUI 数据接线**；[PR #41](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/41) 代码与返修再次外部审计 PASS，2026-09-08 已 rebase merge 到 main `e78738d0c11774b8163feb344256355a32ae5fb2`，合入 tree 与已审计 head `73b5a8055094bc09b4c6ee119034f09a4ff93903` 完全相同。
 - 已合入切片接通真实环境检查、四步表单配置确认/冻结、审批差异与拒绝/结构化回答、取消及只读历史/结果导航；查看 B 不替换运行 A，停止未知阻断新任务。复用正式 Controller/Git/Gate/Verifier，未改执行引擎主体。
