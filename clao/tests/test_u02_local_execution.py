@@ -375,7 +375,7 @@ def test_actual_http_question_and_supplemental_input(http_panel,engine,tmp_path,
         http_panel.state.thread.join(timeout=8);http_panel.state.rt.close()
 
 
-@pytest.mark.parametrize('scenario',['normal','question'])
+@pytest.mark.parametrize('scenario',['normal','question','question_options'])
 def test_actual_browser_local_project_to_result(http_panel,engine,tmp_path,monkeypatch,scenario):
     import shutil
     node=os.environ.get('U01_NODE') or shutil.which('node')

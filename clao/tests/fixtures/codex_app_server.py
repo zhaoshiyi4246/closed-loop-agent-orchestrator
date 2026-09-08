@@ -14,7 +14,7 @@ sys.stdin.reconfigure(encoding="utf-8")
 sys.stdout.reconfigure(encoding="utf-8")
 
 if "--version" in sys.argv:
-    print("codex-cli 0.150.1")
+    print("codex-cli " + os.environ.get('CLAO_TEST_CODEX_VERSION', '0.150.1'))
     raise SystemExit(0)
 
 scenario = os.environ.get("CLAO_TEST_CODEX_SCENARIO", "normal")
@@ -139,7 +139,9 @@ for line in sys.stdin:
             pending[1000 + serial] = (w, {}, "question")
             output({"id": 1000 + serial, "method": "item/tool/requestUserInput", "params": {
                 "threadId": w["id"], "turnId": w["turn"], "itemId": "q", "isBlocking": False, "autoResolutionMs": None,
-                "questions": [{"id": "choice", "header": "范围", "question": "是否保留中文 <tag>？", "options": None}]}})
+                "questions": [{"id": "choice", "header": "范围", "question": "是否保留中文 <tag>？", "options": [
+                    {'label': '保留中文 <tag>', 'description': '继续指定任务'},
+                    {'label': '请先说明', 'description': '需要更多信息'}] if scenario == 'question_options' else None}]}})
             continue
         item = {"type": "fileChange", "id": "edit", "status": "inProgress", "changes": [
             {"path": str(Path(w["cwd"]) / "app.py"), "kind": {"type": "update", "move_path": None}, "diff": "+x=2"}]}

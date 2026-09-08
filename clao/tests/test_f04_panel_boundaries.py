@@ -348,7 +348,8 @@ def test_real_browser_text_rendering_nonce_and_pending_writes(http_panel, monkey
             return result(*args, **kwargs) if callable(result) else result
         return run
     monkeypatch.setattr(http_panel.state, "start_mission", action("start", None))
-    def stop_response():
+    def stop_response(mission_id=None):
+        assert mission_id in (None, 'M-F04')
         if calls["stop"] > 1:
             raise server.ClientError("STOP_RECEIPT_NOT_SAVED", 503)
         return {"ok": True, "stop_requested": True}
@@ -378,6 +379,7 @@ def test_real_browser_text_rendering_nonce_and_pending_writes(http_panel, monkey
   }};
   try{
     await waitFor(()=>LAST && PROJECTS.length);
+    openTask(LAST.mission.id);
     document.getElementById('f_project').value=String(PROJECTS[0].id);showSelectedProject();
     check(!window.PWNED,'executed injected HTML');
     check(!document.querySelector('img,[onerror],[onload],[onmouseover]'),'injected DOM or attribute');
@@ -406,14 +408,14 @@ def test_real_browser_text_rendering_nonce_and_pending_writes(http_panel, monkey
     document.getElementById('f_obj').value='normal objective';
     document.getElementById('f_ac').value='works';
     document.getElementById('f_paths').value='src/**';
-    render({...LAST,running:false});showDialog('newMission');showStep(3);
+    LIVE={...LAST,running:false,preparing:false};renderSelected();openNew();showStep(3);
     await loadSource();document.getElementById('sourceConfirmed').checked=true;
+    await waitFor(()=>FORM_CONFIG);
     await twice('btnStart','mission');
-    render({...LAST,running:false});
-    for(const [mid,label] of [['M-ATTACH','加载存档'],['M-RESUME','检查并恢复']]){
-      openTask(mid);
-      const find=()=>[...document.querySelectorAll('#detailExtraActions button')].find(b=>b.textContent===label);
-      find().click(); render(LAST); find().click(); await waitFor(()=>!PENDING.has('mission'));
+    // Attach remains an explicit compatibility API, not the history-view UI.
+    // The new product history/active isolation is exercised by U02 journeys.
+    for(const [mid,action] of [['M-ATTACH',attach],['M-RESUME',resume]]){
+      action(mid);action(mid);await waitFor(()=>!PENDING.has('mission'));
     }
     await writeAction('failure','/api/missing',{});
     await new Promise(r=>setTimeout(r,3000));
