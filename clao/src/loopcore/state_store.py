@@ -555,6 +555,37 @@ class StateStore:
             return self._verification_payload(row[0])
 
     # ---------------------------------------------------------- missions
+    @staticmethod
+    def query_result_exports(conn, mission_id):
+        """Read-only historical lookup; never migrate a store while viewing it."""
+        if not conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='result_exports'").fetchone():
+            return []
+        records = [json.loads(r[0]) for r in conn.execute(
+            "SELECT payload_json FROM result_exports WHERE mission_id=? ORDER BY rowid DESC", (mission_id,))]
+        for record in records:
+            if (not isinstance(record, dict) or any(not isinstance(record.get(k), str)
+                    for k in ('identity', 'sha256', 'created_at', 'base_commit', 'result_commit'))
+                    or type(record.get('bytes')) is not int or record['bytes'] < 0
+                    or type(record.get('accepted')) is not bool):
+                raise ValueError('invalid saved result package metadata')
+        return records
+
+    @staticmethod
+    def save_result_export(db_path, mission_id, identity, payload):
+        """Artifact metadata only; do not rewrite Mission facts or migrate history."""
+        conn = sqlite3.connect(Path(db_path).resolve().as_uri() + '?mode=rw', uri=True, timeout=5)
+        try:
+            with conn:
+                conn.execute("CREATE TABLE IF NOT EXISTS result_exports (mission_id TEXT NOT NULL, "
+                             "identity TEXT NOT NULL, payload_json TEXT NOT NULL, PRIMARY KEY(mission_id,identity))")
+                if not conn.execute("SELECT 1 FROM missions WHERE mission_id=?", (mission_id,)).fetchone():
+                    raise ValueError('export Mission no longer exists')
+                conn.execute("INSERT INTO result_exports VALUES(?,?,?) ON CONFLICT(mission_id,identity) "
+                             "DO UPDATE SET payload_json=excluded.payload_json",
+                             (mission_id, identity, json.dumps(payload, ensure_ascii=False)))
+        finally:
+            conn.close()
+
     def record_mission(self, mission_id: str, payload: Dict) -> None:
         with self._lock:
             # Merge into any existing row (new keys win) instead of a blind

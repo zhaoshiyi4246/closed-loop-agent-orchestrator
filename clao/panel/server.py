@@ -47,6 +47,7 @@ from loopcore.event_normalizer import now_iso  # noqa: E402
 from loopcore.effective_config import (load_config as read_config, resolve_config,
                                        save_defaults, restore_snapshot, FIELDS)
 from loopcore.state_store import StateStore  # noqa: E402
+from loopcore import results  # noqa: E402
 
 PORT = int(os.environ.get("PANEL_PORT", "7100"))
 
@@ -539,6 +540,7 @@ def _snapshot(view_rt=None, *, historical=False) -> dict:
                               'path': str(result_path) if available or mission_payload.get('merged') else None,
                               'accepted': mstate == 'MISSION_DONE',
                               'reason': '已通过最终验收' if mstate == 'MISSION_DONE' else '尚未通过 Mission 最终验收'}
+            snap['result']['recorded_head'] = mission_payload.get('integration_head')
             snap['mission']['result_path'] = str(result_path) if available else None
         except (OSError, ValueError) as exc:
             snap['result'] = {'status': 'read_error', 'path': None, 'accepted': False, 'reason': str(exc)}
@@ -765,6 +767,27 @@ class Handler(BaseHTTPRequestHandler):
             q = self._query({'mission_id'})
             self._json(snapshot(_mission_id(q['mission_id'])))
             return
+        if path == '/api/result':
+            q = self._query({'mission_id'})
+            mid = _mission_id(q['mission_id'])
+            self._json({'ok': True, 'result': results.overview(_runtime_dir(mid), mid)})
+            return
+        if path == '/api/result/download':
+            q = self._query({'mission_id', 'export_id'})
+            mid = _mission_id(q['mission_id'])
+            try:
+                data = results.download(_runtime_dir(mid), mid, q['export_id'])
+            except results.ResultError as exc:
+                raise ClientError(str(exc), 400 if exc.status == 'invalid' else 409) from exc
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/zip')
+            self.send_header('Content-Disposition', 'attachment; filename="clao-result-%s.zip"' % q['export_id'])
+            self.send_header('Content-Length', str(len(data)))
+            self.send_header('Cache-Control', 'no-store')
+            self._security_headers()
+            self.end_headers()
+            self.wfile.write(data)
+            return
         if path == "/api/projects":
             try:
                 from loopcore.local_projects import projects
@@ -827,6 +850,27 @@ class Handler(BaseHTTPRequestHandler):
                 self._discard_rejected_body()
                 raise
             body = self._body()
+            if path in ('/api/result/export', '/api/result/open'):
+                if set(body) != {'mission_id'}:
+                    raise ClientError('只接受目标 mission_id，不接受路径或命令')
+                mid = _mission_id(body['mission_id'])
+                runtime = _runtime_dir(mid)
+                if path.endswith('/export'):
+                    record = results.export(runtime, mid)
+                    self._json({'ok': True, 'mission_id': mid, 'export': record})
+                else:
+                    payload, _, _ = results.facts(runtime, mid)
+                    results._versions(payload)
+                    location = results._known(runtime, 'integration')
+                    if not location.is_dir():
+                        raise ClientError('原结果目录已失效；此前保存的结果包仍可下载', 409)
+                    if os.name != 'nt':
+                        raise ClientError('当前仅支持 Windows 打开目录', 409)
+                    os.startfile(str(location), 'explore')
+                    # Shell acceptance, not a claim that an Explorer window was verified.
+                    self._json({'ok': True, 'mission_id': mid, 'status': 'requested',
+                                'message': '已向 Windows 请求打开目录；若未出现窗口，可复制路径'})
+                return
             if path == '/api/readiness':
                 self._json({'ok': True, 'readiness': PANEL.check_environment()}, 202)
                 return

@@ -90,7 +90,7 @@ U01 的 PR #39 已通过本轮外部代码与产品整改审计并 rebase 合入
 正常启动只读取真实任务；没有记录时显示空态。旧 `preview` 参数不改变数据来源，
 正式服务不提供样例资源。主层使用少量中文状态，断连单独提示，Gate 读取失败在证据卡
 中保留；原始状态和完整诊断可展开查看。“重新执行”会创建关联的新执行记录，不重跑旧终态。
-U02 首切片已接入本地项目与真实 App Server 生产适配；[PR #40](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/40) 再次外部审计 PASS、已 rebase 合入（首切片 DONE）。“完整任务旅程与 GUI 数据接线”的 [PR #41](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/41) 代码与返修再次外部审计 PASS、已 rebase 合入；本切片及 U02 整卡 DONE，M3 IN_PROGRESS，唯一下一任务 V03-U03 — 结果中心与独立导出（TODO，尚未开始）。运行证据仍为协议替身/离线集成、Windows/浏览器定向验证及 Codex 截图自查；外部代码与返修审计不代表负责人已完成完整 GUI 体验验收。U02 的 200% 检查为等效布局/CSS zoom，非原生浏览器缩放验收。真实 Codex 模型任务、全量与安装/发布验证仍 NOT_RUN；任意进程重连、U03 独立导出、模型扩展与 Q01 安装/发布兼容性未完成。
+U02 首切片已接入本地项目与真实 App Server 生产适配；[PR #40](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/40) 再次外部审计 PASS、已 rebase 合入（首切片 DONE）。“完整任务旅程与 GUI 数据接线”的 [PR #41](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/41) 代码与返修再次外部审计 PASS、已 rebase 合入；本切片及 U02 整卡 DONE，M3 IN_PROGRESS，当前 V03-U03 — 结果中心与独立导出（IN_REVIEW，等待审计）。运行证据仍为协议替身/离线集成、Windows/浏览器定向验证及 Codex 截图自查；外部代码与返修审计不代表负责人已完成完整 GUI 体验验收。U02 的 200% 检查为等效布局/CSS zoom，非原生浏览器缩放验收。真实 Codex 模型任务、全量与安装/发布验证仍 NOT_RUN；任意进程重连、模型扩展与 Q01 安装/发布兼容性未完成；U03 结果中心/独立补丁包已实现，等待本轮审计。
 
 视觉参考：[Framework7 分组列表](https://framework7.io/docs/list-view)、
 [Konsta iOS 列表](https://konstaui.com/react/list)；没有引入这些框架。
@@ -197,6 +197,46 @@ runtime/<mission-id>/
 `MISSION_DONE` 表示 integration 结果已经通过 Final Gate 和 Mission Verifier。结果保留
 在 `runtime/<mission-id>/integration`，不会自动修改目标 repository 的 `main` 或
 `master`，也不会自动 push `origin`。将结果交付到目标主分支始终需要用户显式操作。
+
+### 结果中心与独立补丁包（v0.3 U03）
+
+任务详情的“结果与验收”列出净变化、可展开差异、逐项 AC、各阶段 Gate 与最终 Verifier。
+读取失败、缺少历史字段、未生成及未通过分别显示；不会从 Mission 成功反推 AC 或 Gate。
+“复制结果路径”“打开结果目录”只定位所选任务；Windows 仅确认已接收打开请求，
+剪贴板/打开失败会保留错误。运行 A 时查看、导出历史 B 不替换 A 的运行句柄。
+
+点击“生成结果包”，保存成功后点击“下载结果包”。统一 ZIP 包含：
+
+- `changes.patch`：冻结 `source_commit` 到已记录 `integration_head` 的完整净变化；
+- `manifest.json`：基线/结果标识、变更类型、相对文件路径、大小、SHA-256 和 Git 模式；
+- `evidence.json`：Mission、AC、Gate、Verifier 的必要摘要，排除原始 Prompt、对话、输出日志、配置和环境；
+- `README.md`：验收状态、匹配基线和独立应用方法。
+
+在**匹配 baseline_files 内容的独立目录副本**中，用 Git 应用解压后的补丁：
+
+```powershell
+git -c core.autocrlf=false apply --check ../result-package/changes.patch
+git -c core.autocrlf=false apply --whitespace=nowarn ../result-package/changes.patch
+```
+
+应用后逐文件核对 `result_files` 的内容哈希、删除路径与所需验收。空补丁会明确标记
+`no_changes=true`，跳过应用命令。普通目录不必初始化 Git，也不需要原仓库拥有 CLAO
+私有 commit；非空基线的未修改源码须保留自己的副本，包不是完整源码或可执行应用。
+完整命令与说明见包内 README 和 [Git 官方 apply 文档](https://git-scm.com/docs/git-apply)。
+
+支持 UTF-8 普通文件、新增/修改/删除/重命名/复制、中文和空格路径，保留 100644/100755
+模式；Windows 不把 Unix executable bit 等同本机执行权限。当前明确拒绝二进制、非 UTF-8、
+Git LFS 指针变化、链接/子模块以及 Windows 不可表示的路径。沿用来源/artifact 规则；
+若净变化含被排除材料，或完整旧/新内容（含删除行与上下文）、摘要中检出凭据/Prompt
+标记，则拒绝整个代码包，不静默过滤或改写补丁。此检查不是通用秘密扫描器。
+限制为每文件 10 MiB、每版本 100 MiB/10000 文件；页面只显示前 24000 字节并说明截断，
+下载补丁不截断。
+
+包按固定内容与证据标识去重，原子保存后才在原 StateStore 记录；生成失败不覆盖既有有效包。
+之后原目录或 Git 对象失效，已记录包仍可下载，匹配的包也可继续提供只读差异。
+历史缺少 source/head 时不能用当前 HEAD 补建代码包；已有可确定成果即使失败、取消或停止
+未知，也只读取固定对象并标明未通过验收，不提交/整理仍活动的 Worker。
+新旧后端的结果读取无需 AO 或模型在线；不自动应用、commit、push 或改写用户原项目。
 
 ## 故障排查
 

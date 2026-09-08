@@ -3,6 +3,7 @@ let LAST = null, ACTIVE_TAB = "ev", PROJECTS = [];
 let SOURCE=null, LIVE=null, HISTORY=null, HISTORY_REQUEST=0;
 let FORM_BASE=null, FORM_CONFIG=null, CONFIG_VERSION=0;
 const DIRECTIVE_DRAFTS=new Map();let DIRECTIVE_MISSION=null;
+const RESULTS=new Map(), RESULT_NOTICES=new Map();
 let VIEW="overview", DETAIL_ID=null, WIZARD_STEP=0, PROJECT_ERROR="";
 const $ = id => document.getElementById(id);
 const PANEL_NONCE = document.currentScript.nonce;
@@ -454,6 +455,7 @@ function renderTaskDetail(){
   $("resultLocation").textContent=result?.status==="available"?(result.accepted?"成果目录：":"未通过验收的产物目录：")+text(result.path):result?.status==="missing"?"历史结果位置已失效："+text(result.path):result?.status==="read_error"?"结果位置读取失败："+text(result.reason):"尚无可用成果目录";
   const final=(LAST.verifications || []).find(v=>v.task_id===m.id || v.mission_id===m.id);
   $("verifierSummary").textContent=final?"复核："+text(final.verdict || "unknown")+" · "+text(final.summary || final.reason || "历史未提供摘要"):"最终复核尚未提供记录";
+  renderResult(m);
   const draft=DIRECTIVE_DRAFTS.get(m.id), receipts=LAST.directive_receipts?.records || [];
   if(draft?.receipt && receipts.some(r=>r.command_id===draft.receipt.command_id)) draft.receipt=null;
   region("receiptSummary",[m.id,LAST.directive_receipts,draft?.receipt],box=>{
@@ -461,6 +463,94 @@ function renderTaskDetail(){
   });
   renderFriendlyPhase();syncButtons();
 }
+function resultKey(){return JSON.stringify([LAST?.mission?.state,LAST?.result?.recorded_head,LAST?.verifications,LAST?.gate_query]);}
+async function loadResult(mid,force=false){
+  const key=mid===LAST?.mission?.id?resultKey():RESULTS.get(mid)?.key;
+  const previous=RESULTS.get(mid);
+  if(!force && previous?.key===key) return;
+  const request={key,status:"loading",data:previous?.data};RESULTS.set(mid,request);
+  try{
+    const response=await fetch("/api/result?mission_id="+encodeURIComponent(mid)),data=await response.json();
+    if(!response.ok || !data.ok || data.result?.mission_id!==mid) throw new Error(data.error || "结果读取失败");
+    if(RESULTS.get(mid)!==request) return;
+    Object.assign(request,{status:"loaded",data:data.result});
+  }catch(error){if(RESULTS.get(mid)===request) Object.assign(request,{status:"read_error",error:error.message});}
+  finally{if(DETAIL_ID===mid && LAST?.mission?.id===mid) renderTaskDetail();}
+}
+function resultNotice(mid,message){RESULT_NOTICES.set(mid,message);if(DETAIL_ID===mid) $("resultOperation").textContent=message;}
+async function copyResult(mid,path){
+  const key="copy-result:"+mid;if(PENDING.has(key)) return;PENDING.add(key);syncButtons();
+  try{
+    if(!navigator.clipboard?.writeText) throw new Error("浏览器不支持剪贴板写入，请手动选择结果路径复制");
+    await navigator.clipboard.writeText(path);resultNotice(mid,"结果路径已复制");
+  }catch(error){resultNotice(mid,"复制失败："+error.message);}
+  finally{PENDING.delete(key);syncButtons();}
+}
+async function downloadResult(mid,identity){
+  const key="download-result:"+mid;if(PENDING.has(key)) return;PENDING.add(key);syncButtons();
+  try{
+    const response=await fetch("/api/result/download?mission_id="+encodeURIComponent(mid)+"&export_id="+encodeURIComponent(identity));
+    if(!response.ok || !response.headers.get("Content-Type")?.startsWith("application/zip")){
+      const error=await response.json();throw new Error(error.error || "下载失败");
+    }
+    const blob=await response.blob(),url=URL.createObjectURL(blob),a=el("a");
+    a.href=url;a.download="clao-result-"+identity+".zip";document.body.append(a);a.click();a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),30000);
+    resultNotice(mid,"结果包已交给浏览器下载；请在下载列表确认保存位置");
+  }catch(error){resultNotice(mid,"下载失败："+error.message);}
+  finally{PENDING.delete(key);syncButtons();}
+}
+function renderResult(m){
+  const mid=m.id;
+  loadResult(mid);
+  const view=RESULTS.get(mid),r=view?.data;
+  $("resultOperation").textContent=RESULT_NOTICES.get(mid) || "";
+  $("resultReadStatus").textContent=view?.status==="loading"?"正在读取固定结果…":view?.status==="read_error"?"结果读取失败："+text(view.error):r?.status!=="ok"?text(r?.reason):r.no_changes?"已记录结果没有代码净变化":"";
+  $("resultIdentity").textContent=r?"项目："+text(r.evidence?.mission?.project_id)+"\n冻结来源："+text(r.base_commit || "历史未提供")+"\n结果提交："+text(r.result_commit || "历史未提供")+"\n只读取已记录版本；当前工作目录的新改动不属于本次验收。":"正在读取…";
+  if(r && view.status==="loaded"){
+    const location=r.location;
+    $("resultLocation").textContent=location.status==="available"?"结果目录："+text(location.path):location.status==="missing"?"原结果目录已失效；已保存的包仍可下载":location.status==="read_error"?"结果目录读取失败："+text(location.reason):"尚无结果目录";
+    const v=r.evidence?.verifier;
+    $("verifierSummary").textContent=v?.status==="read_error"?"复核记录读取失败："+text(v.error):v?.record?"复核："+text(v.record.verdict || "unknown")+" · "+text(v.record.summary || "历史未提供摘要"):"最终复核未提供记录；不从 Mission 结论推断";
+  }
+  region("resultActions",[mid,view?.status,r?.status,r?.location],box=>{
+    if(view?.status!=="loaded" || !r) return;
+    if(r.location?.status==="available"){
+      box.append(actionButton("复制结果路径","copy-result:"+mid,()=>copyResult(mid,r.location.path)));
+      box.append(actionButton("打开结果目录","open-result:"+mid,()=>writeAction("open-result:"+mid,"/api/result/open",{mission_id:mid},data=>resultNotice(mid,data.message))));
+    }
+    if(r.status==="ok") box.append(actionButton("生成结果包","export-result:"+mid,()=>writeAction("export-result:"+mid,"/api/result/export",{mission_id:mid},async data=>{
+      resultNotice(mid,data.export.accepted?"完整结果包已保存，可以下载":"结果包已保存，未通过最终验收");await loadResult(mid,true);
+    })));
+  });
+  region("resultExports",[mid,r?.exports],box=>{
+    for(const pkg of r?.exports || []){
+      const row=el("div");row.append(el("p",(pkg.accepted?"已通过验收的结果包":"未通过最终验收的结果包")+" · "+text(pkg.bytes)+" 字节"));
+      if(pkg.status==="ready") row.append(actionButton("下载结果包","download-result:"+mid,()=>downloadResult(mid,pkg.identity)));
+      else row.append(el("p",pkg.reason,"field-error"));
+      const d=el("details");d.append(el("summary","包标识与校验"),el("pre","SHA-256："+text(pkg.sha256)+"\n结果："+text(pkg.result_commit)+"\n保存："+text(pkg.created_at),"diagnostic"));row.append(d);box.append(row);
+    }
+  });
+  region("resultChanges",[mid,r?.changes],box=>{
+    if(!r?.changes?.length) return;
+    box.append(el("h3","修改文件 · "+r.changes.length));
+    for(const change of r.changes){
+      const row=el("div",null,"result-file");row.append(el("span",({A:"新增",M:"修改",D:"删除",R:"重命名",C:"复制",T:"类型变化"})[change.kind] || "未知","status neutral"),el("span",change.old_path && change.old_path!==change.path?change.old_path+" → "+change.path:change.path));box.append(row);
+    }
+  });
+  $("resultDiff").hidden=!r || !["ok","saved"].includes(r.status);
+  $("resultDiffNote").textContent=r?.diff_truncated?"页面差异已截断（完整 "+text(r.diff_bytes)+" 字节）；下载包中的补丁完整保留。":"";
+  $("resultDiffText").textContent=r?.diff || "没有代码净变化";
+  region("resultAC",[mid,r?.evidence?.acceptance_criteria],box=>{
+    box.append(el("h3","验收条件"));
+    const acs=r?.evidence?.acceptance_criteria || [];
+    if(!acs.length) box.append(el("p","历史未提供验收条目","subtle"));
+    for(const ac of acs){const row=el("div",null,"ev");row.append(el("b",ac.description || ac.id),el("p",({PASS:"通过",FAIL:"未通过",UNVERIFIABLE:"无法验证"})[ac.verdict] || "未知"),el("p",ac.note,"subtle"));box.append(row);}
+  });
+  if(view?.status==="loaded" && r?.evidence?.gates) region("evidence",[mid,r.evidence.gates],()=>drawGate(r.evidence.gates));
+  syncButtons();
+}
+$("refreshResult").onclick=()=>{if(DETAIL_ID) loadResult(DETAIL_ID,true);};
 function renderReadiness(){
   const state=LIVE?.readiness || {status:"unchecked"};
   $("environmentStatus").textContent=({unchecked:"尚未检查",checking:"检查中",ready:"可运行",needs_action:"需要处理"})[state.status] || "检查状态未知";
