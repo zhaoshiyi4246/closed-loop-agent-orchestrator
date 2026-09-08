@@ -1,13 +1,12 @@
 #!/usr/bin/env python
-"""CLAO v0.2 one-command Mission runner.
+"""CLAO shared Mission runner: local Codex Worker or explicit legacy AO.
 
 Usage (from the CLAO product directory):
     PYTHONPATH=src .venv/Scripts/python.exe run_mission.py tasks/mission-quick.json
     ... add --dry-run to preflight Planner decomposition without touching AO.
 
-Wires: config -> AO daemon -> MissionController (Planner/Auditor/Verifier via
-Codex CLI). Workers are AO Chat-mode Codex workers using the configured model
-(default gpt-5.6-sol).
+Wires: frozen config/source -> MissionController -> selected Worker backend.
+Planner/Auditor/Verifier retain Codex CLI and the existing configured models.
 Observer/Gate use no model) -> LoopBus projection -> memory.md / project.md
 -> FINAL_REPORT.
 
@@ -286,8 +285,8 @@ def build_planner(cfg: dict, *, timeout: float | None = None,
 class MissionRuntime:
     """Everything a running (or resumable) mission is made of."""
 
-    def __init__(self, mission_dict: dict, cfg: dict, *, ao_bin: str,
-                 ao_run_file: Path, dry_run: bool = False):
+    def __init__(self, mission_dict: dict, cfg: dict, *, ao_bin: str = "",
+                 ao_run_file: Path | None = None, dry_run: bool = False, local_engine=None):
         cfg = resolve_config(cfg)
         self.mission_dict = copy.deepcopy(mission_dict)
         self.cfg = cfg
@@ -299,11 +298,15 @@ class MissionRuntime:
         self.store = StateStore(str(self.runtime / "state.db"))
         self.diagnostics = Diagnostics(self.store, mission_dict["mission_id"])
         ao_cfg = cfg["ao"]
-        self.adapter = AOAdapter(
-            base_url=ao_cfg["base_url"],
-            timeout=ao_cfg["request_timeout_seconds"],
-            run_file=ao_run_file)
-        self.ao_base_url = self.adapter.base_url
+        if local_engine:
+            from loopcore.codex_backend import CodexBackend
+            source = self.store.mission_config(mission_dict["mission_id"])["source"]
+            self.adapter = CodexBackend(self.store, mission_dict["mission_id"], local_engine["executable"],
+                cfg["worker"]["model"], source, timeout=cfg["worker"]["spawn_timeout_seconds"])
+            self.ao_base_url = None
+        else:
+            self.adapter = AOAdapter(base_url=ao_cfg["base_url"], timeout=ao_cfg["request_timeout_seconds"], run_file=ao_run_file)
+            self.ao_base_url = self.adapter.base_url
         wcfg = cfg["worker"]
         self.executor = ActionExecutor(
             ao_bin=ao_bin, data_dir=None, run_file=str(ao_run_file),
@@ -315,6 +318,9 @@ class MissionRuntime:
             spawn_timeout_seconds=wcfg["spawn_timeout_seconds"],
             send_timeout_seconds=wcfg["send_timeout_seconds"],
             kill_timeout_seconds=wcfg["kill_timeout_seconds"])
+        if local_engine:
+            self.adapter.send_timeout = wcfg["send_timeout_seconds"]
+            self.adapter.kill_timeout = wcfg["kill_timeout_seconds"]
         self.gate = IntegrationGate(self.store, **cfg["gate"])
         planner = build_planner(cfg, cwd=ROOT)
         roles = cfg["roles"]
@@ -355,7 +361,7 @@ class MissionRuntime:
         """Release optional provider resources and sqlite. Idempotent.
         The panel calls this when a mission is unloaded; the CLI path relies
         on process exit, but close() keeps long-running panel use leak-free."""
-        for prov in (self._planner, self._auditor, self._verifier):
+        for prov in (self._planner, self._auditor, self._verifier, self.adapter):
             fn = getattr(prov, "close", None)
             if callable(fn):
                 try:
@@ -392,8 +398,31 @@ def build_runtime(mission_dict: dict, cfg: dict, *, dry_run: bool = False,
             raise ValueError('require_ao=False is only valid for read-only inspection')
         return inspect_runtime(mission_dict['mission_id'])
     mission_dict = copy.deepcopy(mission_dict)
+    import re
+    if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,127}', str(mission_dict.get('mission_id', ''))):
+        raise ValueError('invalid Mission id')
     runtime = ROOT / 'runtime' / mission_dict['mission_id']
     db = runtime / 'state.db'
+    # Stored backend is authoritative on resume. Never reinterpret AO history
+    # or an old snapshot using the new local default.
+    if db.exists():
+        with_store = StateStore(db, readonly=True)
+        try:
+            existing = with_store.mission_config(mission_dict['mission_id']) or {}
+            backend = existing.get('execution_backend', 'ao')
+            requested = mission_dict.get('execution_backend')
+            if requested is not None and requested != backend:
+                raise RecoveryError('saved execution backend differs; history cannot switch backend')
+        finally:
+            with_store.close()
+    else:
+        backend = mission_dict.get('execution_backend', 'ao')
+    if backend not in ('ao', 'codex_app_server'):
+        raise ValueError('unsupported execution backend: ' + str(backend))
+    if backend == 'codex_app_server':
+        return build_local_runtime(mission_dict, cfg, dry_run=dry_run)
+    if backend != 'ao':
+        raise ValueError('unsupported execution backend')
     if db.exists():
         store = StateStore(db, readonly=True)
         try:
@@ -435,6 +464,58 @@ def build_runtime(mission_dict: dict, cfg: dict, *, dry_run: bool = False,
         rt.store.interrupt_open_phases(mission_dict['mission_id'])
     except Exception as exc:
         rt.diagnostics.errors.append('diagnostic recovery unavailable: ' + type(exc).__name__)
+    return rt
+
+
+def build_local_runtime(mission_dict, cfg, *, dry_run=False):
+    from loopcore import local_projects
+    from loopcore.codex_backend import preflight, CodexBackend
+    from loopcore.recovery import validate_checkpoint, RecoveryError
+    runtime = ROOT / 'runtime' / mission_dict['mission_id']
+    db = runtime / 'state.db'
+    if db.exists():
+        store = StateStore(db, readonly=True)
+        try:
+            row = store.mission_config(mission_dict['mission_id']) or {}
+            if row.get('state') in MISSION_TERMINAL:
+                raise RecoveryError('terminal Mission is read-only; create a new attempt')
+            if row.get('execution_backend') != local_projects.BACKEND or not row.get('engine'):
+                raise RecoveryError('local backend snapshot missing')
+            cfg = restore_snapshot(row.get('effective_config'))
+            mission_dict = copy.deepcopy(row['mission'])
+            engine = preflight(runtime)
+            if engine['version'] != row['engine']['version']:
+                raise RecoveryError('Codex protocol version differs from frozen Mission')
+            adapter = CodexBackend(store, mission_dict['mission_id'], engine['executable'], cfg['worker']['model'], row['source'])
+            validate_checkpoint(store, mission_dict['mission_id'], adapter)
+        finally:
+            store.close()
+    else:
+        cfg = resolve_config(cfg, overrides={'budgets': mission_dict.get('budgets', {})})
+        mission_dict['budgets'] = copy.deepcopy(cfg['budgets'])
+        mission_dict['execution_backend'] = local_projects.BACKEND
+        # Validate before creating a source or contacting any engine.
+        mission = MissionSpec.from_dict(mission_dict)
+        if not mission.objective or not mission.allowed_paths or not mission.acceptance_criteria:
+            raise ValueError('objective, allowed_paths and acceptance criteria are required')
+        if mission.worker_harness != 'codex':
+            raise ValueError('local backend supports only the Codex Worker harness')
+        project = local_projects.project(ROOT, mission.project_id)
+        store = StateStore(db)
+        try:
+            store.freeze_config(mission.mission_id, mission_dict, cfg.snapshot())
+            store.record_mission(mission.mission_id, {'execution_backend': local_projects.BACKEND})
+            if mission_dict.get('previous_attempt'):
+                store.record_mission(mission.mission_id, {'previous_attempt': mission_dict['previous_attempt']})
+            with Diagnostics(store, mission.mission_id).phase('preflight', reason='确认本地来源与 Codex 登录/沙箱能力'):
+                engine = preflight(runtime)
+                source = local_projects.snapshot(project, runtime, mission_dict.get('source_revision'))
+            store.record_mission(mission.mission_id, {'source': source, 'engine': engine})
+        finally:
+            store.close()
+    setup_environment()
+    rt = MissionRuntime(mission_dict, cfg, dry_run=dry_run, local_engine=engine)
+    rt.store.interrupt_open_phases(mission_dict['mission_id'])
     return rt
 
 
@@ -500,6 +581,8 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("mission_json")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--project-path", help="open a local project; use --confirm-source with its printed revision")
+    ap.add_argument("--confirm-source", help="exact source revision accepted after reviewing --project-path summary")
     ap.add_argument("--poll-seconds", type=float, default=None)
     ap.add_argument("--cap-seconds", type=float, default=None,
                     help="override runner.cap_seconds for a new Mission")
@@ -513,6 +596,19 @@ def main() -> int:
                   file=sys.stderr)
             return 2
         raise
+    if args.project_path:
+        from loopcore import local_projects
+        project = local_projects.register(ROOT, args.project_path)
+        source = local_projects.inspect(project)
+        if not args.confirm_source:
+            print(json.dumps({'project': project, 'source': source,
+                              'next': 'review exclusions, then repeat with --confirm-source <revision>'}, ensure_ascii=False, indent=2))
+            return 0
+        if source['revision'] != args.confirm_source:
+            print('source changed; review a fresh summary', file=sys.stderr)
+            return 2
+        mission_dict.update(project_id=project['id'], execution_backend=local_projects.BACKEND,
+                            source_revision=args.confirm_source)
     try:
         overrides = {k: v for k, v in {"poll_seconds": args.poll_seconds, "cap_seconds": args.cap_seconds}.items() if v is not None}
         cfg = resolve_config(load_config(), overrides={"runner": overrides})
@@ -594,9 +690,12 @@ def main() -> int:
         print(f"[runner] {elapsed:6.1f}s state={result.get('state', '?')} "
               f"acted={result.get('acted')} bus+{n}", flush=True)
 
-    summary = run_loop(rt, on_tick=_tick)
-    print(json.dumps(summary, ensure_ascii=False, indent=2), flush=True)
-    return 0 if summary["final_state"] == "MISSION_DONE" else 2
+    try:
+        summary = run_loop(rt, on_tick=_tick)
+        print(json.dumps(summary, ensure_ascii=False, indent=2), flush=True)
+        return 0 if summary["final_state"] == "MISSION_DONE" else 2
+    finally:
+        rt.close()  # closes stdio; never manufactures a Worker stop fact
 
 
 if __name__ == "__main__":

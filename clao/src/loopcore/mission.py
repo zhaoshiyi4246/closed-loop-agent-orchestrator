@@ -137,7 +137,7 @@ class MissionController:
         # Only carry the plan when we hold one: with store-level merging, an
         # explicit "plan": null would erase a previously recorded plan.
         payload = {"reason": reason, "at": now_iso(),
-                   "mission": self.mission.to_dict()}
+                   "mission": {**(self.store.mission_config(self.mission.mission_id) or {}).get("mission", {}), **self.mission.to_dict()}}
         if self.plan is not None:
             payload["plan"] = self.plan.to_dict()
         merged = getattr(self, "merged", None)
@@ -168,6 +168,10 @@ class MissionController:
             return True
         mid = self.mission.mission_id
         sessions = {t.worker_session_id for t in list(self.tasks.values()) if t.worker_session_id}
+        if getattr(self.adapter, "backend", None) == "codex_app_server":
+            # Include a thread bound before the executable turn ACK was lost.
+            # Its spawn remains UNKNOWN even if an owned turn can be stopped.
+            sessions.update(self.adapter.worker_ids())
         for tid in self.store.all_task_ids():
             task = self.store.load_task(tid) or {}
             if task.get("subtask_of") == mid and task.get("worker_session_id"):
@@ -238,7 +242,7 @@ class MissionController:
         self._stop_event.set()
         self._mission_row = None
         self.store.record_mission(mid, {'cancellation': dict(status='cancelling', at=now_iso(),
-            reason='request received; confirming local execution and AO Worker termination')})
+            reason='request received; confirming local execution and Worker stop facts')})
         self._set_state('CANCELLING', 'cancellation in progress')
         stopped = self._stop_workers()
         local_unknown = sorted(self.control.unconfirmed)
@@ -509,7 +513,7 @@ class MissionController:
             return
         self.plan = plan
         self.store.record_mission(self.mission.mission_id, {
-            "mission": self.mission.to_dict(),
+            "mission": {**(self.store.mission_config(self.mission.mission_id) or {}).get("mission", {}), **self.mission.to_dict()},
             "plan": plan.to_dict()})
         # An empty decomposition (LLM returned 0 subtasks) would leave
         # self.tasks empty -> _all_done() False forever, no terminal condition
@@ -606,6 +610,7 @@ class MissionController:
     def _apply_directives(self) -> None:
         # Semantic notes are read from durable receipts at actual input boundaries.
         # Only Worker delivery needs an action here, with the F05 stable identity.
+        backend = 'codex_app_server' if getattr(self.adapter, 'backend', None) == 'codex_app_server' else 'ao'
         for row in self.directives.records():
             if not row['target'].startswith('worker:') or row['status'] not in ('received', 'unknown'):
                 continue
@@ -615,28 +620,30 @@ class MissionController:
             prior = self.store.operation(identity)
             if row['status'] == 'unknown' and prior is None:
                 raise ExternalOperationUnknown('directive delivery unknown: ' + row['command_id'])
-            self.store.directive_consumer(row['command_id'], 'ao:send:' + session, 'unknown',
-                                          'AO acceptance not yet confirmed')
+            self.store.directive_consumer(row['command_id'], backend + ':send:' + session, 'unknown',
+                                          'Worker input acceptance not yet confirmed')
             try:
                 ok = self.executor.nudge_worker(session, self.directives.text(row, row['target']),
                     identity=identity, owner_id=self.mission.mission_id) if not self.dry_run else False
             except ExternalOperationUnknown:
                 pending_op = self.store.operation(identity)
                 if pending_op and pending_op['status'] == 'NOT_STARTED':
-                    self.store.directive_consumer(row['command_id'], 'ao:send:' + session, 'received', 'CLI not started; bounded retry pending')
+                    self.store.directive_consumer(row['command_id'], backend + ':send:' + session, 'received', 'CLI not started; bounded retry pending')
                     continue
                 raise
             op = self.store.operation(identity)
             status = 'applied' if ok else 'received' if op and op['status'] == 'NOT_STARTED' else 'rejected'
-            self.store.directive_consumer(row['command_id'], 'ao:send:' + session, status,
-                'AO accepted message; Worker execution NOT confirmed' if ok else
-                'AO process not started; bounded retry pending' if status == 'received' else 'send rejected or confirmed failed')
+            self.store.directive_consumer(row['command_id'], backend + ':send:' + session, status,
+                'Worker backend accepted message; execution NOT confirmed' if ok else
+                'Worker transport not started; bounded retry pending' if status == 'received' else 'send rejected or confirmed failed')
 
     @phase_call("observation", role="observer")
     def _collect_all_events(self) -> None:
         """One API call; raw items cached for per-worker routing.
         A transient daemon hiccup (restart/unresponsive window) yields an
         empty snapshot for this tick instead of crashing the mission."""
+        if getattr(self.adapter, "backend", None) == "codex_app_server":
+            return  # notifications arrive on the existing stdio reader
         try:
             self._last_raw_items = self.adapter.get_recent_events(
                 self.mission.project_id, since=0)
@@ -653,6 +660,8 @@ class MissionController:
         their existing normalization semantics; only activities at or below
         this Worker Session's sequence cursor are suppressed.
         """
+        if getattr(self.adapter, "backend", None) == "codex_app_server":
+            return self.adapter.normalized_events(worker_id, self.mission.project_id)
         items = getattr(self, "_last_raw_items", []) or []
         diag = getattr(self, "diagnostics", None)
         if isinstance(diag, Diagnostics):
@@ -840,10 +849,10 @@ class MissionController:
             worktree = self._worker_workspace(task.worker_session_id)
             if not worktree or not Path(worktree).is_dir():
                 self._set_state(
-                    "HUMAN", "AO workspace unavailable for %s" % sid)
+                    "HUMAN", "Worker workspace unavailable for %s" % sid)
                 return
-            # No commit/materialization/merge until the AO Session's current
-            # termination fact is confirmed. A CLI acknowledgement is not it.
+            # No commit/materialization/merge until the backend's current
+            # stop fact is confirmed. A transport acknowledgement is not it.
             if self.executor.kill_worker(task.worker_session_id, owner_id=self.mission.mission_id) is not True:
                 self._set_state("HUMAN", "materialization blocked: Worker stop remains UNKNOWN: " + task.worker_session_id)
                 return

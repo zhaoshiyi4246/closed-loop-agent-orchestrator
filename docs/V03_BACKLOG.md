@@ -1,6 +1,6 @@
 # CLAO v0.3 任务与验收台账
 
-版本：0.3-plan-r1 · 2026-09-06。状态：已批准 / IN EFFECT。DOC-00、F01–F05、R01 / R02 已完成（DONE），M0 / M1 / M2 为 `COMPLETE`；U01 已审计合入（`DONE`），M3 `IN_PROGRESS`；唯一下一任务 U02 `TODO`；其余功能卡状态见下表，原报告的发现不等于已复现或已修复。
+版本：0.3-plan-r1 · 2026-09-06。状态：已批准 / IN EFFECT。DOC-00、F01–F05、R01 / R02 已完成（DONE），M0 / M1 / M2 为 `COMPLETE`；U01 已审计合入（`DONE`），M3 `IN_PROGRESS`；唯一执行任务 U02 `IN_PROGRESS`（首切片 `IN_REVIEW`）；其余功能卡状态见下表，原报告的发现不等于已复现或已修复。
 
 设计以 [V03_PLAN.md](V03_PLAN.md) 为准。当前唯一任务由根目录 [PLANS.md](../PLANS.md) 指定。本文件保存每张卡的详细状态和证据，PLANS 不重复整张台账。
 
@@ -41,7 +41,7 @@
 | V03-R01 | M2 | 有效配置与阶段诊断 | F01/F04 | DONE（PR #37 再次审计 PASS / merged） |
 | V03-R02 | M2 | 指令回执、取消恢复、固定基线 | F03/F05/R01 | DONE（PR #38 审计 PASS / merged） |
 | V03-U01 | M3 | iPhone风格界面骨架与状态夹具 | G1；R01/R02字段设计 | DONE（PR #39 代码/产品整改审计 PASS / merged） |
-| V03-U02 | M3 | 完整任务GUI与数据接线 | U01/R02/F04 | TODO |
+| V03-U02 | M3 | 完整任务GUI与数据接线 | U01/R02/F04 | IN_PROGRESS（首切片 IN_REVIEW） |
 | V03-U03 | M3 | 结果中心与独立导出 | U02/F03 | TODO |
 | V03-P01 | M4 | 模型配置／凭据与GLM语义后端 | F01/R01/F04 | TODO |
 | V03-P02 | M4 | Kimi语义后端与切换评测 | P01 | TODO |
@@ -259,14 +259,24 @@ G1=F01—F05；G2=R01—R02；G3=U01—U03；G4=P01—P02及P03有记录的支�
 
 ## V03-U02｜完整任务GUI与数据接线
 
-- 状态：TODO；当前唯一下一任务，首个实施切片“独立项目入口与本地执行”；尚未开始。
+- 状态：U02 IN_PROGRESS；首个切片“独立项目入口与本地执行” IN_REVIEW，等待外部审计；U02 整卡未完成。采用 Codex 0.150.1 App Server 本地 stdio；本轮只替换 Worker 的 AO 强制依赖，后续再推进完整任务旅程。
 - 对应：A04/A05/A06/A08。依赖：U01+G2。
-- 顺序（D10，尚未实现）：先完成独立项目入口与本地执行，再完成完整任务旅程。用户无需预先使用或配置 AO，能在 CLAO 内打开/创建项目并执行；普通本地项目不要求 GitHub/origin。优先复用成熟编码引擎，Codex App Server 是候选；具体适配在后续专门切片落实，本 PR 不改执行后端。
+- 顺序（D10，2026-09-08 首切片授权）：先本地项目与 Codex App Server stdio 执行，再完整任务旅程。新本地任务不要求 AO/GitHub/origin；本轮采用本机 0.150.1，不迁移语义角色 CLI，不升级用户环境。
 - 工作：真实就绪卡；显式Project与base确认；目标/范围/Gate/模型摘要；运行阶段、审批、取消、历史与重试；大错误常驻；真实角色调用与证据scope。
 - 必测：未预先使用/配置 AO 的本地项目入口与执行；无 GitHub/origin 的普通本地项目；从新建到结果；断连重连不双发；停止请求不假完成；Gate read_error；引用/中文/超长文本；200%缩放；旧Mission只读。
 - 完成：Playwright或等价浏览器测试在开发环境通过；用户实际GUI确认；不把API200当视觉PASS。
 - 不做：未经授权后台创建Mission验证界面；浏览器依赖打入产品。
-- 证据：待填。
+- 首切片范围：`codex/v03-u02-local-codex-execution`，base `0feca5de502ef97de33cf025166318ab8f748bfa`。新增薄的本地项目/stdio 边界，原 Controller/Store/Gate/Verifier、审批、UNKNOWN、配置/source 冻结继续使用；未开始后续旅程或 U03。
+- 实现事实与公开协议版本见 [PROJECT](PROJECT.md#u02-首切片本地项目与-codex-worker待审计)，用户流程/来源规则见 [产品说明](../clao/README.md#本地项目与来源确认)。真实模型/发布兼容性尚未验收；原目录不写入，linked worktree 不是独立导出包。
+- Windows 最终主集合：`pytest tests/test_u02_local_execution.py tests/test_panel_worker_contract.py -q` → **57 passed / 114.89s**（产品 venv CPython 3.12.7，真实 Git/SQLite/HTTP 与 UTF-8 stdio 替身）。覆盖正式 CLI、无远端 Git/普通目录/空目录、原始 dirty 内容与 index 不变、来源漂移/过滤/junction、真实闭环与红 Gate、审批/输入、UNKNOWN/重入/停止/replan、重新确认来源的新 attempt、新旧配置冻结、模型事实，以及实际 Edge 新建至成果流程。此前 54 passed / 100.57s 是追加最后三个用例前的集合，重叠不累计。
+- 兼容复查：`pytest tests/test_u02_local_execution.py tests/test_f04_panel_boundaries.py tests/test_u01_panel.py tests/test_r02_lifecycle.py tests/test_f05_external_operations.py tests/test_approvals.py tests/test_approvals_bridge.py tests/test_approval_block.py tests/test_mission_preflight.py -q` 初次 **431 passed / 3 failed / 1 skipped / 217.13s**。三处为旧浏览器缺新来源确认、开发夹具缺该只读响应、旧 fake adapter 缺显式 backend；修正接线/兼容表达并保留断言。后续 F04/U01 浏览器与 R02 崩溃回执节点均通过；新增 replan 测试的错误导入已修正，包含在上述最终 54 passed 中。唯一 skip 为 Windows 原生 symlink 权限；真实 junction 回归通过。
+- 追加正式 CLI/source 与 F04/U01/R02 浏览器检查 6 passed / 1 failed / 19.70s；失败揭示旧 AO model 标签过度泛化，已恢复明确的 AO spawn-resolved 标签，并与本地 thread/start/model-rerouted 事实分开；随后 `pytest tests/test_u02_local_execution.py::test_native_model_facts_do_not_become_provider_timing tests/test_r01_effective_config.py -q` → **48 passed / 37.24s**（含实际 Edge 配置/SSE/模型来源安全渲染）。集合重叠，不累计成一次全量结果。
+- 检查中的真实故障也已覆盖：Windows 协议替身修正为协议规定的 UTF-8；HTTP 回答提交期间与 Controller 恢复对账互斥，回执丢失/重启仍 UNKNOWN；真实 CLI/Panel/Controller/Git/Gate 不被成功 stub 替换，语义模型才使用 fake Provider。截图临时目录准备失败的一轮未进入产品测试，修正目录后完成上述最终集合。
+- 最后负例发现继承的 Git smudge driver 可在隔离 checkout 时执行；私有仓库局部禁用 content filters/hooks/fsmonitor，保持原目录及全局配置不变，回归已纳入最终 57 项。用本机 `codex app-server generate-json-schema` 生成的 0.150.1 稳定 schema 校验 7 个客户端请求/通知和 12 个服务端消息；校正 readiness 的 null 参数及夹具完整字段后通过。此检查不启动模型，不将协议替身等同真实 Codex 任务。
+- 截图由实际产品页面和隔离协议进程生成并已 Codex 自查：[桌面任务结果](assets/u02-local-execution/normal/normal-task.png)、[390px 深色](assets/u02-local-execution/normal/normal-390-dark.png)、[回答后验收](assets/u02-local-execution/question/question-task.png)。浏览器脚本在发布外 `dev/panel/u02-browser.cjs`，由测试启动临时 HTTP；可通过 U02 文件的 `-k actual_browser` 复现，不调用真实模型。不是生成图、产品演示模式或外部视觉审计 PASS。
+- 静态检查：Python compileall、产品/开发脚本 JS 语法、diff-check、本地文档链接与 runtime 发布前缀检查通过。
+- NOT_RUN：全量、clean install、打包、smoke、真实 AO/收费模型、独立安装与最终发布兼容性。
+
 
 ## V03-U03｜结果中心与独立导出
 

@@ -39,7 +39,7 @@
     },
     "source": {
       "type": "string",
-      "enum": ["ao_api", "ao_sse", "ao_websocket", "git", "test"],
+      "enum": ["ao_api", "ao_sse", "ao_websocket", "codex_stdio", "git", "test"],
       "description": "Channel that produced the raw event."
     },
     "event_type": {

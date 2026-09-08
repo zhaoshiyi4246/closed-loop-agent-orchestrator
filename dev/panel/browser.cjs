@@ -76,7 +76,7 @@ function contrast(a,b){const x=luminance(a),y=luminance(b);return (Math.max(x,y)
     check(await page.locator('img,[onerror],[onload]').count()===0,'no executable DOM');
     await page.click('#formReview button');check(await page.locator('#f_project').inputValue()==='sample-project','edit preserves selection');
     await page.click('#stepNext');await page.click('#stepNext');await page.click('#stepNext');
-    await page.click('#btnStart');
+    await page.check('#sourceConfirmed');await page.click('#btnStart');
     await page.waitForFunction(()=>!PENDING.has('mission') && document.getElementById('formSubmitError').textContent);
     check((await page.locator('#formSubmitError').textContent()).includes('不执行写操作'),'preview does not fake success');
     check(await page.locator('#clientErrors').isHidden(),'form error is shown once at the action');

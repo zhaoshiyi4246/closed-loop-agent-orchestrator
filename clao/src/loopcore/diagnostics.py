@@ -26,7 +26,8 @@ class Diagnostics:
             return None
 
     def worker_fact(self, session_id, *, activity=None, requested_model=None,
-                    spawn_resolved_model=_NOT_OBSERVED, reroute=_NOT_OBSERVED):
+                    spawn_resolved_model=_NOT_OBSERVED, reroute=_NOT_OBSERVED,
+                    backend="ao"):
         # External model facts are display-only strings, not configuration or
         # proof of a particular provider call. AO's public model bound is 256.
         def model_id(value):
@@ -47,18 +48,23 @@ class Diagnostics:
             value["spawn_resolved_model"] = model_id(spawn_resolved_model)
             value["spawn_model_evidence"] = ("AO SessionView.model (resolved at spawn, not per-call provider evidence)"
                                               if value["spawn_resolved_model"] is not None else None)
+            if backend == "codex_app_server" and value["spawn_resolved_model"] is not None:
+                value["spawn_model_evidence"] = "Codex thread/start response.model (thread configuration, not per-call provider evidence)"
         if reroute is not _NOT_OBSERVED:
             target = model_id(reroute.get("toModel")) if isinstance(reroute, dict) else None
             value["model_reroute"] = ({"from_model": model_id(reroute.get("fromModel")), "to_model": target,
                                        "source": "AO conversation.modelReroute (conversation-level, not per-call timing)"}
                                       if target is not None else None)
+            if backend == "codex_app_server" and target is not None:
+                value["model_reroute"].update(source="Codex model/rerouted (turn notification, not per-call provider timing)",
+                                               turn_id=reroute.get("turnId"))
         if value == old:
             return
         self._worker_facts[session_id] = value
         fact = dict(phase="worker_execution", task_id=session_id, role="worker", status="observed",
-                    reason="AO Session activity observation", attempt=None, started_epoch=None, ended_epoch=None,
+                    reason="Codex turn observation" if backend == "codex_app_server" else "AO Session activity observation", attempt=None, started_epoch=None, ended_epoch=None,
                     elapsed_seconds=None, result=None, error_category=None, usage=None, cost=None,
-                    transport="ao_rest", observed_at=time.time(), **value)
+                    transport="codex_stdio" if backend == "codex_app_server" else "ao_rest", observed_at=time.time(), **value)
         self._record(fact)
 
     @contextmanager

@@ -332,8 +332,11 @@ def test_real_browser_text_rendering_nonce_and_pending_writes(http_panel, monkey
         {"mission_id": injected, "objective": injected, "state": injected},
         {"mission_id": "M-ATTACH", "objective": "inspect", "state": "MISSION_DONE"},
         {"mission_id": "M-RESUME", "objective": "resume", "state": "RUNNING"}])
-    monkeypatch.setattr(server, "_load_ao_projects", lambda: [{"id": "P", "name": injected,
+    monkeypatch.setattr("loopcore.local_projects.projects", lambda _root: [{"id": "P", "name": injected,
                                                                "path": injected, "kind": "git"}])
+    monkeypatch.setattr("loopcore.local_projects.inspect", lambda row: {
+        "project_id": "P", "path": injected, "revision": "a" * 64,
+        "file_count": 1, "bytes": 0, "files": [{"path": injected}], "excluded": []})
     monkeypatch.setattr(http_panel.state, "running", lambda: True)
     calls = {key: 0 for key in ("start", "resume", "attach", "stop", "directive", "config")}
     original_config = http_panel.state.set_config
@@ -404,6 +407,7 @@ def test_real_browser_text_rendering_nonce_and_pending_writes(http_panel, monkey
     document.getElementById('f_ac').value='works';
     document.getElementById('f_paths').value='src/**';
     render({...LAST,running:false});showDialog('newMission');showStep(3);
+    await loadSource();document.getElementById('sourceConfirmed').checked=true;
     await twice('btnStart','mission');
     render({...LAST,running:false});
     for(const [mid,label] of [['M-ATTACH','加载存档'],['M-RESUME','检查并恢复']]){
