@@ -11,6 +11,7 @@ CURRENT = ContextVar('clao_execution_control', default=None)
 
 class ExecutionCancelled(BaseException):
     """Unwind without semantic retries or applying an interrupted result."""
+    category = 'CANCELLED'
 
 
 class ExecutionControl:

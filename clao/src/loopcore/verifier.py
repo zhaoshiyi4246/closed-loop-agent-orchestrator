@@ -127,8 +127,10 @@ class CodexCliVerifierProvider(VerifierProvider):
 
     def __init__(self, *, codex_bin: str = "codex", timeout: int = 180,
                  model: Optional[str] = None, cwd: Optional[Path] = None,
-                 system_prompt_path: Optional[str] = None):
+                 system_prompt_path: Optional[str] = None, transport=None):
         self.codex_bin = codex_bin
+        self.transport = transport
+        self.retry_options = transport.retry_options if transport else {}
         self.timeout = timeout
         self.model = model or "gpt-5.6-sol"
         self.cwd = Path(cwd) if cwd is not None else PROMPT_DIR.parent
@@ -148,6 +150,8 @@ class CodexCliVerifierProvider(VerifierProvider):
         }, ensure_ascii=False, indent=2)
         prompt = "%s\n\n# VerifierInput\n%s" % (
             self.system_prompt, task_input)
+        if self.transport is not None:
+            return self.transport(prompt=prompt, schema_path=self.schema_path)
         return run_codex_json(
             prompt=prompt,
             schema_path=self.schema_path,
@@ -161,7 +165,7 @@ class CodexCliVerifierProvider(VerifierProvider):
     def verify(self, inp: VerifierInput, verify_id: str) -> VerifierResult:
         inp.validate_evidence()
         obj = protocol_call(lambda: self._call(inp, verify_id),
-                            lambda obj: check_verifier(obj, verify_id, inp.task_spec))
+                            lambda obj: check_verifier(obj, verify_id, inp.task_spec), **self.retry_options)
         return role_result(VerifierResult, obj)
 
 

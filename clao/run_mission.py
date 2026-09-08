@@ -272,11 +272,12 @@ def build_planner(cfg: dict, *, timeout: float | None = None,
                   cwd: Path | None = None) -> CodexCliPlannerProvider:
     """Build the one production Planner used by normal and dry-run paths."""
     cfg = resolve_config(cfg)
-    planner_cfg = cfg["roles"]["planner"]
-    model = planner_cfg["model"]
+    from loopcore.bigmodel import role_options
+    options = role_options(cfg, 'planner')
+    if timeout is not None and 'transport' not in options:
+        options['timeout'] = timeout
     return CodexCliPlannerProvider(
-        model=model,
-        timeout=timeout if timeout is not None else planner_cfg["timeout_seconds"],
+        **options,
         codex_bin=codex_bin,
         cwd=cwd or ROOT,
     )
@@ -323,15 +324,9 @@ class MissionRuntime:
             self.adapter.kill_timeout = wcfg["kill_timeout_seconds"]
         self.gate = IntegrationGate(self.store, **cfg["gate"])
         planner = build_planner(cfg, cwd=ROOT)
-        roles = cfg["roles"]
-        auditor_cfg = roles["auditor"]
-        verifier_cfg = roles["verifier"]
-        auditor = CodexCliAuditorProvider(
-            model=auditor_cfg["model"],
-            timeout=auditor_cfg["timeout_seconds"], cwd=ROOT)
-        verifier = CodexCliVerifierProvider(
-            model=verifier_cfg["model"],
-            timeout=verifier_cfg["timeout_seconds"], cwd=ROOT)
+        from loopcore.bigmodel import role_options
+        auditor = CodexCliAuditorProvider(**role_options(cfg, 'auditor'), cwd=ROOT)
+        verifier = CodexCliVerifierProvider(**role_options(cfg, 'verifier'), cwd=ROOT)
         for component in (self.executor, self.adapter, self.gate, planner, auditor, verifier):
             component.diagnostics = self.diagnostics
         # Keep references for lifecycle introspection and compatibility with
@@ -433,6 +428,8 @@ def build_runtime(mission_dict: dict, cfg: dict, *, dry_run: bool = False,
                 raise ConfigError('historical Mission has no effective config snapshot; inspect only')
             cfg = restore_snapshot(row['effective_config'])
             mission_dict = copy.deepcopy(row['mission'])
+            from loopcore.model_profiles import check_start
+            check_start(cfg, mission_dict)
             checked = mission_preflight(mission_dict, cfg, freeze_source=False)
             adapter = AOAdapter(base_url=cfg['ao']['base_url'], timeout=cfg['ao']['request_timeout_seconds'],
                                 run_file=checked['ao_run_file'])
@@ -445,6 +442,8 @@ def build_runtime(mission_dict: dict, cfg: dict, *, dry_run: bool = False,
             if cfg.sources[key] == 'invocation override' and key.startswith('budgets.'):
                 cfg.sources[key] = 'mission input'
         mission_dict['budgets'] = copy.deepcopy(cfg['budgets'])
+        from loopcore.model_profiles import check_start
+        check_start(cfg, mission_dict)
         store = StateStore(db)
         try:
             store.freeze_config(mission_dict['mission_id'], mission_dict, cfg.snapshot())
@@ -495,6 +494,8 @@ def build_local_runtime(mission_dict, cfg, *, dry_run=False):
                 raise RecoveryError('local backend snapshot missing')
             cfg = restore_snapshot(row.get('effective_config'))
             mission_dict = copy.deepcopy(row['mission'])
+            from loopcore.model_profiles import check_start
+            check_start(cfg, mission_dict)
             engine = local_preflight(runtime)
             if engine['version'] != row['engine']['version']:
                 raise RecoveryError('Codex protocol version differs from frozen Mission')
@@ -506,6 +507,8 @@ def build_local_runtime(mission_dict, cfg, *, dry_run=False):
         cfg = resolve_config(cfg, overrides={'budgets': mission_dict.get('budgets', {})})
         mission_dict['budgets'] = copy.deepcopy(cfg['budgets'])
         mission_dict['execution_backend'] = local_projects.BACKEND
+        from loopcore.model_profiles import check_start
+        check_start(cfg, mission_dict)
         # Validate before creating a source or contacting any engine.
         mission = MissionSpec.from_dict(mission_dict)
         if not mission.objective or not mission.allowed_paths or not mission.acceptance_criteria:
@@ -666,6 +669,8 @@ def main() -> int:
                 planner = None
                 plan = deterministic_single_task_plan(mission)
             else:
+                from loopcore.model_profiles import check_start
+                check_start(cfg, mission_dict)
                 planner = build_planner(cfg, cwd=ROOT)
                 plan = planner.plan_decompose(
                     mission.to_dict(), "DECOMP-%s" % mission.mission_id)
@@ -674,6 +679,7 @@ def main() -> int:
                 "dry_run": True,
                 "planner_provider": (type(planner).__name__
                                      if planner is not None else None),
+                "planner_service": ('bigmodel_general' if getattr(planner, 'transport', None) is not None else 'codex') if planner else None,
                 "model": planner.model if planner is not None else None,
                 "subtask_count": len(plan.subtasks),
                 "plan": plan.to_dict(),

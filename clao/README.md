@@ -90,7 +90,7 @@ U01 的 PR #39 已通过本轮外部代码与产品整改审计并 rebase 合入
 正常启动只读取真实任务；没有记录时显示空态。旧 `preview` 参数不改变数据来源，
 正式服务不提供样例资源。主层使用少量中文状态，断连单独提示，Gate 读取失败在证据卡
 中保留；原始状态和完整诊断可展开查看。“重新执行”会创建关联的新执行记录，不重跑旧终态。
-U02 首切片已接入本地项目与真实 App Server 生产适配；[PR #40](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/40) 再次外部审计 PASS、已 rebase 合入（首切片 DONE）。“完整任务旅程与 GUI 数据接线”的 [PR #41](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/41) 代码与返修再次外部审计 PASS、已 rebase 合入；本切片及 U02 整卡 DONE；V03-U03 — 结果中心与独立导出的 [PR #42](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/42) 再次外部审计 PASS 并已 rebase 合入（DONE）。M0/M1/M2 保持 COMPLETE，M3 COMPLETE 表示阶段开发和代码审计完成；M4 TODO，唯一下一任务 P01 TODO，尚未开始。运行证据仍为协议替身/离线集成、Windows/浏览器定向验证及 Codex 截图自查；外部代码与返修审计不代表负责人已完成完整 GUI 体验验收。U02 的 200% 检查为等效布局/CSS zoom，非原生浏览器缩放验收。真实 Codex 模型任务、全量与安装/发布验证仍 NOT_RUN；任意进程重连、模型扩展与 Q01 安装/发布兼容性未完成；U03 结果中心/固定版本补丁包及历史下载已合入，文件类型支持不变；包不含完整基线/项目依赖，敏感检测仅为有限规则。M3 COMPLETE 不代表完整 GUI 体验或发布验收完成；闭环运行视图仍仅为未授权候选。
+U02 首切片已接入本地项目与真实 App Server 生产适配；[PR #40](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/40) 再次外部审计 PASS、已 rebase 合入（首切片 DONE）。“完整任务旅程与 GUI 数据接线”的 [PR #41](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/41) 代码与返修再次外部审计 PASS、已 rebase 合入；本切片及 U02 整卡 DONE；V03-U03 — 结果中心与独立导出的 [PR #42](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/42) 再次外部审计 PASS 并已 rebase 合入（DONE）。M0/M1/M2 保持 COMPLETE，M3 COMPLETE 表示阶段开发和代码审计完成；M4 IN_PROGRESS；P01 工程切片 IN_REVIEW，真实 GLM 准入待后续测试，P02 未开始。运行证据仍为协议替身/离线集成、Windows/浏览器定向验证及 Codex 截图自查；外部代码与返修审计不代表负责人已完成完整 GUI 体验验收。U02 的 200% 检查为等效布局/CSS zoom，非原生浏览器缩放验收。真实 Codex 模型任务、全量与安装/发布验证仍 NOT_RUN；任意进程重连、模型扩展与 Q01 安装/发布兼容性未完成；U03 结果中心/固定版本补丁包及历史下载已合入，文件类型支持不变；包不含完整基线/项目依赖，敏感检测仅为有限规则。M3 COMPLETE 不代表完整 GUI 体验或发布验收完成；闭环运行视图仍仅为未授权候选。
 
 视觉参考：[Framework7 分组列表](https://framework7.io/docs/list-view)、
 [Konsta iOS 列表](https://konstaui.com/react/list)；没有引入这些框架。
@@ -135,7 +135,7 @@ Panel 的设置保存到本产品目录的 `config/default.yaml`，重启后仍�
 `0 < value <= 604800`，允许小数；计数必须是整数（上限 1000000），具体最小值和
 消费者在页面配置详情中列出，`max_subtasks` 仅允许 1 或 2。
 
-当前默认模型继续为 `gpt-5.6-sol`。Worker 使用 `worker.model`，语义角色使用
+当前默认模型继续为 `gpt-5.6-sol`。Worker 使用 `worker.model`，Codex 语义角色使用
 `roles.planner/auditor/verifier.model` 和各自 `timeout_seconds`；重复的旧
 `roles.worker.model` 会迁移，同层值冲突则拒绝。没有消费者的旧选项会显示弃用/
 未生效；不支持的键、取样参数、密钥或环境变量配置不会作为有效值保存。
@@ -269,3 +269,52 @@ U01 浏览器检查仅在源码仓库运行，开发预览和夹具位于发布�
 Playwright 时不能视作浏览器通过。`U01_SCREENSHOTS` 可指定截图输出目录，默认在隔离
 测试临时目录。200% 检查使用临时隔离浏览器扩展设置真实 browser zoom，结束后清理，
 不安装到用户浏览器；产品运行不依赖 Node、Playwright 或该测试扩展。
+
+## GLM 语义角色配置（P01 工程切片）
+
+Worker 仍使用本地 Codex App Server。Planner（分解和异常规划）、Auditor、Mission Verifier
+各自选择 Codex CLI 或 BigModel 通用 Chat Completions；Observer/Gate 不使用模型。
+默认全为 Codex，不需要 GLM Key。GLM 真实服务/角色准入尚未验证，不能把配置保存当作实测成功。
+
+1. 在“模型”页添加连接，填写连接名称和凭据引用。当前工程目标仅支持
+   `https://open.bigmodel.cn/api/paas/v4/chat/completions`、`glm-4.7`，不支持 Z.AI、Coding 套餐或自定义域。
+2. 在“凭据”区填写相同引用，保存/替换测试或已获授权的 Key。使用当前 Windows 用户的系统凭据存储，
+   不回显 Key；不可用时明确失败，不写明文备用文件。删除凭据会使此后使用该引用的调用失败。
+3. 分别保存三个语义角色的默认连接；新任务确认页仍可单独选择。本次任务固定参数和引用；
+   修改默认值只影响之后创建的任务。Key 值不进入快照；替换/删除同一引用会影响后续读取该凭据的调用。
+4. 选择 GLM 的任务启动前必须确认：所选角色的目标、规划上下文、代码差异、Gate/验收证据
+   将发送给 BigModel，可能计费。重新执行使用重新确认的默认快照和外发许可；恢复沿用原快照/许可。
+   保存/读取配置及凭据状态只进行本地检查，不发模型请求。当前没有额外真实连接测试按钮。
+
+配置使用既有 `config/default.yaml`：`model_profiles` 是无密钥连接列表，
+`roles.planner/auditor/verifier.profile` 引用连接名称，`codex` 为原 CLI。
+原 `roles.<role>.model/timeout_seconds` 仅在该角色选择 Codex 时消费；GLM 使用连接内的值。
+省略新键的旧配置仍默认 Codex；v1 历史快照原样校验/保留，新任务用 v2 快照固定连接。
+`roles.worker.model` 旧别名仍迁移到 `worker.model`，重复冲突仍明确拒绝。
+
+| 连接键 | 当前边界与消费者 |
+|---|---|
+| `id` / `credential_ref` | 小写字母开头，后接小写字母/数字/下划线/连字符，总长 1–48；最多 12 个连接 |
+| `service` / `endpoint` / `model` | `bigmodel_general` / 上述固定 HTTPS 地址 / `glm-4.7` |
+| `timeout_seconds` | 每次 HTTP 调用 (0, 600] 秒，保留小数 |
+| `max_attempts` | 一次角色调用含首次共 1–3 次；HTTP 与本地 JSON/Schema/关联校验共用预算 |
+| `retry_delay_seconds` | 重试等待 [0, 30] 秒，支持小数、可取消 |
+| `max_tokens` | 整数 1–131072；达到输出上限记 TRUNCATED，不用片段作完整证据 |
+| `temperature` | [0, 1]，最多两位小数 |
+| `thinking` | `enabled` / `disabled`；不透传 Codex reasoning effort |
+
+未知/多余字段、未保存的角色连接、非法数值和跨服务地址会整份拒绝，不部分生效。
+只解析 `choices[0].message.content`；思考内容不作为结果，工具调用不执行。
+继续执行原完整 Schema、ID、AC 和一致性校验；语义 FAIL 不重试，确定性失败不被模型 PASS 覆盖。
+AUTH/能力错误/拒绝/截断不重试；429、网络/超时和结构化错误在上述总预算内重试，耗尽交人工。
+取消停止本地等待和重试、丢弃迟到结果，不保证远端计算/计费停止；不影响 Worker UNKNOWN 保护。
+
+诊断记录实际服务、请求/传入/响应 model、attempt、耗时、错误类别和返回的 token 用量；缺失模型/用量
+和费用保持 unknown。连接页的“配置检查未发送模型请求/真实角色准入待验证”区分本地检查与工程准入状态；某一次任务的响应事实
+只在该任务诊断中表示，不自动升级成全角色已准入。Key 不进入子进程环境/参数、SQLite、Prompt 日志或导出。
+
+接口依据：[BigModel Chat Completions](https://docs.bigmodel.cn/api-reference/模型-api/对话补全)、
+[JSON 输出](https://docs.bigmodel.cn/cn/guide/capabilities/struct-output)、
+[思考模式](https://docs.bigmodel.cn/cn/guide/capabilities/thinking)。这是公开协议与离线实现范围，非真实模型通过证据。
+
+CLI 使用相同默认文件与角色绑定。授权实际外发的 Mission JSON 须含 `external_service_consent: "bigmodel_general"`；仅选择 Codex 时不需要。原有多子任务 planning dry-run 仍可能调用 Planner，不能把它当成不发模型的配置检查。

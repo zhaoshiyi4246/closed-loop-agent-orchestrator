@@ -62,6 +62,10 @@ for _role in ("planner", "auditor", "verifier"):
 for _key in ("strip_ansi", "normalize_timestamps", "normalize_ids", "normalize_paths", "normalize_line_numbers", "collapse_whitespace"):
     FIELDS["fingerprint." + _key] = (True, "bool", None, "Fingerprinter")
 FIELDS["fingerprint.max_length"] = (200, "count", 1, "Fingerprinter")
+LEGACY_FIELDS = frozenset(FIELDS)
+FIELDS["model_profiles"] = ([], "profiles", None, "BigModel semantic HTTP transport")
+for _role in ("planner", "auditor", "verifier"):
+    FIELDS[f"roles.{_role}.profile"] = ("codex", "profile", None, "semantic role transport selection")
 
 # Historical options without production consumers are visible warnings, never
 # members of the effective values. No new functionality is invented for them.
@@ -82,15 +86,16 @@ class ConfigError(ValueError):
 
 
 class EffectiveConfig(dict):
-    def __init__(self, values, sources, warnings=()):
+    def __init__(self, values, sources, warnings=(), schema_version=2):
         super().__init__(copy.deepcopy(values))
         self.sources = dict(sources)
         self.warnings = list(warnings)
+        self.schema_version = schema_version
 
     def snapshot(self):
         values = copy.deepcopy(dict(self))
         raw = json.dumps(values, sort_keys=True, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
-        return {"schema_version": 1, "revision": hashlib.sha256(raw.encode()).hexdigest(),
+        return {"schema_version": self.schema_version, "revision": hashlib.sha256(raw.encode()).hexdigest(),
                 "values": values, "sources": dict(self.sources), "warnings": list(self.warnings)}
 
 
@@ -135,6 +140,16 @@ def _validate(key, value):
         valid = value in ("weak", "strong")
     elif kind == "model":
         valid = isinstance(value, str) and bool(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,127}", value))
+    elif kind == "profile":
+        from .model_profiles import REFERENCE
+        valid = isinstance(value, str) and bool(REFERENCE.fullmatch(value))
+    elif kind == "profiles":
+        from .model_profiles import validate_profiles
+        try:
+            validate_profiles(value)
+        except ValueError as exc:
+            raise ConfigError(str(exc)) from None
+        valid = True
     elif kind == "url" and isinstance(value, str):
         try:
             u = urlsplit(value)
@@ -172,7 +187,11 @@ def resolve_config(values=None, *, overrides=None, source="explicit input"):
             _validate(key, value)
             flat[key] = value
             sources[key] = data.sources.get(key, label) if isinstance(data, EffectiveConfig) else label
-    return EffectiveConfig(nest(flat), sources, list(dict.fromkeys(warnings)))
+    values = nest(flat)
+    names = {p["id"] for p in values["model_profiles"]} | {"codex"}
+    if any(values["roles"][r]["profile"] not in names for r in ("planner", "auditor", "verifier")):
+        raise ConfigError("role profile does not name a saved connection")
+    return EffectiveConfig(values, sources, list(dict.fromkeys(warnings)))
 
 
 class _UniqueLoader(yaml.SafeLoader):
@@ -225,19 +244,22 @@ def save_defaults(path, updates):
 
 
 def restore_snapshot(snapshot):
-    if not isinstance(snapshot, dict) or snapshot.get("schema_version") != 1:
+    if not isinstance(snapshot, dict) or snapshot.get("schema_version") not in (1, 2):
         raise ConfigError("Mission effective config snapshot missing or unsupported")
-    if set(flatten(snapshot.get("values"))) != set(FIELDS):
+    fields = LEGACY_FIELDS if snapshot["schema_version"] == 1 else set(FIELDS)
+    if set(flatten(snapshot.get("values"))) != fields:
         raise ConfigError("Mission effective config fields missing or unsupported")
     cfg = resolve_config(snapshot["values"])
+    if snapshot["schema_version"] == 1:
+        cfg = EffectiveConfig(snapshot["values"], {k: cfg.sources[k] for k in fields}, cfg.warnings, schema_version=1)
     if cfg.warnings or cfg.snapshot()["revision"] != snapshot.get("revision"):
         raise ConfigError("Mission effective config snapshot invalid; defaults were not substituted")
     sources = snapshot.get("sources")
-    if not isinstance(sources, dict) or set(sources) != set(FIELDS):
+    if not isinstance(sources, dict) or set(sources) != fields:
         raise ConfigError("Mission config sources missing")
     cfg.sources = {k: v for k, v in sources.items() if isinstance(v, str) and v in
                    ("built-in default", "config/default.yaml", "explicit input", "invocation override", "mission input")}
-    if len(cfg.sources) != len(FIELDS):
+    if len(cfg.sources) != len(fields):
         raise ConfigError("Mission config source is unsupported")
     allowed_warnings = {f"{old} migrated to {new}" for old, new in ALIASES.items()} | {f"{key}: deprecated, unsupported and NOT effective" for key in DEPRECATED}
     warnings = snapshot.get("warnings", [])

@@ -12,6 +12,7 @@ Bind: 127.0.0.1 only. Port: 7100 (override with PANEL_PORT).
 from __future__ import annotations
 
 import json
+import copy
 import os
 import re
 import secrets
@@ -795,6 +796,10 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 503)
             return
+        if path == '/api/model-connections':
+            from loopcore.model_profiles import connection_status
+            self._json({'ok': True, 'connections': connection_status(PANEL.defaults())})
+            return
         if path == "/api/stream":
             self._sse()
             return
@@ -850,6 +855,19 @@ class Handler(BaseHTTPRequestHandler):
                 self._discard_rejected_body()
                 raise
             body = self._body()
+            if path == '/api/credentials':
+                from loopcore.credentials import credentials
+                action = body.get('action')
+                if action not in ('save', 'delete') or set(body) != ({'action', 'ref', 'value'} if action == 'save' else {'action', 'ref'}):
+                    raise ClientError('凭据操作仅接受 action、ref 及保存时的 value')
+                # No credential values in responses, diagnostics, task records or defaults.
+                vault = credentials()
+                if action == 'save':
+                    vault.save(body['ref'], body['value'])
+                else:
+                    vault.delete(body['ref'])
+                self._json({'ok': True, 'status': 'saved' if action == 'save' else 'deleted'})
+                return
             if path in ('/api/result/export', '/api/result/open'):
                 if set(body) != {'mission_id'}:
                     raise ClientError('只接受目标 mission_id，不接受路径或命令')
@@ -981,7 +999,10 @@ class Handler(BaseHTTPRequestHandler):
             "user_instruction": body.get("user_instruction") or "",
             "worker_harness": "codex",
             "budgets": dict(cfg['budgets'], max_subtasks=max_subtasks),
+            "external_service_consent": 'bigmodel_general' if body.get('external_service_consent') == 'bigmodel_general' else None,
         }
+        from loopcore.model_profiles import check_start
+        check_start(cfg, mission)
         # persist for resume/reference
         _runtime_dir(mid)
         tasks_dir = _contained(ROOT, ROOT / "tasks")
@@ -1038,7 +1059,12 @@ class Handler(BaseHTTPRequestHandler):
                 mission.update(execution_backend=local_projects.BACKEND, source_revision=revision)
         finally:
             store.close()
-        PANEL.start_mission(mission)
+        cfg = restore_snapshot(body['config_snapshot']) if 'config_snapshot' in body else PANEL.defaults()
+        mission['external_service_consent'] = 'bigmodel_general' if body.get('external_service_consent') == 'bigmodel_general' else None
+        mission['budgets'] = copy.deepcopy(cfg['budgets'])
+        from loopcore.model_profiles import check_start
+        check_start(cfg, mission)
+        PANEL.start_mission(mission, config_snapshot=cfg.snapshot())
         return {'ok': True, 'mission_id': mission['mission_id'], 'previous_attempt': mid}
 
     # -- SSE

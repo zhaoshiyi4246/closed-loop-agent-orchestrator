@@ -47,14 +47,19 @@ bus:
   overall_timeout_seconds: 600
 roles:
   planner:
+    profile: codex
     model: gpt-5.6-sol
     timeout_seconds: 180
   auditor:
+    profile: codex
     model: gpt-5.6-sol
     timeout_seconds: 180
   verifier:
+    profile: codex
     model: gpt-5.6-sol
     timeout_seconds: 180
+# Saved connection parameters only. Keys live in Windows Credential Manager.
+model_profiles: []
 fingerprint:
   strip_ansi: true
   normalize_timestamps: true

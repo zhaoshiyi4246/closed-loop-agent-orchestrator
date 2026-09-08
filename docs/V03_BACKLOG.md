@@ -1,6 +1,6 @@
 # CLAO v0.3 任务与验收台账
 
-版本：0.3-plan-r1 · 2026-09-06。状态：已批准 / IN EFFECT。DOC-00、F01–F05、R01 / R02 已完成（DONE），M0 / M1 / M2 为 `COMPLETE`；U01 / U02 / U03 均已审计合入（`DONE`），U02 两个切片保持 `DONE`；M3 `COMPLETE` 表示本阶段开发与代码审计完成，完整体验与发布验收尚未完成；M4 `TODO`，唯一下一任务 P01 `TODO`，尚未开始；其余功能卡状态见下表，原报告的发现不等于已复现或已修复。
+版本：0.3-plan-r1 · 2026-09-06。状态：已批准 / IN EFFECT。DOC-00、F01–F05、R01 / R02 已完成（DONE），M0 / M1 / M2 为 `COMPLETE`；U01 / U02 / U03 均已审计合入（`DONE`），U02 两个切片保持 `DONE`；M3 `COMPLETE` 表示本阶段开发与代码审计完成，完整体验与发布验收尚未完成；M4 `IN_PROGRESS`，当前 P01 工程切片 `IN_REVIEW`，真实 GLM 准入待后续授权；其余功能卡状态见下表，原报告的发现不等于已复现或已修复。
 
 设计以 [V03_PLAN.md](V03_PLAN.md) 为准。当前唯一任务由根目录 [PLANS.md](../PLANS.md) 指定。本文件保存每张卡的详细状态和证据，PLANS 不重复整张台账。
 
@@ -43,7 +43,7 @@
 | V03-U01 | M3 | iPhone风格界面骨架与状态夹具 | G1；R01/R02字段设计 | DONE（PR #39 代码/产品整改审计 PASS / merged） |
 | V03-U02 | M3 | 完整任务GUI与数据接线 | U01/R02/F04 | DONE（首切片 PR #40、完整旅程 PR #41 均再次审计 PASS / merged） |
 | V03-U03 | M3 | 结果中心与独立导出 | U02/F03 | DONE（PR #42 再次外部审计 PASS / merged） |
-| V03-P01 | M4 | 模型配置／凭据与GLM语义后端 | F01/R01/F04 | TODO |
+| V03-P01 | M4 | 模型配置／凭据与GLM语义后端 | F01/R01/F04 | IN_REVIEW（工程切片；真实准入待验证） |
 | V03-P02 | M4 | Kimi语义后端与切换评测 | P01 | TODO |
 | V03-P03 | M4 | 第二Worker能力准入决策 | P01/P02；AO官方契约 | TODO |
 | V03-Q01 | M5 | 新Windows产品验收与发布候选 | G1—G4 | TODO |
@@ -347,13 +347,28 @@ PR #42 导出误拦截返修（2026-09-08，再次外部审计 PASS，已合入�
 
 ## V03-P01｜模型配置／凭据与GLM语义后端
 
-- 状态：TODO；U03/M3 收尾后的唯一下一任务，本轮尚未开始实现。
+- 状态：IN_REVIEW（工程与离线验证切片，待外部审计）。base `ecbd9d6639d24633bb9347c4ddc62a86a3ae525f`，分支 `codex/v03-p01-bigmodel-semantic`；真实 GLM 准入等待后续明确授权，不获取或使用用户真实 Key。
 
 - 对应：A11/A10。工作：profile/角色绑定/credential_ref；一种安全凭据存储；Codex保留；GLM明确服务域、认证、model/effort、JSON协议。语义角色无工具执行。
 - 必测：密钥不进入响应/log/Store/export；跨域发送须授权；非法/截断/拒绝/401/429/timeout；Schema+ID+coherence；运行中不热切；有模型调用与无模型检查分开。
 - 完成：一个已验证GLM profile覆盖所声明Planner/Auditor/Verifier角色；UI显示真实范围、价格unknown等；正向与真实失败反馈受控live。
 - 不做：改全局~/.codex或AO daemon环境；仅换model字符串；静默跨供应商fallback。
-- 证据：待填。
+- 工程实现：BigModel 通用 `https://open.bigmodel.cn/api/paas/v4/chat/completions`、`glm-4.7`，Bearer Key、非流式 JSON object、thinking enabled/disabled；明确拒绝 Z.AI/Coding/其他模型/未支持参数。三个角色共用原输入/提示词/Schema/ID/AC/coherence，Planner 分解与异常均接通；正常 gate-first/Worker/停止保护不变。
+- 配置与凭据：旧 Codex 配置兼容，v1 快照原样校验保留，v2 冻结连接及绑定；默认原子保存不热切当前任务。Windows Credential Manager 存当前用户 CLAO 引用，无明文 fallback，无新增依赖；受保护 API 可保存/替换/删除，配置/查询/任务/子进程/导出不带 Key。每次新 Mission/attempt 明确确认外发，恢复保持旧配置/许可。
+- 错误与取消：HTTP/结构化校验共享每次角色调用 1–3 次总尝试，Controller 不再叠加此类 ProtocolError 重试；semantic FAIL 不刷新成 PASS。正式 content 与 reasoning/tool/refusal/截断分开；只记有限错误摘要。既有 ExecutionControl 中止等待/重试，丢弃迟到响应，不声称取消服务端计算/费用。模型响应、实际 token 用量与 unknown 费用由当前 StateStore 阶段记录展示；连接页的本地检查不宣称真实准入。
+
+Windows / CPython 3.12.7 / 产品 venv（Scripts 前置 PATH，`src` 与产品目录为 PYTHONPATH）证据：
+
+- 最终 `pytest tests/test_p01_bigmodel.py tests/test_p01_panel.py tests/test_u03_results.py::test_audit_export_safe_references_apply_without_rewriting -q --tb=short` → **54 passed / 61.67s**。真实本地 HTTP（仅 HTTPS socket 目标替身）、原角色/Controller/Git/Gate 与隔离 App Server 进程；包含 Planner 两入口、Auditor、Mission Verifier PASS/FAIL、全部错误类/共享预算、取消在途与等待/迟到、旧 v1 实际恢复、CLI/Panel 混合消费者/冻结、正式结果导出中无 Key、安全引用旧/新/上下文及独立补丁应用。
+- Windows 系统凭据验证在上述集合内实际调用 CredWrite/CredRead/CredDelete（非存储 mock）：独立随机 `CLAO-P01-Isolated-Test` 命名空间、仅假 Key，保存/替换/重新构造 wrapper 读取/删除；包括真实浏览器→HTTP→系统存储。每个测试 finally 清理并核对不存在；未读取用户凭据或全局 Codex/AO 配置。存储失败测试单独注入错误，不记作系统成功证据。
+- 兼容复查 `pytest tests/test_codex_planner.py::test_build_runtime_uses_codex_planner_and_config_model tests/test_panel_worker_contract.py tests/test_f04_panel_boundaries.py::test_real_browser_text_rendering_nonce_and_pending_writes tests/test_u02_journey.py::test_audit_browser_mission_drafts_and_delayed_success -q --tb=short` → **31 passed / 20.71s**。保留三个 A/B 草稿、接收目标及延迟回执归属场景。
+- 先前 R01/Codex/Verifier coherence 集合 **83 passed / 2 failed**；新浏览器脚本的隐藏概览按钮导航/终态等待已修正，原 runtime 夹具缺 frozen source/get_project 事实已用隔离 Git 与公开适配事实补齐，未改产品边界或弱化原断言；该 runtime 节点已在上述 31 项通过。P01 初轮 **47 passed / 1 failed**（浏览器导航）；随后 P01 + U02 四旅程 **53 passed / 1 failed**（同一旧 runtime 夹具），P01 浏览器与 U02 环境未就绪/正常/审批/停止未知四旅程均通过；最终 P01 结果以上述 54 项为准，集合重叠不累计。
+- 实际 Edge：[模型配置](assets/p01-models/models-light.png)、[任务外发确认](assets/p01-models/task-consent.png)、[390px 深色](assets/p01-models/models-dark-390.png)。Codex 已自查；安全文本、无明文 Key/localStorage、角色选择、刷新后默认持久、在途去重、确认配置与实际冻结一致、原 Controller/Gate + HTTP Verifier 均有断言。不是负责人完整 GUI 体验或真实服务验收。
+- 本地正常查看：`clao/启动CLAO.bat` → 模型。离线复现：配置既有开发 `U01_NODE` / `NODE_PATH` 后执行 `pytest tests/test_p01_panel.py -k browser -q -s`；`P01_SCREENSHOTS` 指定截图位置。只复用正式页面，`dev/panel/p01-models.cjs` 不进入运行资源。
+- 最后确认页补充冻结 GLM 参数详情后，P01 实际浏览器单项 **1 passed / 14.85s**；截图已更新、自查。compileall、产品/开发 JS 语法、diff-check、6 个文档的 76 个本地链接/16 个锚点及既有发布映射前缀检查通过；没有发行构建。
+- **真实服务准入：NOT_RUN / 待授权**。真实验证前需负责人确认 BigModel 通用服务类型、可用模型权限、参与角色及次数/单次与总时长/费用上限、允许外发的测试材料；本轮不索取真实 Key。Key 由用户在本机凭据页保存，不发到聊天。工程离线通过不等于 P01 全部准入或 M4 完成。
+- NOT_RUN：真实 GLM/Codex/AO 模型、全量、干净安装、CLAO 发行打包、smoke、负责人完整 GUI 体验与发布验收。P02/Kimi、P03 Worker 扩展、安装器/闭环视图未实施；M0–M3 COMPLETE，M4 IN_PROGRESS。
+
 
 ## V03-P02｜Kimi语义后端与切换评测
 
