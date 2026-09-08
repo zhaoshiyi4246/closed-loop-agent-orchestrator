@@ -1408,3 +1408,10 @@ body:has(dialog[open]) {
 #resultConclusion {font-weight:600}
 
 @media(max-width:719px){.detail-hero h2{max-height:8em;overflow:auto}.environment-card .section-heading{flex-wrap:wrap}}
+/* Result actions share the existing task card and keyboard targets. */
+.result-actions {display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
+.result-file {display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid var(--line)}
+.result-file span:last-child {overflow-wrap:anywhere;min-width:0}
+#resultAC h3,#resultChanges h3 {margin-top:20px}
+#resultDiffText {max-height:440px;overflow:auto;white-space:pre}
+#resultExports button {margin:8px 8px 8px 0}

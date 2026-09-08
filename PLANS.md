@@ -7,7 +7,10 @@
 ## 当前唯一执行指针
 
 - 当前阶段：**M3 IN_PROGRESS**；M0 / M1 / M2 COMPLETE。
-- 当前唯一下一任务：**V03-U03 — 结果中心与独立导出**，TODO，尚未开始。U02 完整任务旅程切片与整卡 DONE；U01、U02 首切片保持 DONE，模型扩展/发布任务未推进。
+- 当前唯一执行任务：**V03-U03 — 结果中心与独立导出**，IN_REVIEW；分支 `codex/v03-u03-results-export`，base `f251535e209e14f6e9c698e290cce67aff8a2c16`。U02 完整任务旅程切片与整卡 DONE；U01、U02 首切片保持 DONE，模型扩展/发布任务未推进。
+- U03 已实现：任务内固定结果/差异/AC 与分项验收；复制路径/受保护打开目录；完整文本补丁、清单、摘要与说明的独立 ZIP，原 StateStore 保存已完成包。Git/目录失效后已有包仍可下载；不使用当前 HEAD 或模型证据截断生成补丁。
+- U03 最终 Windows 定向 **39 passed / 84.44s**（真实 Git/SQLite/HTTP、原 Controller/Gate/Verifier + 仅引擎/Provider 替身，含实际 Edge）；U02 四旅程复查 **4 passed / 34 deselected / 35.25s**，此前其余兼容定向 30 passed；另补基线缓存独立应用 1 passed，失败修正及证据分类见 U03 卡。未运行全量、安装、smoke、真实 AO/模型或 CLAO 发行打包；结果包生成/下载/解压/独立应用和内容/Gate 检查已执行。
+- 当前停止条件：提交 U03 PR 后等待审计，不合并、不推进模型卡。U03 的代码/体验审计未完成；“任务闭环运行视图”仍仅为未授权候选。
 - 最近完成：**V03-U02 — 完整任务旅程与 GUI 数据接线**；[PR #41](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/41) 代码与返修再次外部审计 PASS，2026-09-08 已 rebase merge 到 main `e78738d0c11774b8163feb344256355a32ae5fb2`，合入 tree 与已审计 head `73b5a8055094bc09b4c6ee119034f09a4ff93903` 完全相同。
 - 已合入切片接通真实环境检查、四步表单配置确认/冻结、审批差异与拒绝/结构化回答、取消及只读历史/结果导航；查看 B 不替换运行 A，停止未知阻断新任务。复用正式 Controller/Git/Gate/Verifier，未改执行引擎主体。
 - 沿用实施阶段 Windows 定向：最终 HTTP/配置/历史及兼容浏览器 27 passed，实际页面旅程 4 passed；此前 F04 119 passed、U02 兼容节点 17 passed，集合重叠不累计。截图为实际 Edge + 隔离协议进程的 Codex 自查；外部代码与返修审计 PASS 不等同负责人完整 GUI 体验验收，真实模型仍 NOT_RUN。200% 证据为等效布局/CSS zoom，非原生浏览器缩放验收；具体命令、修正及 NOT_RUN 见 U02 卡。
@@ -49,7 +52,7 @@
 | M0 基线与目录整理 | COMPLETE（DOC-00 / LAYOUT DONE） | 规划已批准入库；纯路径迁移验证；副本分类整理含保留项；人工审计 PASS |
 | M1 修复冻结 | COMPLETE（F01–F05 DONE，均已审计 PASS 并合入） | F01—F05负例与正常路径通过 |
 | M2 使用契约 | COMPLETE（R01 / R02 DONE，均已审计 PASS 并合入） | 配置、回执、取消恢复、基线可追溯 |
-| M3 GUI与交付体验 | IN_PROGRESS（U01 / U02 DONE，U03 TODO） | 四入口＋任务旅程＋结果导出＋浏览器验收 |
+| M3 GUI与交付体验 | IN_PROGRESS（U01 / U02 DONE，U03 IN_REVIEW） | 四入口＋任务旅程＋结果导出＋浏览器验收 |
 | M4 模型扩展 | TODO | GLM与Kimi语义profile；Worker明确支持/拒绝决策 |
 | M5 发布候选 | TODO | 最终ZIP、Windows、真实模型/GUI/恢复与来源证据 |
 
