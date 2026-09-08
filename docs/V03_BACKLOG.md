@@ -268,7 +268,7 @@ G1=F01—F05；G2=R01—R02；G3=U01—U03；G4=P01—P02及P03有记录的支�
 - 不做：未经授权后台创建Mission验证界面；浏览器依赖打入产品。
 - 首切片范围：`codex/v03-u02-local-codex-execution`，base `0feca5de502ef97de33cf025166318ab8f748bfa`。新增薄的本地项目/stdio 边界，原 Controller/Store/Gate/Verifier、审批、UNKNOWN、配置/source 冻结继续使用；未开始后续旅程或 U03。
 - 实现事实与公开协议版本见 [PROJECT](PROJECT.md#u02-首切片本地项目与-codex-worker待审计)，用户流程/来源规则见 [产品说明](../clao/README.md#本地项目与来源确认)。真实模型/发布兼容性尚未验收；原目录不写入，linked worktree 不是独立导出包。
-- Windows 最终主集合：`pytest tests/test_u02_local_execution.py tests/test_panel_worker_contract.py -q` → **57 passed / 114.89s**（产品 venv CPython 3.12.7，真实 Git/SQLite/HTTP 与 UTF-8 stdio 替身）。覆盖正式 CLI、无远端 Git/普通目录/空目录、原始 dirty 内容与 index 不变、来源漂移/过滤/junction、真实闭环与红 Gate、审批/输入、UNKNOWN/重入/停止/replan、重新确认来源的新 attempt、新旧配置冻结、模型事实，以及实际 Edge 新建至成果流程。此前 54 passed / 100.57s 是追加最后三个用例前的集合，重叠不累计。
+- 首轮主集合（审计返修前）：`pytest tests/test_u02_local_execution.py tests/test_panel_worker_contract.py -q` → **57 passed / 114.89s**（产品 venv CPython 3.12.7，真实 Git/SQLite/HTTP 与 UTF-8 stdio 替身）。覆盖正式 CLI、无远端 Git/普通目录/空目录、原始 dirty 内容与 index 不变、来源漂移/过滤/junction、真实闭环与红 Gate、审批/输入、UNKNOWN/重入/停止/replan、重新确认来源的新 attempt、新旧配置冻结、模型事实，以及实际 Edge 新建至成果流程。此前 54 passed / 100.57s 是追加最后三个用例前的集合，重叠不累计。
 - 兼容复查：`pytest tests/test_u02_local_execution.py tests/test_f04_panel_boundaries.py tests/test_u01_panel.py tests/test_r02_lifecycle.py tests/test_f05_external_operations.py tests/test_approvals.py tests/test_approvals_bridge.py tests/test_approval_block.py tests/test_mission_preflight.py -q` 初次 **431 passed / 3 failed / 1 skipped / 217.13s**。三处为旧浏览器缺新来源确认、开发夹具缺该只读响应、旧 fake adapter 缺显式 backend；修正接线/兼容表达并保留断言。后续 F04/U01 浏览器与 R02 崩溃回执节点均通过；新增 replan 测试的错误导入已修正，包含在上述最终 54 passed 中。唯一 skip 为 Windows 原生 symlink 权限；真实 junction 回归通过。
 - 追加正式 CLI/source 与 F04/U01/R02 浏览器检查 6 passed / 1 failed / 19.70s；失败揭示旧 AO model 标签过度泛化，已恢复明确的 AO spawn-resolved 标签，并与本地 thread/start/model-rerouted 事实分开；随后 `pytest tests/test_u02_local_execution.py::test_native_model_facts_do_not_become_provider_timing tests/test_r01_effective_config.py -q` → **48 passed / 37.24s**（含实际 Edge 配置/SSE/模型来源安全渲染）。集合重叠，不累计成一次全量结果。
 - 检查中的真实故障也已覆盖：Windows 协议替身修正为协议规定的 UTF-8；HTTP 回答提交期间与 Controller 恢复对账互斥，回执丢失/重启仍 UNKNOWN；真实 CLI/Panel/Controller/Git/Gate 不被成功 stub 替换，语义模型才使用 fake Provider。截图临时目录准备失败的一轮未进入产品测试，修正目录后完成上述最终集合。
@@ -276,6 +276,16 @@ G1=F01—F05；G2=R01—R02；G3=U01—U03；G4=P01—P02及P03有记录的支�
 - 截图由实际产品页面和隔离协议进程生成并已 Codex 自查：[桌面任务结果](assets/u02-local-execution/normal/normal-task.png)、[390px 深色](assets/u02-local-execution/normal/normal-390-dark.png)、[回答后验收](assets/u02-local-execution/question/question-task.png)。浏览器脚本在发布外 `dev/panel/u02-browser.cjs`，由测试启动临时 HTTP；可通过 U02 文件的 `-k actual_browser` 复现，不调用真实模型。不是生成图、产品演示模式或外部视觉审计 PASS。
 - 静态检查：Python compileall、产品/开发脚本 JS 语法、diff-check、本地文档链接与 runtime 发布前缀检查通过。
 - NOT_RUN：全量、clean install、打包、smoke、真实 AO/收费模型、独立安装与最终发布兼容性。
+
+PR #40 审计返修（同一分支，等待再次审计）：
+
+- 修复 environmentId、人工硬边界、响应关闭/采纳和历史重试项目关联。固定协议的 `local` 是保留的本地环境 ID，结合绑定的 thread/turn/item/cwd 检查；普通 raw shell argv 与 item 展示字符串可能不同，保留原始输入检查。依据：[固定版本环境实现](https://github.com/openai/codex/blob/rust-v0.150.1/codex-rs/exec-server/src/environment.rs)、[事件/审批适配](https://github.com/openai/codex/blob/rust-v0.150.1/codex-rs/app-server/src/bespoke_event_handling.rs)、[请求关闭实现](https://github.com/openai/codex/blob/rust-v0.150.1/codex-rs/app-server/src/outgoing_message.rs)。没有升级环境、远程环境支持或新控制层。
+- 后端实际 accept 按同一 Task 策略分为 AUTO / REVIEW / PROHIBITED_OR_UNSUPPORTED；正常 Gate/文件仍自动处理，受限查看请求支持人工确认/拒绝，危险 Git 不再作为人工正例。普通按钮不能覆盖 `.git`、禁止路径、越根或额外授权。
+- 关闭请求不再计为采纳成功；正常确认需对应 item 事实，失效/取消/未知分别保留。回答没有公开唯一采纳证据时 HTTP 202、adoption 与 operation 均 UNKNOWN；仅已写入且已关闭的响应允许继续观察独立事实，不重发、不计成功，不放宽 UNKNOWN spawn/send/kill 或停止屏障。历史查询显示持久回执。重新执行确认和提交均按目标存档绑定项目/后端/父任务，覆盖不同内容、相同内容与新旧后端混合。
+- Windows U02 定向：`pytest tests/test_u02_local_execution.py -k 'audit or approval or actual_http_question or new_attempt or actual_browser or formal_runtime_real or interrupt_ack or red_real_gate' -q` → **46 passed / 16 deselected / 119.32s**。随后补齐真实 raw/display 命令形态，`-k 'audit_native or audit_hard or audit_response or actual_panel_mission'` → **27 passed / 35 deselected / 42.80s**。含实际 Edge 项目 B 的确认/双击，以及真实 Git/Controller/Gate/HTTP；外部引擎/模型仍为隔离替身。
+- 原审批文件 + F05 claim/未知 spawn/send/停止 + R02 历史/新 attempt 定向节点：117 passed / 1 failed / 1 skipped / 11.29s；失败为旧浏览器只预期 mission_id，补齐并断言新的项目/后端绑定字段后该节点 **1 passed / 8.12s**。skip 为原 Windows symlink 权限限制。新增测试初轮的 Controller 派发顺序、只读历史句柄清理和方法名错误已修正，未删除负例或弱化断言；集合重叠不累计。
+- 最后历史回答回执 + 两个 U02 实际 Edge 流程 + R02 历史只读节点 **4 passed / 27.71s**；正常回答仍到真实 Gate/Verifier 结果，历史 HTTP 中采纳仍为 UNKNOWN。Python compileall、JS 语法、diff-check、本地文档链接检查通过；本轮没有重跑首轮大集合、全量、打包、smoke 或真实模型。
+- 0.150.1 本机生成 schema 复查：7 个客户端请求/通知、12 个服务端消息通过，含 `environmentId=local` 与不同 raw/display 命令。真实模型仍 NOT_RUN，不将替身或 schema 验证写成真实任务验收。U02 首切片 IN_REVIEW，U02/M3 IN_PROGRESS；后续切片未开始。
 
 
 ## V03-U03｜结果中心与独立导出

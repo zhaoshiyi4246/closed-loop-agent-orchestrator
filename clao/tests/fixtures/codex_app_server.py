@@ -50,7 +50,13 @@ def approval(w, item, kind):
     rid = 1000 + serial
     params = {"threadId": w["id"], "turnId": w["turn"], "itemId": item["id"], "startedAtMs": int(time.time()*1000)}
     if kind == "commandExecution":
-        params.update(command=item["command"], cwd=w["cwd"], kind="command")
+        # v0.150.1 presents the inner command on the item, while the approval
+        # carries shlex-joined raw shell argv. These strings need not be equal.
+        params.update(command="powershell.exe -NoProfile -Command '" + item["command"] + "'", cwd=w["cwd"], kind="command", environmentId="local",
+                      approvalId=None, reason="Approval required", commandActions=item["commandActions"],
+                      networkApprovalContext=None, proposedExecpolicyAmendment=None,
+                      proposedNetworkPolicyAmendments=None)
+    params.update(json.loads(os.environ.get("CLAO_TEST_CODEX_APPROVAL_PARAMS", "{}")))
     notify("item/started", {"threadId": w["id"], "turnId": w["turn"], "item": item})
     pending[rid] = (w, item, kind)
     output({"id": rid, "method": "item/" + kind + "/requestApproval", "params": params})
@@ -114,14 +120,25 @@ for line in sys.stdin:
             (Path(w["cwd"]) / "forbidden.txt").write_text("scope failure")
             ended(w)
             continue
-        if scenario == "manual":
-            approval(w, {"type": "commandExecution", "id": "manual", "status": "inProgress", "command": "git reset --hard", "cwd": w["cwd"], "commandActions": []}, "commandExecution")
+        if scenario == "manual_file":
+            path = str(Path(w["cwd"]) / os.environ["CLAO_TEST_CODEX_EDIT_PATH"])
+            approval(w, {"type": "fileChange", "id": "edit", "status": "inProgress", "changes": [
+                {"path": path, "kind": {"type": "add"}, "diff": "+x=2"}]}, "fileChange")
             continue
-        if scenario == "question":
+        if scenario.startswith("manual") or scenario == "command_gate":
+            command = os.environ.get('CLAO_TEST_CODEX_COMMAND') or ('python -m pytest tests -q' if scenario == 'command_gate' else 'git ls-files --stage')
+            approval(w, {"type": "commandExecution", "id": "manual", "status": "inProgress", "command": command, "cwd": w["cwd"], "commandActions": []}, "commandExecution")
+            if scenario == "manual_expired":
+                ended(w)
+                for key in list(pending):
+                    pending.pop(key)
+                    notify("serverRequest/resolved", {"threadId": w["id"], "requestId": key})
+            continue
+        if scenario.startswith("question"):
             serial += 1
             pending[1000 + serial] = (w, {}, "question")
             output({"id": 1000 + serial, "method": "item/tool/requestUserInput", "params": {
-                "threadId": w["id"], "turnId": w["turn"], "itemId": "q", "isBlocking": True,
+                "threadId": w["id"], "turnId": w["turn"], "itemId": "q", "isBlocking": False, "autoResolutionMs": None,
                 "questions": [{"id": "choice", "header": "范围", "question": "是否保留中文 <tag>？", "options": None}]}})
             continue
         item = {"type": "fileChange", "id": "edit", "status": "inProgress", "changes": [
@@ -144,8 +161,15 @@ for line in sys.stdin:
         if scenario != "kill_ack_lost":
             reply(identity, {})
     elif method is None and identity in pending:
-        w, item, kind = pending.pop(identity)
+        w, item, kind = pending[identity]
+        if scenario in ("manual_wait", "question_ack_lost"):
+            continue
+        pending.pop(identity)
         result = message["result"]
+        if scenario in ("manual_cancel", "manual_cleanup", "question_cleanup"):
+            ended(w, "interrupted" if scenario == "manual_cancel" else "completed")
+            notify("serverRequest/resolved", {"threadId": w["id"], "requestId": identity})
+            continue
         notify("serverRequest/resolved", {"threadId": w["id"], "requestId": identity})
         if kind == "question":
             assert result["answers"]["choice"]["answers"]
@@ -157,6 +181,8 @@ for line in sys.stdin:
         if accepted and kind == "fileChange":
             (Path(w["cwd"]) / "app.py").write_text("x=2\n", encoding="utf-8")
         item["status"] = "completed" if accepted else "declined"
+        if kind == "commandExecution" and accepted:
+            item["exitCode"] = 0
         notify("item/completed", {"threadId": w["id"], "turnId": w["turn"], "item": item})
         ended(w, "completed" if accepted else "failed")
     else:

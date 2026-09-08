@@ -222,7 +222,9 @@ class ActionExecutor:
         with lock:
             for op in self.store.operations(owner_id):
                 if op["status"] in ("IN_FLIGHT", "UNKNOWN"):
-                    self._require_known(self._reconcile(op))
+                    observed = self._reconcile(op)
+                    if not self.store.closed_approval_response(observed):
+                        self._require_known(observed)
 
     def _effect(self, op, args, *, timeout=120, counters=(), max_attempts=3):
         if op["status"] in ("SUCCEEDED", "FAILED"):

@@ -470,14 +470,13 @@ class ClosedLoop:
         unresolved = False
         for activity in pending:
             if getattr(self.adapter, "backend", None) == "codex_app_server":
-                from .approvals import decide_codex_approval
-                decision = decide_codex_approval(activity, allowed_paths=self.task.allowed_paths,
-                    forbidden_paths=self.task.forbidden_paths, gate_commands=self.task.gate_commands, worktree_root=worktree)
+                decision = self.adapter.approval_policy(self.task.worker_session_id, activity)
                 self.store.record_event("codex-policy:" + self.task.worker_session_id + ":" + decision.request_id,
                     {"kind": "approval_policy", "task_id": self.task.task_id, "request_id": decision.request_id,
                      "allow": decision.allow, "reason": decision.reason, "requires_human": not decision.allow})
                 if decision.allow:
-                    ok = self.adapter.resolve_approval(self.task.worker_session_id, decision.request_id, "accept")
+                    receipt = self.adapter.resolve_approval(self.task.worker_session_id, decision.request_id, "accept")
+                    ok = receipt['ok']
                     acted = acted or ok
                     unresolved = unresolved or not ok
                 else:

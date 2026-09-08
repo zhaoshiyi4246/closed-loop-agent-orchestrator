@@ -55,6 +55,9 @@ MissionController是控制编排权威，ClosedLoop负责子任务；StateStore�
 - Mission 原 StateStore 冻结 execution_backend/config/source/version；Adapter 使用原生 thread/turn/item 事实，不伪造 AO Session DTO。文件/命令审批复用 F02 范围与精确 Gate 策略；完整 fileChange item/started 路径（含 move 来源/目标）才能自动允许一次，额外授权/未知工具保留人工。Panel 的 Host/Origin/nonce/JSON/文本渲染边界继续有效。
 - 生产 MissionController/ClosedLoop 继续 gate-first 和终局 Verifier；单次 turn completed 不覆盖执行失败、scope 或 Gate 失败。materialization 必须关联回合已结束且无在途命令/文件 item；新结果仍在 integration，不写回原项目、不自动 push。Planner/Auditor/Verifier 保留现有 Codex CLI，不增加模型轮次。
 - 原 operation intent/claim/ACK/UNKNOWN 用于 spawn/send/kill 与单次审批。ACK 持久后本地中断可复用；无 ACK 不重新创建线程或重发回合/输入。interrupt ACK 不算已停，只有关联 ended 事实可继续。人工审批提交期间与 Controller 对账互斥，进程消失后的不确定结果仍 UNKNOWN。
+- PR #40 审计返修：官方 0.150.1 保留的 `environmentId=local` 与已绑定 thread/turn/item/cwd 共同核对；未知/远程环境不支持授权。item 是展示命令，审批参数保留原始 shell argv，只接受现有解析器确认的等价形式。后端单次 accept 再读 Task 范围；禁止路径、`.git`、越根、危险 Git、额外权限不能经人工按钮绕过。精确 Gate/已有查看操作自动允许，受限 `git ls-files` 摘要可人工确认；不支持任意 shell 授权。
+- 审批回执分别记录响应写入、请求关闭、关联 item 结果与采纳状态；`serverRequest/resolved` 本身不证明采纳。无响应即关闭为 EXPIRED，提交期间取消为 INVALIDATED/UNKNOWN；同一 item 的执行/拒绝事实可确认相应结果。0.150.1 没有公开回答采纳回执，因此正常回答的 adoption 仍 UNKNOWN（HTTP 202），不伪造成功；仅已写入且已关闭的响应允许继续观察独立执行/Gate 事实，UNKNOWN operation 原样保留、绝不重发或计作成功。此例外不适用于 spawn/send/kill，也不放松停止前置条件；历史 API 仍可查看持久回执。
+- 历史“重新执行”通过现有来源读取边界按目标 Mission ID 读取其项目和后端，确认框展示目标路径；提交再次绑定父任务、project_id、backend、source revision。当前已加载的另一任务不参与这次来源选择，即使两个项目内容哈希相同也不能混用。
 - 老 AO 记录缺 backend 按 AO 解释，历史只读；本地恢复不能换后端/版本/配置。活跃、等待请求或断连 Worker 重启后不猜测停止，只能查看并人工核对；完整已结束检查点继续原 R02 校验，已结束 Mission 必须新 attempt 并重新确认来源。两独立子任务预算仍保留，依赖计划继续明确拒绝；本切片主验证为单 Worker。
 - 官方协议参考：[App Server](https://developers.openai.com/codex/app-server/)、[固定版本源码](https://github.com/openai/codex/tree/rust-v0.150.1/codex-rs/app-server)、[Windows 沙箱](https://developers.openai.com/codex/windows/)。本轮验证是 Windows 隔离 Git/SQLite/HTTP + 受控 stdio 进程和浏览器；真实 Codex 模型任务 NOT_RUN，不视为最终发布兼容性通过。Q01 仍负责安装、依赖准备和干净机器验收。
 
