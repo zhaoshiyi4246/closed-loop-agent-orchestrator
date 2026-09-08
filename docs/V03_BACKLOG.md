@@ -335,6 +335,14 @@ PR #41 审计返修（2026-09-08，再次外部审计 PASS，已合入）：
 - 最后直接复查：目录 junction 不开放外部访问但仍可下载已有包、损坏包元数据 read_error、实际浏览器 → **3 passed / 38 deselected / 14.20s**；旧 AO 只读 DTO/缺失与畸形记录 → **4 passed / 37 deselected / 6.44s**，额外验证结果 API 不带出 `_validation` 原始输入。与主集合重叠，不累计。修改 Python compileall、产品/开发 JS 语法、diff-check、70 个本地文档链接（14 个标题锚点）及现有发布映射前缀检查通过；没有新增运行依赖或发布映射。
 - NOT_RUN：全量、clean install、CLAO 发行打包、smoke、真实 AO/收费模型、负责人完整体验/发布验收。已做本任务结果包验证；没有自动写回/应用/push、模型扩展、安装器或闭环动态图。真实 Explorer 窗口出现未做自动验收；API 明确只表示 Windows 接收打开请求。
 
+
+PR #42 导出误拦截返修（2026-09-08，IN_REVIEW，待再次审计）：
+
+- 返修 base `18163a5305c8cafa96d6809702ead7ae44b2d7fd`，原分支/PR 不变。移除按敏感变量 RHS 长度与任意 `--prompt` 参数猜测泄密的规则；保留私钥、已知凭据形态、Bearer/Basic 认证头、明确 Prompt 材料标记，具名凭据检查非空引号字面值，精确 `${NAME}` 占位除外。没有整行/函数调用白名单：引用或调用中另含明确凭据仍拒绝。全部旧/新 blob、补丁与白名单摘要仍共用检查，不改写补丁、不改导出架构或类型支持。
+- 新增真实 Git/SQLite/正式结果 API 回归：10 种安全引用/说明分别位于旧版本、新版本、未修改上下文与补丁之外，并出现在 Mission/AC/Gate/Verifier 摘要；实际下载补丁与 Git 原生补丁逐字节一致，在独立基线副本应用后逐文件/hash 与目标一致。12 个负例覆盖私钥、凭据字面值/形态、认证头、完整 Prompt、禁止文件和混入凭据的引用；明确拒绝且错误不带敏感值，同任务已有包仍原样下载，index/原项目不变。
+- Windows 产品 venv / CPython 3.12.7，Scripts 前置 PATH、`src`/产品目录为 PYTHONPATH：`pytest tests/test_u03_results.py -k 'audit_export or restricted_old or http_export_applies or lookalikes_full or probe_failure or result_operations_are_bound' -q --tb=short` → **29 passed / 1 failed / 27 deselected / 77.70s**。唯一失败为新夹具错误假设远处源码不会出现在 Git hunk heading；加入独立段落标题使安全引用确实在补丁之外，保留原“补丁无该行”及逐字节/独立应用断言，不改产品或弱化断言。之后 `pytest tests/test_u03_results.py -k 'outside_hunk or actual_browser' -q --tb=short` → **2 passed / 55 deselected / 13.10s**，含实际 Edge 结果/下载/历史任务归属与既有交互复查。已通过的定向未重复跑大集合。
+- Python compileall、diff-check 与修改文档的本地链接检查通过；本轮未修改 JS、结果页布局或协议，不另生成一套截图。NOT_RUN：全量、clean install、CLAO 发行打包、smoke、真实 AO/模型与负责人完整体验验收；结果包生成/下载/解压/独立应用已做。有限形态/字面值规则不宣称通用秘密扫描；U03 IN_REVIEW、M3 IN_PROGRESS，未开始下一任务。
+
 ## V03-P01｜模型配置／凭据与GLM语义后端
 
 - 对应：A11/A10。工作：profile/角色绑定/credential_ref；一种安全凭据存储；Codex保留；GLM明确服务域、认证、model/effort、JSON协议。语义角色无工具执行。

@@ -230,6 +230,126 @@ def test_restricted_old_new_context_or_binary_rejects_whole_package(http_panel,t
     assert not (t.runtime/'exports').exists()
 
 
+@pytest.mark.parametrize('position', ['old', 'new', 'context', 'outside_hunk'])
+def test_audit_export_safe_references_apply_without_rewriting(http_panel,tmp_path,position):
+    references = [
+        'api_key = os.getenv("API_KEY")',
+        'password = request.form.get("password")',
+        'token = get_access_token()',
+        'api_key = "${API_KEY}"',
+        'API_KEY=${API_KEY}',
+        'config = {"access_token": "${ACCESS_TOKEN}"}',
+        'password = current_password',
+        'token = settings.access_token',
+        '# tool --prompt hello',
+        '# tool --prompt=hello',
+    ]
+    # Git can echo an earlier non-comment line as the hunk heading. Give it a
+    # separate heading so this case really keeps the reference outside the patch.
+    gap = 'section_marker = 0\n' + '# unchanged spacing\n' * 10 if position == 'outside_hunk' else ''
+    initial = {}; updates = {}
+    for i, reference in enumerate(references):
+        name = f'中文 source {i}.txt'
+        initial[name] = (reference+'\n' if position != 'new' else '') + gap + 'version = 1\n'
+        updates[name] = (reference+'\n' if position != 'old' else '') + gap + 'version = 2\n'
+    t = archive_task(http_panel,tmp_path,initial=initial,updates=updates,kind='git')
+    safe_summary = '\n'.join(references)
+    store = StateStore(t.runtime/'state.db')
+    payload = store.mission_config(t.mid)
+    payload['mission']['objective'] = safe_summary
+    payload['mission']['acceptance_criteria'][0]['description'] = safe_summary
+    store.record_mission(t.mid,{'mission':payload['mission'],'reason':safe_summary})
+    store.record_verification('SAFE-'+t.mid,t.mid,{'verify_id':'SAFE-'+t.mid,'task_id':t.mid,
+        'verdict':'PASS','summary':safe_summary,'ac_checks':[{'ac_id':'AC-1','verdict':'PASS','note':safe_summary}]})
+    store.record_gate_run(task_id=t.mid,command='tool --prompt hello',cwd=str(t.integ),exit_code=0,
+        started_at='start',ended_at='end',stdout='',stderr='',
+        assessment=store.gate_assessment(phase='final',command='pass',integrity='pass',scope='pass'))
+    store.close()
+    original = {p.relative_to(t.original).as_posix():p.read_bytes() for p in t.original.rglob('*') if p.is_file()}
+    index = Path(git(t.integ,'rev-parse','--path-format=absolute','--git-path','index').decode().strip())
+    prior_index = index.read_bytes(); prior_head = git(t.integ,'rev-parse','HEAD')
+    detail = get_result(http_panel,t)
+    assert detail['status'] == 'ok' and not detail['diff_truncated']
+    _,raw = get_export(http_panel,t)
+    package = tmp_path/'safe-package'; manifest = extracted(raw,package)
+    patch = (package/'changes.patch').read_bytes()
+    expected = git(t.repo,'-c','diff.noprefix=false','-c','diff.mnemonicPrefix=false',
+        'diff',*wt._DIFF_OPTIONS,'--binary','--full-index','--src-prefix=a/','--dst-prefix=b/',
+        '--no-indent-heuristic','--diff-algorithm=myers','--unified=3',t.base,t.head,'--')
+    assert patch == expected == detail['diff'].encode('utf-8')
+    for reference in references:
+        if position == 'outside_hunk':
+            assert reference.encode() not in patch
+        else:
+            prefix = {'old':'-', 'new':'+', 'context':' '}[position]
+            assert (prefix+reference+'\n').encode() in patch
+    summary = json.loads((package/'evidence.json').read_text('utf-8'))
+    assert summary['mission']['objective'] == summary['mission']['reason'] == safe_summary
+    assert summary['acceptance_criteria'][0]['description'] == safe_summary
+    assert summary['verifier']['summary'] == summary['verifier']['ac_checks'][0]['note'] == safe_summary
+    assert any(g['command'] == 'tool --prompt hello' for g in summary['gates']['records'])
+    independent = tmp_path/'independent'; independent.mkdir()
+    for e in manifest['baseline_files']:
+        write(independent,{e['path']:git(t.repo,'cat-file','blob',t.base+':'+e['path'])})
+    content_matches(independent,manifest['baseline_files'])
+    git(independent,'-c','core.autocrlf=false','apply','--check',str(package/'changes.patch'))
+    git(independent,'-c','core.autocrlf=false','apply','--whitespace=nowarn',str(package/'changes.patch'))
+    content_matches(independent,manifest['result_files'])
+    for name, expected_content in updates.items():
+        assert (independent/name).read_bytes() == expected_content.encode()
+    assert index.read_bytes() == prior_index and git(t.integ,'rev-parse','HEAD') == prior_head
+    assert original == {p.relative_to(t.original).as_posix():p.read_bytes() for p in t.original.rglob('*') if p.is_file()}
+    assert http_panel.state.rt.mission.mission_id == 'M-F04'
+
+
+@pytest.mark.parametrize('position,content,path', [
+    ('new', 'api_key=sk-abcdefghijklmnopqrstuvwxyz123456\n', 'review.txt'),
+    ('old', '-----BEGIN PRIVATE KEY-----\nprivate fixture\n-----END PRIVATE KEY-----\n', 'review.txt'),
+    ('context', 'password="short"\n', 'review.txt'),
+    ('summary', 'Authorization: Bearer abcdefghijklmnopqrstuvwxyz', None),
+    ('new', 'Authorization: Basic dXNlcjpmaXh0dXJlLXBhc3N3b3Jk\n', 'review.txt'),
+    ('old', 'BEGIN FULL PROMPT\nPrivate full instructions\nEND FULL PROMPT\n', 'review.txt'),
+    ('context', '<system>Private model instructions</system>\n', 'review.txt'),
+    ('new', '{}\n', 'auth.json'),
+    ('new', 'API_KEY=fixture-secret\n', '.env'),
+    ('summary', 'api_key="${API_KEY}literal-secret"', None),
+    ('new', 'token = get_access_token("sk-abcdefghijklmnopqrstuvwxyz123456")\n', 'review.txt'),
+    ('new', 'tool --prompt "[system] Private model instructions"\n', 'review.txt'),
+])
+def test_audit_export_prohibited_material_keeps_saved_package(http_panel,tmp_path,position,content,path):
+    t = archive_task(http_panel,tmp_path,initial={'review.txt':'version = 1\n'},updates={'review.txt':'version = 2\n'})
+    record,raw = get_export(http_panel,t)
+    store = StateStore(t.runtime/'state.db'); payload = store.mission_config(t.mid)
+    # Inject prohibited frozen facts only in these isolated Git/SQLite fixtures.
+    if position in ('old','context'):
+        write(t.repo,{path:content+'version = 1\n'})
+        git(t.repo,'add','-A'); git(t.repo,'commit','-qm','prohibited baseline fixture')
+        payload['source']['source_commit'] = git(t.repo,'rev-parse','HEAD').decode().strip()
+        store.record_mission(t.mid,{'source':payload['source']})
+    if position in ('new','context'):
+        write(t.integ,{path:content+'version = 2\n'})
+        git(t.integ,'add','-A'); git(t.integ,'commit','-qm','prohibited result fixture')
+        store.record_mission(t.mid,{'integration_head':git(t.integ,'rev-parse','HEAD').decode().strip()})
+    if position == 'summary':
+        store.record_mission(t.mid,{'reason':content})
+    store.close()
+    index = Path(git(t.integ,'rev-parse','--path-format=absolute','--git-path','index').decode().strip())
+    prior_index = index.read_bytes(); prior_state = wt.git_state_snapshot(str(t.integ))
+    detail = get_result(http_panel,t)
+    if position != 'summary':
+        assert detail['status'] == 'restricted' and 'diff' not in detail
+        assert content.strip() not in detail['reason']
+    response = request(http_panel,'POST','/api/result/export',{'mission_id':t.mid})
+    assert response[0] == 400 and response[2]['ok'] is False
+    assert content.strip() not in response[2]['error']
+    assert len(results.facts(t.runtime,t.mid)[2]) == 1
+    assert not list((t.runtime/'exports').glob('*.partial'))
+    assert len(list((t.runtime/'exports').glob('*.zip'))) == 1
+    downloaded = request(http_panel,path='/api/result/download?mission_id='+t.mid+'&export_id='+record['identity'])
+    assert downloaded[0] == 200 and downloaded[2] == raw
+    assert index.read_bytes() == prior_index and wt.git_state_snapshot(str(t.integ)) == prior_state
+
+
 def test_lookalikes_full_patch_copy_and_modes(http_panel,tmp_path):
     t=archive_task(http_panel,tmp_path,initial={'copy.txt':'same\n'},updates={'copy2.txt':'same\n','data.pyconfig':'normal\n','.coverage_policy.py':'source\n','long.txt':'\n'.join('line '+str(i) for i in range(20000))})
     git(t.integ,'update-index','--chmod=+x','copy2.txt');git(t.integ,'commit','-qm','mode')
