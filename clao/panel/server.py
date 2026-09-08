@@ -119,6 +119,28 @@ class PanelState:
         self.started_mono = None
         self.last_summary = None
         self.errors = []
+        self.readiness = {'status': 'unchecked', 'reason': '尚未检查执行环境', 'checked_at': None}
+
+    def check_environment(self):
+        with self.lock:
+            if self.readiness['status'] == 'checking':
+                return dict(self.readiness)
+            self.readiness = {'status': 'checking', 'reason': '正在检查 Git、Codex 版本、登录和 Windows 沙箱',
+                              'started_at': time.time(), 'checked_at': None}
+            threading.Thread(target=self._check_environment, daemon=True, name='panel-readiness').start()
+            return dict(self.readiness)
+
+    def _check_environment(self):
+        started = time.monotonic()
+        try:
+            engine = run_mission.local_preflight(ROOT)
+            result = {'status': 'ready', 'reason': '工具、Codex 版本、已有登录和沙箱检查通过',
+                      'version': engine['version'], 'python': sys.version.split()[0]}
+        except Exception as exc:
+            result = {'status': 'needs_action', 'reason': str(exc),
+                      'action': '按上述原因处理后重新检查；仍可编辑草稿和查看历史。'}
+        with self.lock:
+            self.readiness = dict(result, checked_at=time.time(), elapsed_seconds=time.monotonic()-started)
 
     # ---- mission lifecycle
     def defaults(self):
@@ -131,15 +153,21 @@ class PanelState:
         return {"poll_seconds": cfg["runner"]["poll_seconds"], **{k: cfg["observer"][k] for k in
                 ("idle_audit_cooldown_seconds", "blocked_escalation_seconds", "l0_nudge_grace_seconds")}}
 
-    def start_mission(self, mission_dict: dict) -> str:
+    def start_mission(self, mission_dict: dict, *, config_snapshot=None) -> str:
         runtime = _runtime_dir(mission_dict.get("mission_id"))
         with self.lock:
             if self.loading or (self.thread and self.thread.is_alive()):
                 raise RuntimeError("已有任务在运行，先停止或等待完成")
-            cfg = self.defaults()
+            blocked = self.launch_blocked()
+            if blocked:
+                raise ClientError(blocked, 409)
+            cfg = restore_snapshot(config_snapshot) if config_snapshot is not None else self.defaults()
             self.loading = SimpleNamespace(runtime=runtime, mission_dict=mission_dict,
                 mission=SimpleNamespace(mission_id=mission_dict["mission_id"]), controller=None)
             self.rt = None
+            self.errors = []
+            self.last_summary = None
+            self.started_mono = None
         # Do not hold the Panel lock over preflight: GET/SSE must see progress
         # before these potentially slow requests return.
         try:
@@ -170,10 +198,12 @@ class PanelState:
         except Exception as e:
             self.errors.append("%s: runner: %s" % (now_iso(), e))
 
-    def stop(self):
+    def stop(self, mission_id=None):
         # The Controller persists receipt before latching/cleanup. A failed
         # receipt must not become an in-memory-only successful Stop request.
-        rt = self.rt
+        with self.lock:
+            self.check_target(mission_id)
+            rt = self.rt
         if rt is None or rt.controller is None:
             raise ClientError("没有可停止的已加载任务", 409)
         try:
@@ -202,9 +232,10 @@ class PanelState:
         return bool(self.thread and self.thread.is_alive())
 
     # ---- directive channel
-    def post_directive(self, target, text, command_id=None) -> dict:
+    def post_directive(self, target, text, command_id=None, mission_id=None) -> dict:
         from dataclasses import asdict
         with self.lock:
+            self.check_target(mission_id)
             if not self.rt or self.rt.controller is None:
                 raise ClientError('历史查看没有指令消费者；请先恢复或创建新 attempt', 409)
             directive = self.rt.controller.directives.post(target, text, command_id)
@@ -215,6 +246,7 @@ class PanelState:
     def approval(self, body):
         with self.lock:
             rt = self.rt
+            self.check_target(body.get('mission_id'))
             if not rt or not rt.controller or getattr(rt.adapter, 'backend', None) != 'codex_app_server':
                 raise ClientError('当前任务没有本地审批消费者', 409)
             if rt.store.mission_stop_requested(rt.mission.mission_id) or rt.controller.state in MISSION_TERMINAL:
@@ -226,6 +258,20 @@ class PanelState:
             if not isinstance(worker, str) or worker not in {t.worker_session_id for t in rt.controller.tasks.values()}:
                 raise ClientError('审批不属于当前任务', 400)
         return rt.adapter.resolve_approval(worker, body.get('request_id'), body.get('decision'), body.get('answers'))
+
+    def check_target(self, mid):
+        # Older clients may omit this; the product always binds writes to its view.
+        if mid is not None and (not self.rt or _mission_id(mid) != self.rt.mission.mission_id):
+            raise ClientError('操作目标已变化；请重新查看目标任务，不会提交到其他任务', 409)
+
+    def launch_blocked(self, payload=None):
+        rt = self.rt
+        if rt and getattr(rt, 'store', None) is not None:
+            row = payload if payload is not None else rt.store.mission_config(rt.mission.mission_id) or {}
+            if ((row.get('worker_stop') or {}).get('status') == 'UNKNOWN'
+                    or (row.get('local_execution') or {}).get('status') == 'unknown'):
+                return '当前执行停止尚未确认；不能启动另一任务，请保留记录并人工核对'
+        return ''
 
     # ---- persisted defaults (never mutate active runtime)
     def set_config(self, updates: dict) -> dict:
@@ -294,8 +340,12 @@ def list_missions() -> list:
                     state = payload.get("state", "?")
                     objective = (payload.get("mission") or {}
                                  ).get("objective", "")
-                out.append({"mission_id": d.name, "state": state,
-                            "objective": objective})
+                mission = payload.get('mission') or {} if r else {}
+                source = payload.get('source') or {} if r else {}
+                out.append({"mission_id": d.name, "state": state, "objective": objective,
+                            'project_id': mission.get('project_id'),
+                            'project_path': source.get('original_path') or source.get('project_path'),
+                            'execution_backend': payload.get('execution_backend', 'ao') if r else 'ao'})
             finally:
                 conn.close()
         except (OSError, sqlite3.Error, ValueError, TypeError, AttributeError) as exc:
@@ -304,12 +354,18 @@ def list_missions() -> list:
     return out
 
 
-def snapshot() -> dict:
+def snapshot(mission_id=None) -> dict:
     # Serialize full snapshots, not controller execution. Reconnect gets a full
     # replacement with a session epoch + monotonic sequence; no event replay.
     with PANEL.snapshot_lock:
         started = time.perf_counter()
-        snap = _snapshot()
+        historical = mission_id is not None and mission_id != getattr(getattr(PANEL.loading or PANEL.rt, 'mission', None), 'mission_id', None)
+        rt = None
+        if historical:
+            mission = _saved_mission(_mission_id(mission_id))
+            rt = SimpleNamespace(runtime=_runtime_dir(mission_id), mission_dict=mission,
+                                 mission=SimpleNamespace(mission_id=mission_id), controller=None)
+        snap = _snapshot(rt, historical=historical)
         PANEL.sequence += 1
         snap["stream"] = {"epoch": PANEL.stream_epoch, "sequence": PANEL.sequence,
                           "mission_id": (snap.get("mission") or {}).get("id"),
@@ -320,19 +376,23 @@ def snapshot() -> dict:
         return snap
 
 
-def _snapshot() -> dict:
+def _snapshot(view_rt=None, *, historical=False) -> dict:
     with PANEL.lock:
-        rt = PANEL.loading or PANEL.rt
-        active = bool(PANEL.loading or (PANEL.thread and PANEL.thread.is_alive()))
-        running = PANEL.running()
+        rt = view_rt if historical else PANEL.loading or PANEL.rt
+        active = not historical and bool(PANEL.loading or PANEL.running())
+        running = not historical and PANEL.running()
         live = {}
-        errs = PANEL.errors[-10:]
-        summary = PANEL.last_summary
+        errs = [] if historical else PANEL.errors[-10:]
+        summary = None if historical else PANEL.last_summary
     snap = {"ok": True, "running": running, "config": live,
             "panel_errors": errs, "last_summary": summary,
             "missions": [], "elapsed": None, "read_errors": [],
             "gate_query": {"status": "not_run", "records": [],
                            "error": None, "reason": "没有已加载的任务"}}
+    snap['readiness'] = dict(PANEL.readiness)
+    snap['preparing'] = not historical and bool(PANEL.loading)
+    snap['active_mission_id'] = getattr(getattr(PANEL.loading or PANEL.rt, 'mission', None), 'mission_id', None)
+    snap['active_running'] = bool(PANEL.loading or PANEL.running())
 
     def read(source, action, default):
         try:
@@ -342,6 +402,7 @@ def _snapshot() -> dict:
             snap["read_errors"].append({"source": source, "error": str(exc)})
             return default
 
+    snap['launch_blocked'] = read('停止事实', PANEL.launch_blocked, '停止事实读取失败，暂不能启动任务')
     defaults = read("default configuration", lambda: PANEL.defaults().snapshot(), None)
     snap["default_config"] = defaults
     if defaults:
@@ -357,6 +418,10 @@ def _snapshot() -> dict:
         return snap
     if PANEL.started_mono and running:
         snap["elapsed"] = round(time.monotonic() - PANEL.started_mono, 1)
+    if snap['preparing'] and not _runtime_file(rt, 'state.db').exists():
+        snap['mission'] = {'id': rt.mission.mission_id, 'state': 'preflight',
+                           'objective': rt.mission_dict.get('objective', ''), 'reason': '正在准备任务'}
+        return snap
     try:
         conn = _ro_conn(_runtime_file(rt, "state.db"))
     except Exception as e:
@@ -365,8 +430,8 @@ def _snapshot() -> dict:
         snap["gate_query"] = {"status": "read_error", "records": [], "error": str(e)}
         snap["mission_config"] = {"status": "read_error", "snapshot": None}
         snap["phases"] = {"status": "read_error", "records": [], "sequence": None, "error": str(e)}
-        snap["mission"] = {"id": rt.mission.mission_id, "state": "?",
-                           "error": str(e)}
+        snap["mission"] = {"id": rt.mission.mission_id, "state": "preflight" if snap['preparing'] else "?",
+                           "objective": rt.mission_dict.get('objective', ''), "error": str(e)}
         return snap
 
     try:
@@ -383,6 +448,9 @@ def _snapshot() -> dict:
 
         mission_rows = read("mission", lambda: _payloads("missions", 1), [])
         mission_payload = mission_rows[0] if mission_rows else {}
+        if not historical and mission_rows:
+            # Project the launch restriction from the same stop fact shown below.
+            snap['launch_blocked'] = PANEL.launch_blocked(mission_payload)
         saved = mission_payload.get("effective_config")
         snap["mission_config"] = {"status": "historical_missing" if saved is None else "ok",
                                   "snapshot": read("Mission configuration", lambda: restore_snapshot(saved).snapshot(), None) if saved is not None else None}
@@ -396,7 +464,7 @@ def _snapshot() -> dict:
         diag = getattr(rt, "diagnostics", None)
         if diag is not None:
             snap["panel_errors"] = snap["panel_errors"] + list(diag.errors)
-        mstate = mission_payload.get("state") or ("preflight" if PANEL.loading else "unknown")
+        mstate = 'preflight' if snap['preparing'] else mission_payload.get("state") or 'unknown'
         counters = dict(read("counters", lambda: _rows(conn,
                                            "SELECT name, value FROM counters"), []))
         transitions = read("transitions", lambda: _rows(conn,
@@ -439,6 +507,7 @@ def _snapshot() -> dict:
                 "previous_attempt": mission_payload.get('previous_attempt'),
                 "inspection_only": rt.controller is None,
                 "objective": rt.mission_dict.get("objective", ""),
+                'project_id': rt.mission_dict.get('project_id'),
             },
             "subtasks": sorted(tasks, key=lambda t: t["task_id"]),
             "transitions": [{"task": t[0], "to": t[1], "actor": t[2],
@@ -451,6 +520,29 @@ def _snapshot() -> dict:
             "counters": counters,
             "directives_pending": rt.controller.directives.pending_count() if rt.controller else None,
         })
+        # Availability is a filesystem fact, not proof of final acceptance.
+        try:
+            result_path = _runtime_file(rt, 'integration')
+            available = result_path.is_dir()
+            snap['result'] = {'status': 'available' if available else 'missing' if mission_payload.get('merged') else 'not_produced',
+                              'path': str(result_path) if available or mission_payload.get('merged') else None,
+                              'accepted': mstate == 'MISSION_DONE',
+                              'reason': '已通过最终验收' if mstate == 'MISSION_DONE' else '尚未通过 Mission 最终验收'}
+            snap['mission']['result_path'] = str(result_path) if available else None
+        except (OSError, ValueError) as exc:
+            snap['result'] = {'status': 'read_error', 'path': None, 'accepted': False, 'reason': str(exc)}
+            snap['mission']['result_path'] = None
+        # This is only an action availability projection. Resume still performs
+        # the complete read-only checkpoint/source/engine checks at its boundary.
+        worker_unknown = (mission_payload.get('worker_stop', {}).get('status') == 'UNKNOWN'
+            or mission_payload.get('cancellation', {}).get('status') == 'unknown'
+            or mission_payload.get('local_execution', {}).get('status') in ('running', 'unknown')
+            or any(w.get('state') in ('active', 'waiting_input', 'starting', 'unknown') for w in mission_payload.get('local_workers', {}).values()))
+        if mstate in MISSION_TERMINAL and any(t.get('worker_session_id') for t in tasks):
+            worker_unknown = worker_unknown or mission_payload.get('worker_stop', {}).get('status') != 'CONFIRMED'
+        reason = '当前有任务运行，请等待或取消当前执行' if snap['active_running'] else '停止尚未确认；保留记录并人工核对' if worker_unknown else '历史缺少配置快照，仅可查看' if saved is None else ''
+        snap['actions'] = {'resume': not reason and mstate not in MISSION_TERMINAL,
+                           'new_attempt': not reason and mstate in MISSION_TERMINAL, 'reason': reason}
         snap['approvals'] = []
         snap['approval_receipts'] = []
         if rt.controller is None and mission_payload.get('execution_backend') == 'codex_app_server':
@@ -471,11 +563,18 @@ def _snapshot() -> dict:
                     policy = rt.adapter.approval_policy(task.worker_session_id, request)
                     params = request['params']
                     snap['approvals'].append({'worker_id': task.worker_session_id,
+                        'mission_id': rt.mission.mission_id, 'task_id': task.task_id,
+                        'task_objective': task.objective,
                         'request_id': request['request_id'], 'method': request['method'],
                         'reason': params.get('reason'), 'command': params.get('command'), 'cwd': params.get('cwd'),
                         'questions': params.get('questions'), 'policy_reason': policy.reason,
                         'policy': 'AUTO' if policy.allow else 'REVIEW' if policy.reviewable else 'PROHIBITED_OR_UNSUPPORTED',
                         'paths': [c.get('path') for c in (request.get('item') or {}).get('changes', [])],
+                        'changes': [{'path': c.get('path'), 'kind': c.get('kind'),
+                                     'diff': str(c.get('diff') or '')[:20000],
+                                     'truncated': len(str(c.get('diff') or '')) > 20000}
+                                    for c in (request.get('item') or {}).get('changes', [])],
+                        'decline_supported': request['method'] in ('item/commandExecution/requestApproval', 'item/fileChange/requestApproval'),
                         'allow_once_supported': policy.allow or policy.reviewable})
         if snap["gate_query"]["status"] == "read_error":
             snap["ok"] = False
@@ -651,6 +750,10 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/state":
             self._json(snapshot())
             return
+        if path == '/api/mission':
+            q = self._query({'mission_id'})
+            self._json(snapshot(_mission_id(q['mission_id'])))
+            return
         if path == "/api/projects":
             try:
                 from loopcore.local_projects import projects
@@ -669,7 +772,7 @@ class Handler(BaseHTTPRequestHandler):
                 q = urllib.parse.parse_qs(query, keep_blank_values=True, errors="strict")
             except UnicodeError as exc:
                 raise ClientError("invalid query encoding") from exc
-            if set(q) != {"name"} or len(q["name"]) != 1:
+            if set(q) not in ({'name'}, {'name', 'mission_id'}) or any(len(v) != 1 for v in q.values()):
                 raise ClientError("one file name required")
             name = (q.get("name") or [""])[0]
             if name not in ("memory.md", "project.md"):
@@ -677,6 +780,11 @@ class Handler(BaseHTTPRequestHandler):
                 return
             with PANEL.lock:
                 rt = PANEL.rt
+            if 'mission_id' in q:
+                mid = _mission_id(q['mission_id'][0])
+                mission = _saved_mission(mid)
+                rt = SimpleNamespace(runtime=_runtime_dir(mid), mission_dict=mission,
+                                     mission=SimpleNamespace(mission_id=mid), controller=None)
             if not rt:
                 self._json({"ok": False, "error": "no mission"}, 400)
                 return
@@ -684,6 +792,18 @@ class Handler(BaseHTTPRequestHandler):
                         "content": read_file(rt, name)})
             return
         self._json({"ok": False, "error": "not found"}, 404)
+
+    def _query(self, keys):
+        query = urllib.parse.urlparse(self.path).query
+        if re.search(r'%(?![0-9a-fA-F]{2})', query):
+            raise ClientError('invalid query encoding')
+        try:
+            q = urllib.parse.parse_qs(query, keep_blank_values=True, errors='strict')
+        except UnicodeError as exc:
+            raise ClientError('invalid query encoding') from exc
+        if set(q) != keys or any(len(v) != 1 for v in q.values()):
+            raise ClientError('invalid query fields')
+        return {k: v[0] for k, v in q.items()}
 
     def do_POST(self):
         self._received_epoch = time.time()
@@ -696,6 +816,14 @@ class Handler(BaseHTTPRequestHandler):
                 self._discard_rejected_body()
                 raise
             body = self._body()
+            if path == '/api/readiness':
+                self._json({'ok': True, 'readiness': PANEL.check_environment()}, 202)
+                return
+            if path == '/api/mission-config':
+                base = restore_snapshot(body['base']) if 'base' in body else PANEL.defaults()
+                cfg = resolve_config(base, overrides=body.get('overrides', {}))
+                self._json({'ok': True, 'snapshot': cfg.snapshot()})
+                return
             if path == '/api/projects/open' or path == '/api/projects/create':
                 from loopcore.local_projects import register
                 self._json({'ok': True, 'project': register(ROOT, body.get('path'), create=path.endswith('/create'))})
@@ -735,10 +863,10 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(self._attach(body))
                 return
             if path == "/api/stop":
-                self._json(PANEL.stop())
+                self._json(PANEL.stop(body.get('mission_id')))
                 return
             if path == "/api/directive":
-                d = PANEL.post_directive(body.get("target"), body.get("text"), body.get("command_id"))
+                d = PANEL.post_directive(body.get("target"), body.get("text"), body.get("command_id"), body.get('mission_id'))
                 self._json({"ok": True, "directive": d})
                 return
             if path == "/api/config":
@@ -763,9 +891,9 @@ class Handler(BaseHTTPRequestHandler):
         if not objective:
             raise RuntimeError("objective 不能为空")
         mid = "MISSION-PANEL-%s-%s" % (time.strftime("%Y%m%d-%H%M%S"), secrets.token_hex(4))
-        allowed = [p.strip() for p in (body.get("allowed_paths") or "")
-                   .splitlines() if p.strip()] or ["app.py", "math2.py",
-                                                   "tests/**"]
+        allowed = [p.strip() for p in (body.get("allowed_paths") or "").splitlines() if p.strip()]
+        if not allowed:
+            raise ClientError('允许修改范围不能为空；请填写实际确认的路径')
         acs = []
         for i, line in enumerate((body.get("acceptance_criteria") or "")
                                  .splitlines()):
@@ -775,10 +903,16 @@ class Handler(BaseHTTPRequestHandler):
         if not acs:
             raise RuntimeError("至少一条验收条件")
         gates = [g.strip() for g in (body.get("gate_commands") or "")
-                 .splitlines() if g.strip()] or ["python -m pytest -q"]
-        max_subtasks = body["max_subtasks"] if "max_subtasks" in body else PANEL.defaults()["budgets"]["max_subtasks"]
+                 .splitlines() if g.strip()]
+        if not gates:
+            raise ClientError('至少填写一条明确授权的 Gate 命令')
+        cfg = restore_snapshot(body['config_snapshot']) if 'config_snapshot' in body else PANEL.defaults()
+        max_subtasks = body["max_subtasks"] if "max_subtasks" in body else cfg["budgets"]["max_subtasks"]
         if type(max_subtasks) is not int or max_subtasks not in (1, 2):
             raise ClientError("budgets.max_subtasks must be 1 or 2 (integer)")
+        if 'config_snapshot' in body and max_subtasks != cfg['budgets']['max_subtasks']:
+            raise ClientError('子任务预算与确认配置不一致')
+        forbidden = [p.strip() for p in (body.get('forbidden_paths') or '').splitlines() if p.strip()]
         mission = {
             "mission_id": mid,
             "project_id": project_id,
@@ -786,12 +920,12 @@ class Handler(BaseHTTPRequestHandler):
             "source_revision": body.get("source_revision"),
             "objective": objective,
             "allowed_paths": allowed,
-            "forbidden_paths": [".git/**"],
+            "forbidden_paths": list(dict.fromkeys(['.git/**', *forbidden])),
             "acceptance_criteria": acs,
             "gate_commands": gates,
             "user_instruction": body.get("user_instruction") or "",
             "worker_harness": "codex",
-            "budgets": {"max_subtasks": max_subtasks},
+            "budgets": dict(cfg['budgets'], max_subtasks=max_subtasks),
         }
         # persist for resume/reference
         _runtime_dir(mid)
@@ -799,7 +933,7 @@ class Handler(BaseHTTPRequestHandler):
         tasks_dir.mkdir(exist_ok=True)
         _contained(tasks_dir, tasks_dir / ("%s.json" % mid.lower())).write_text(
             json.dumps(mission, ensure_ascii=False, indent=2), "utf-8")
-        PANEL.start_mission(mission)
+        PANEL.start_mission(mission, config_snapshot=cfg.snapshot())
         return {"ok": True, "mission_id": mid}
 
     def _resume(self, body: dict) -> dict:

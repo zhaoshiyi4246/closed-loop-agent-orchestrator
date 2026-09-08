@@ -1,6 +1,6 @@
 # CLAO v0.3 任务与验收台账
 
-版本：0.3-plan-r1 · 2026-09-06。状态：已批准 / IN EFFECT。DOC-00、F01–F05、R01 / R02 已完成（DONE），M0 / M1 / M2 为 `COMPLETE`；U01 已审计合入（`DONE`），M3 `IN_PROGRESS`；唯一执行任务 U02 `IN_PROGRESS`（首切片 `DONE`，下一切片“完整任务旅程与 GUI 数据接线” `TODO`、尚未开始）；其余功能卡状态见下表，原报告的发现不等于已复现或已修复。
+版本：0.3-plan-r1 · 2026-09-06。状态：已批准 / IN EFFECT。DOC-00、F01–F05、R01 / R02 已完成（DONE），M0 / M1 / M2 为 `COMPLETE`；U01 已审计合入（`DONE`），M3 `IN_PROGRESS`；唯一执行任务 U02 `IN_REVIEW`（首切片 `DONE`，本切片“完整任务旅程与 GUI 数据接线” `IN_REVIEW`）；其余功能卡状态见下表，原报告的发现不等于已复现或已修复。
 
 设计以 [V03_PLAN.md](V03_PLAN.md) 为准。当前唯一任务由根目录 [PLANS.md](../PLANS.md) 指定。本文件保存每张卡的详细状态和证据，PLANS 不重复整张台账。
 
@@ -41,7 +41,7 @@
 | V03-R01 | M2 | 有效配置与阶段诊断 | F01/F04 | DONE（PR #37 再次审计 PASS / merged） |
 | V03-R02 | M2 | 指令回执、取消恢复、固定基线 | F03/F05/R01 | DONE（PR #38 审计 PASS / merged） |
 | V03-U01 | M3 | iPhone风格界面骨架与状态夹具 | G1；R01/R02字段设计 | DONE（PR #39 代码/产品整改审计 PASS / merged） |
-| V03-U02 | M3 | 完整任务GUI与数据接线 | U01/R02/F04 | IN_PROGRESS（首切片 DONE / PR #40 审计 PASS / merged） |
+| V03-U02 | M3 | 完整任务GUI与数据接线 | U01/R02/F04 | IN_REVIEW（首切片 DONE / PR #40 审计 PASS / merged；完整旅程等待审计） |
 | V03-U03 | M3 | 结果中心与独立导出 | U02/F03 | TODO |
 | V03-P01 | M4 | 模型配置／凭据与GLM语义后端 | F01/R01/F04 | TODO |
 | V03-P02 | M4 | Kimi语义后端与切换评测 | P01 | TODO |
@@ -259,7 +259,7 @@ G1=F01—F05；G2=R01—R02；G3=U01—U03；G4=P01—P02及P03有记录的支�
 
 ## V03-U02｜完整任务GUI与数据接线
 
-- 状态：U02 IN_PROGRESS；首个切片“独立项目入口与本地执行” DONE；[PR #40](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/40) 四项返修再次外部审计 PASS，2026-09-08 已 rebase merge 到 main `3d0a33ebd69b6184f9e47dffca87895aba2d960a`，tree 与已审计 head `4dc536cfa493d1b4ea8a8c36b8c78f5c7e9e7b43` 相同。采用 Codex 0.150.1 App Server 本地 stdio，新本地任务不依赖 AO 项目/daemon；U02 整卡未完成。
+- 状态：U02 IN_REVIEW；首个切片“独立项目入口与本地执行” DONE；[PR #40](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/40) 四项返修再次外部审计 PASS，2026-09-08 已 rebase merge 到 main `3d0a33ebd69b6184f9e47dffca87895aba2d960a`，tree 与已审计 head `4dc536cfa493d1b4ea8a8c36b8c78f5c7e9e7b43` 相同。采用 Codex 0.150.1 App Server 本地 stdio，新本地任务不依赖 AO 项目/daemon；完整旅程实现等待审计，不提前标 DONE。
 - 对应：A04/A05/A06/A08。依赖：U01+G2。
 - 顺序（D10，2026-09-08 首切片授权）：先本地项目与 Codex App Server stdio 执行，再完整任务旅程。新本地任务不要求 AO/GitHub/origin；本轮采用本机 0.150.1，不迁移语义角色 CLI，不升级用户环境。
 - 工作：真实就绪卡；显式Project与base确认；目标/范围/Gate/模型摘要；运行阶段、审批、取消、历史与重试；大错误常驻；真实角色调用与证据scope。
@@ -287,7 +287,21 @@ PR #40 审计返修证据（再次外部审计 PASS，已合入）：
 - 最后历史回答回执 + 两个 U02 实际 Edge 流程 + R02 历史只读节点 **4 passed / 27.71s**；正常回答仍到真实 Gate/Verifier 结果，历史 HTTP 中采纳仍为 UNKNOWN。Python compileall、JS 语法、diff-check、本地文档链接检查通过；本轮没有重跑首轮大集合、全量、打包、smoke 或真实模型。
 - 0.150.1 本机生成 schema 复查：7 个客户端请求/通知、12 个服务端消息通过，含 `environmentId=local` 与不同 raw/display 命令。真实模型仍 NOT_RUN，不将替身或 schema 验证写成真实任务验收。U02 首切片 DONE，U02/M3 IN_PROGRESS。
 - 收尾仅检查文档链接、路径、差异与产品 blob；沿用上述验证，不重跑测试、构建、smoke 或真实模型。仍需已安装 Python/Git/Codex、已有登录及受支持的 Windows 沙箱；任意进程重连、独立导出与安装器未实现。旧 AO 历史只读与显式 AO 兼容后端独立保留，不将协议替身/浏览器验证写成真实模型或发布验收。
-- 唯一下一执行内容：U02“完整任务旅程与 GUI 数据接线”，TODO，尚未开始；U01 DONE，M0/M1/M2 COMPLETE，M3 IN_PROGRESS；U03/模型扩展/发布任务未推进。
+- 当前执行内容：U02“完整任务旅程与 GUI 数据接线”，本切片及整卡 IN_REVIEW；U01 DONE，M0/M1/M2 COMPLETE，M3 IN_PROGRESS；U03/模型扩展/发布任务未推进。
+
+完整任务旅程切片（2026-09-08）：
+
+- base `752ef0fbef10c638629bbbf2f1ef3f01e7d4ba72`，分支 `codex/v03-u02-task-journey`。同一启动 preflight 提供按需环境检查；四步表单确认项目/source、允许/禁止范围、多 Gate 与无密钥配置快照；移除空范围/空 Gate 的演示默认值。默认设置变化不改当前任务或已确认草稿，下个新任务才读取新默认值。
+- 运行准备、真实角色阶段、审批/回答、取消与停止未知分别显示。审批可查看引擎已有 diff，截断明确标识；禁止批准仍可按后端能力拒绝，结构化问题显示真实选项。保留 F04 写保护、F05/R02 回执与 UNKNOWN，不重写协议/控制器。
+- 历史详情采用只读 GET 查询，不 attach 到运行时；运行 A 时查看 B 不替换/停止 A。目标搜索/项目/状态筛选、任务归属写入检查、独立草稿及过期异步响应保护避免串数据。刷新保留任务视图，SSE 断连保留记录、重连不重放写操作。恢复检查仍由现有后端决定；结果目录可用性与 Mission 验收独立表达，失效位置和未通过产物不显示为成功交付。
+- Windows 产品 venv / CPython 3.12.7，Scripts 前置 PATH，`src` 与产品目录为 PYTHONPATH。最终 `pytest tests/test_u02_journey.py tests/test_u02_local_execution.py::test_actual_browser_local_project_to_result tests/test_f04_panel_boundaries.py::test_real_browser_text_rendering_nonce_and_pending_writes -k 'not actual_journey_browser' -q --tb=short`：**27 passed / 4 deselected / 63.57s**；其中 23 项新 HTTP/配置/真实闭环检查和 4 项既有浏览器兼容检查。
+- `pytest tests/test_u02_journey.py -k actual_journey_browser -q --tb=short` 对应的 4 条实际 Edge 旅程通过（最终命令含上述另 4 个指定节点，被筛选后 **4 passed / 27 deselected / 39.32s**）：环境未登录、正常任务至 Gate/Verifier、禁止文件差异/拒绝及运行中查看历史、取消停止未知。覆盖 1440/1366/768/390 四种宽度的浅深主题、键盘/草稿、安全文本、双击去重、历史刷新与延迟读取错误；200% 采用等效布局 viewport + CSS zoom 操作可达性检查，不冒称浏览器原生缩放已人工验收。
+- 兼容定向：F04 Panel 文件 **119 passed / 56.77s**；U02 `-k 'actual_browser or actual_panel_mission or actual_http_question or audit_history or audit_http_history or audit_http_cancel or new_attempt or green_worker or interrupt_ack'` **17 passed / 46 deselected / 65.37s**。均非全量，各轮集合重叠不累计。
+- 检查中保留过的失败：两次 Final Gate 读到同秒/同长度的旧 Python pyc，而实际交付源码正确；隔离测试改为直接执行源码，保留 `x == 2` 断言，产品仍正确阻断失败。停止轮询空值修正后揭示快照两次读取间的状态变化，已让启动限制与展示使用同一持久 stop fact，并验证 UNKNOWN 不能创建第二 Worker。最终上述用例均通过，未删负例或弱化断言。
+- 截图自查后的停止阶段文字复查：`pytest tests/test_u02_journey.py -k 'actual_journey_browser and kill_live' -q --tb=short` → **1 passed / 26 deselected / 10.80s**。修改的 Python compileall、3 个产品/开发 JS 语法及 diff-check 通过；文档本地链接存在性检查通过，未改发布映射或新增运行资源。
+- 实际截图（隔离协议进程，非真实模型）：[环境未就绪](assets/u02-task-journey/environment-unready.png)、[任务结果](assets/u02-task-journey/task-result.png)、[运行 A 时查看历史 B](assets/u02-task-journey/history-during-execution.png)、[禁止文件差异与拒绝](assets/u02-task-journey/approval-review.png)、[窄屏深色停止未知](assets/u02-task-journey/stop-unknown-dark.png)。Codex 已逐张自查，不等同负责人体验/视觉审计 PASS。
+- 本地查看：正常启动 `clao/启动CLAO.bat`；打开概览点击“检查环境”，不创建 Worker/模型调用。离线复现上面四条旅程：设开发 Node 可执行路径为 `U01_NODE`、Playwright 所在 node_modules 为 `NODE_PATH`，在 `clao/` 按上述环境运行 `pytest tests/test_u02_journey.py -k actual_journey_browser -q -s`；可用 `U02_JOURNEY_SCREENSHOTS` 指定截图输出目录。测试使用临时 HTTP/Git/SQLite 与原 Controller，仅外部引擎/语义 Provider 替身；脚本在发布外 `dev/panel/u02-journey.cjs`，正式产品不提供演示资源或参数入口。
+- NOT_RUN：全量、安装/clean install、打包、smoke、真实 AO/收费模型、最终发布兼容性及负责人完整体验审计。仍需已安装工具、现有登录与受支持的 Windows 沙箱；不支持任意进程重连、不增加并发，U03 独立导出、模型扩展、安装器未实施。提交后停止等待审计，不合并、不创建 tag/Release。
 
 
 ## V03-U03｜结果中心与独立导出

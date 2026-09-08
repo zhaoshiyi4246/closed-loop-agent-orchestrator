@@ -1,10 +1,12 @@
 
 let LAST = null, ACTIVE_TAB = "ev", PROJECTS = [];
-let SOURCE=null;
+let SOURCE=null, LIVE=null, HISTORY=null, HISTORY_REQUEST=0;
+let FORM_BASE=null, FORM_CONFIG=null, CONFIG_VERSION=0;
+const DIRECTIVE_DRAFTS=new Map();let DIRECTIVE_MISSION=null;
 let VIEW="overview", DETAIL_ID=null, WIZARD_STEP=0, PROJECT_ERROR="";
 const $ = id => document.getElementById(id);
 const PANEL_NONCE = document.currentScript.nonce;
-const PENDING = new Set(), UI_ERRORS = new Map();
+const PENDING = new Set(), UI_ERRORS = new Map(), ERROR_MISSIONS=new Map();
 const text = value => value == null ? "" : (typeof value === "object" ? JSON.stringify(value) : String(value));
 function el(tag, value, cls){
   const node=document.createElement(tag);
@@ -15,28 +17,30 @@ function el(tag, value, cls){
 const STATES=new Set(["RUNNING","MISSION_READY","MISSION_DONE","DONE","HUMAN","FAILED","CANCELLING","CANCELLED","WORKER_RUNNING","WORKER_RETRYING"]);
 function toast(msg){ const node=$("toast"); node.textContent=msg; node.style.display="block";
   setTimeout(()=>node.style.display="none",2600); }
-function uiError(source,error){
-  if(error) UI_ERRORS.set(source,text(error)); else UI_ERRORS.delete(source);
+function uiError(source,error,missionId=null){
+  if(error){UI_ERRORS.set(source,text(error));if(missionId)ERROR_MISSIONS.set(source,missionId);}else{UI_ERRORS.delete(source);ERROR_MISSIONS.delete(source);}
   showClientErrors();
-  if(source==="mission") $("formSubmitError").textContent=error?text(error):"";
+  if(source==="mission" && !missionId) {$("formSubmitError").textContent=error?text(error):"";if(error) $("formSubmitStatus").textContent="启动未完成，草稿已保留。";if(error && /来源|source|revision/.test(text(error))){$("sourceConfirmError").textContent=text(error);$("sourceConfirmed").checked=false;}}
+  if(source==="config-preview") $("missionParametersError").textContent=error?text(error):"";
   if(source==="config") $("settingsError").textContent=error?text(error):"";
-  if(source==="project" || source==="source") $("projectPathError").textContent=error?text(error):"";
+  if(source==="project" || source==="source") {$("projectPathError").textContent=error?text(error):"";if(source==="source" && error) $("sourceSummary").textContent="来源读取失败，请重试。";}
   if($("retryMission").open) $("retryError").textContent=error?text(error):"";
 }
 function showClientErrors(){
-  const visible=[...UI_ERRORS].filter(([key])=>!(key==="config" && VIEW==="settings") && !(key==="mission" && $("newMission").open));
-  $("clientErrors").textContent=visible.map(([key,value])=>key+"："+value).join("\n");
+  const visible=[...UI_ERRORS].filter(([key])=>!ERROR_MISSIONS.has(key) || ERROR_MISSIONS.get(key)===(VIEW==="tasks"?DETAIL_ID:LIVE?.mission?.id)).filter(([key])=>!(key==="config" && VIEW==="settings") && !(key==="mission" && $("newMission").open));
+  $("clientErrors").textContent=visible.map(([key,value])=>(key.startsWith("approval:")?"审批":({mission:"新任务",directive:"补充指令",stop:"取消",readiness:"环境检查",source:"来源",project:"项目",config:"设置","config-preview":"本次配置"})[key] || key)+"："+value).join("\n");
   $("clientErrors").hidden=visible.length===0;
 }
 function syncButtons(){
   document.querySelectorAll("[data-write-key]").forEach(b=>b.disabled=PENDING.has(b.dataset.writeKey) || b.dataset.blocked==="1");
-  $("btnStop").disabled=PENDING.has("stop") || !LAST?.running || !!LAST?.mission?.stop_request;
-  $("btnSend").disabled=PENDING.has("directive") || !LAST?.running || !!LAST?.mission?.stop_request || !!LAST?.mission?.inspection_only;
-  $("btnStart").disabled=PENDING.has("mission") || $("f_project").disabled || !PROJECTS.length || !$("f_project").value || !!LAST?.running;
+  const activeView=LAST?.mission?.id===LIVE?.mission?.id;
+  $("btnStop").disabled=PENDING.has("stop") || !activeView || !LIVE?.running || !!LAST?.mission?.stop_request;
+  $("btnSend").disabled=PENDING.has("directive") || !activeView || !LIVE?.running || !!LAST?.mission?.stop_request || !!LAST?.mission?.inspection_only;
+  $("btnStart").disabled=!!LIVE?.launch_blocked || PENDING.has("mission") || $("f_project").disabled || !PROJECTS.length || !$("f_project").value || !!(LIVE?.running || LIVE?.preparing);
 }
 async function writeAction(key,path,body,success){
   if(PENDING.has(key)) return;
-  PENDING.add(key); syncButtons();
+  PENDING.add(key); uiError(key,null); syncButtons();
   const requestStarted=performance.now();
   try{
     const response=await fetch(path,{method:"POST",headers:{"Content-Type":"application/json","X-Panel-Nonce":PANEL_NONCE},body:JSON.stringify(body)});
@@ -45,7 +49,7 @@ async function writeAction(key,path,body,success){
     renderTiming();
     if(!response.ok || !data.ok) throw new Error(data.error || "请求失败（HTTP "+response.status+"）");
     uiError(key,null); if(success) await success(data);
-  }catch(error){ uiError(key,error.message); toast(error.message); }
+  }catch(error){ uiError(key,error.message,body.mission_id); if(!body.mission_id || body.mission_id===DETAIL_ID) toast(error.message); }
   finally{ PENDING.delete(key); syncButtons(); }
 }
 function actionButton(label,key,action){
@@ -65,12 +69,15 @@ document.querySelectorAll(".tabs button").forEach(b=>{
 });
 async function loadFile(name){
   const target=$(name==="memory.md"?"memPre":"projPre");
+  const mid=DETAIL_ID || LAST?.mission?.id;
+  if(!mid) return;
   try{
-    const response=await fetch("/api/file?name="+encodeURIComponent(name));
+    const response=await fetch("/api/file?name="+encodeURIComponent(name)+"&mission_id="+encodeURIComponent(mid));
     const data=await response.json();
     if(!response.ok || !data.ok) throw new Error(data.error || "文件读取失败");
+    if(mid!==DETAIL_ID) return;
     target.textContent=data.content; uiError(name,null);
-  }catch(error){ target.textContent=error.message; uiError(name,error.message); }
+  }catch(error){ if(mid!==DETAIL_ID) return; target.textContent=error.message; uiError(name,error.message,mid); }
 }
 
 /* ---------------- render: dynamic values are text, never markup ---------------- */
@@ -112,10 +119,13 @@ function acceptSnapshot(s){
   if(stream){
     if(OLD_EPOCHS.has(stream.epoch)) return false;
     if(STREAM_EPOCH===stream.epoch && stream.sequence<=STREAM_SEQ) return false;
-    if(STREAM_EPOCH && STREAM_EPOCH!==stream.epoch) OLD_EPOCHS.add(STREAM_EPOCH);
+    if(STREAM_EPOCH && STREAM_EPOCH!==stream.epoch){OLD_EPOCHS.add(STREAM_EPOCH);HISTORY=null;HISTORY_REQUEST++;loadHistory.target=null;}
     STREAM_EPOCH=stream.epoch; STREAM_SEQ=stream.sequence;
   }
-  RECEIVED_MONO=performance.now(); DISCONNECTED_MONO=null; CONNECTED=true; render(s); return true;
+  const runtimeChanged=LIVE && (LIVE.mission?.id!==s.mission?.id || !!(LIVE.running || LIVE.preparing)!==!!(s.running || s.preparing) || LIVE.launch_blocked!==s.launch_blocked);
+  RECEIVED_MONO=performance.now(); DISCONNECTED_MONO=null; CONNECTED=true; LIVE=s; renderSelected();
+  if(DETAIL_ID && DETAIL_ID!==s.mission?.id && (HISTORY?.mission?.id!==DETAIL_ID || runtimeChanged)) loadHistory(DETAIL_ID,!!runtimeChanged);
+  return true;
 }
 function configText(snapshot,fields){
   if(!snapshot) return "unknown";
@@ -161,6 +171,7 @@ function renderPhases(){
   renderFriendlyPhase();
 }
 function render(s){
+  if(DIRECTIVE_MISSION!==s.mission?.id){if(DIRECTIVE_MISSION) DIRECTIVE_DRAFTS.set(DIRECTIVE_MISSION,[$("d_text").value,$("d_target").value]);const draft=DIRECTIVE_DRAFTS.get(s.mission?.id) || ["","planner"];$("d_text").value=draft[0];$("d_target").value=draft[1];DIRECTIVE_MISSION=s.mission?.id;}
   LAST=s;
   const m=s.mission, st=m?m.state:"空闲";
   $("missionState").textContent=m?text(m.id)+" · "+text(st):"空闲（新建或查看历史任务）";
@@ -246,7 +257,7 @@ function render(s){
   }
   if(!alerts.childNodes.length) alerts.append(el("span","无告警"));
   $("d_hint").textContent=m?"":"（先启动或查看一个任务）";
-  renderWorkbench(s);
+  renderWorkbench(LIVE || s);
   syncButtons();
 }
 
@@ -261,6 +272,7 @@ function icon(name,tile){
   if(!tile) return svg;
   const box=el("span",null,"icon-tile "+tile);box.append(svg);return box;
 }
+function factsFor(m){return (m?.id || m?.mission_id)===LIVE?.mission?.id?LIVE:(m?.id || m?.mission_id)===LAST?.mission?.id?LAST:null;}
 function stateInfo(m){
   if(!m) return ["待开始","neutral"];
   if(m.cancellation?.status==="unknown" || m.worker_stop?.status==="UNKNOWN" && m.state!=="CANCELLING") return ["需处理","wait"];
@@ -269,8 +281,9 @@ function stateInfo(m){
   if(m.state==="MISSION_DONE") return ["已完成","good"];
   if(m.state==="FAILED") return ["需处理","bad"];
   if(m.state==="HUMAN") return ["需处理","wait"];
-  const phase=latestPhase();
-  if((m.id || m.mission_id)===LAST?.mission?.id && phase?.status==="running" && ["approval_wait","approval_waiting"].includes(phase.phase)) return ["需处理","wait"];
+  const facts=factsFor(m),phase=latestPhase(facts);
+  if(facts?.approvals?.length) return ["需处理","wait"];
+  if((m.id || m.mission_id)===facts?.mission?.id && phase?.status==="running" && ["approval_wait","approval_waiting"].includes(phase.phase)) return ["需处理","wait"];
   if(m.state==="MISSION_READY" && !((m.id || m.mission_id)===LAST?.mission?.id && LAST?.running)) return ["待开始","neutral"];
   if(["MISSION_READY","RUNNING","preflight","VERIFIER_PENDING"].includes(m.state)) return ["进行中","active"];
   return ["需处理","wait"];
@@ -283,17 +296,23 @@ function taskStatus(task){
   return el("span","需处理","status "+(task.state==="FAILED"?"bad":"wait"));
 }
 function taskReason(m){
+  const source=factsFor(m);
+  if(source?.panel_errors?.length) return text(source.panel_errors.at(-1));
+  if(m?.error) return text(m.error);
+  if(m?.reason==="cancellation stop facts UNKNOWN") return "取消请求已接收，但执行停止尚未确认。";
+  if(m?.reason==="final gate pass + verifier PASS") return "最终验收与复核通过。";
   if(m?.reason) return text(m.reason);
   if(m?.cancellation?.status==="unknown" || m?.worker_stop?.status==="UNKNOWN") return "停止尚未确认。";
   if(m?.state==="CANCELLING") return "取消请求已接收，正在确认停止。";
-  const p=latestPhase();
-  if((m?.id || m?.mission_id)===LAST?.mission?.id && p?.status==="running") return p.reason || phaseLabel(p);
+  const facts=factsFor(m),p=latestPhase(facts);
+  if(facts?.approvals?.length) return facts.approvals.some(r=>r.method==="item/tool/requestUserInput")?"需要补充回答。":"有请求等待审批。";
+  if((m?.id || m?.mission_id)===facts?.mission?.id && p?.status==="running") return p.reason || phaseLabel(p);
   return "";
 }
 function statusBadge(m){const [label,tone]=stateInfo(m);return el("span",label,"status "+tone);}
 function putStatus(id,m){const [label,tone]=stateInfo(m);$(id).textContent=label;$(id).className="status "+tone;}
-function phaseLabel(p){return Object.hasOwn(PHASE_NAMES,p?.phase)?PHASE_NAMES[p.phase]:(p?.phase?"执行阶段（详见高级记录）":"阶段尚未提供");}
-function latestPhase(){const rows=LAST?.phases?.records || [];return rows.find(p=>p.status==="running") || rows[0];}
+function phaseLabel(p){if(p?.phase==="model_request") return ({planner:"规划模型执行",auditor:"审计模型执行",verifier:"最终复核模型执行",worker:"Worker 模型执行"})[p.role] || "模型执行（角色未知）";return Object.hasOwn(PHASE_NAMES,p?.phase)?PHASE_NAMES[p.phase]:(p?.phase?"执行阶段（详见高级记录）":"阶段尚未提供");}
+function latestPhase(snapshot=LAST){const rows=snapshot?.phases?.records || [];return rows.find(p=>p.status==="running") || rows[0];}
 function friendlyElapsed(p){
   if(p?.elapsed_seconds==null) return "耗时未知";
   const delta=p.status==="running" && RECEIVED_MONO!=null?Math.max(0,((CONNECTED?performance.now():(DISCONNECTED_MONO ?? RECEIVED_MONO))-RECEIVED_MONO)/1000):0;
@@ -303,12 +322,13 @@ function renderFriendlyPhase(){
   const p=latestPhase();
   $("connectionStatus").textContent=CONNECTED?"已连接":"连接中断 · 保留记录";
   $("connectionStatus").classList.toggle("offline",!CONNECTED);
-  if(DETAIL_ID===LAST?.mission?.id) $("friendlyPhase").textContent=p?phaseLabel(p)+" · "+friendlyElapsed(p)+(p.attempt!=null?" · 第 "+text(p.attempt)+" 次尝试":""):"尚无阶段记录，耗时未知。";
+  if(DETAIL_ID===LAST?.mission?.id) $("friendlyPhase").textContent=LAST?.mission?.cancellation?.status==="unknown" || LAST?.mission?.worker_stop?.status==="UNKNOWN"?"等待停止确认":LAST?.mission?.state==="CANCELLING"?"取消中 · 正在确认停止":LAST?.mission?.state==="MISSION_DONE"?"最终验收已完成":LAST?.mission?.state==="CANCELLED"?"执行已取消":LAST?.preparing?"正在准备任务":LAST?.approvals?.length?(LAST.approvals.some(r=>r.method==="item/tool/requestUserInput")?"等待回答":"等待审批"):p?phaseLabel(p)+" · "+friendlyElapsed(p)+(p.attempt!=null?" · 第 "+text(p.attempt)+" 次尝试":""):"尚无阶段记录，耗时未知。";
 }
 function empty(title,description){const n=el("div",null,"empty");n.append(el("h3",title));if(description) n.append(el("p",description));return n;}
 function navigate(view,focus=false){
   if(!["overview","tasks","models","settings"].includes(view)) return;
   VIEW=view;
+  history.replaceState(null,"", "#"+view+(view==="tasks" && DETAIL_ID?"/"+encodeURIComponent(DETAIL_ID):""));
   document.querySelectorAll(".view").forEach(n=>n.hidden=n.id!=="view-"+view);
   document.querySelectorAll("[data-view]").forEach(n=>{if(n.dataset.view===view)n.setAttribute("aria-current","page");else n.removeAttribute("aria-current");});
   $("locationName").textContent=({overview:"概览",tasks:"任务",models:"模型",settings:"设置"})[view];
@@ -327,26 +347,50 @@ function region(id,key,build){
 document.addEventListener("focusout",()=>setTimeout(()=>{
   for(const [id,update] of DEFERRED_REGIONS) if(!$(id).contains(document.activeElement)) update();
 },0));
+function renderSelected(){
+  if(!LIVE) return;
+  const selected=DETAIL_ID && DETAIL_ID!==LIVE.mission?.id && HISTORY?.mission?.id===DETAIL_ID?HISTORY:LIVE;
+  render({...selected,missions:LIVE.missions,default_config:LIVE.default_config,config:LIVE.config,config_fields:LIVE.config_fields,
+    readiness:LIVE.readiness,active_running:LIVE.running || LIVE.preparing,active_mission_id:LIVE.mission?.id});
+}
+async function loadHistory(mid,force=false){
+  if(!force && HISTORY_REQUEST && loadHistory.target===mid) return;
+  const generation=++HISTORY_REQUEST;loadHistory.target=mid;
+  try{
+    const response=await fetch("/api/mission?mission_id="+encodeURIComponent(mid));
+    const data=await response.json();
+    if(generation!==HISTORY_REQUEST || DETAIL_ID!==mid) return;
+    if(!response.ok || data.mission?.id!==mid) throw new Error(data.error || "任务详情读取失败");
+    HISTORY=data;uiError("历史",null);renderSelected();
+  }catch(error){if(generation===HISTORY_REQUEST && DETAIL_ID===mid){uiError("历史",error.message,mid);$("detailUnloaded").textContent=error.message;}}
+  finally{if(generation===HISTORY_REQUEST) loadHistory.target=null;}
+}
 function openTask(mid){
-  DETAIL_ID=mid;navigate("tasks");renderTaskDetail();$("detailTitle").focus();
+  DETAIL_ID=mid;HISTORY=null;navigate("tasks");renderSelected();
+  if(mid!==LIVE?.mission?.id) loadHistory(mid);
+  $("detailTitle").focus();
 }
 function taskRows(){
-  const rows=[...(LAST?.missions || [])];
-  if(LAST?.mission){
-    const current=rows.findIndex(r=>r.mission_id===LAST.mission.id), fact={mission_id:LAST.mission.id,...LAST.mission};
+  const rows=[...(LIVE?.missions || LAST?.missions || [])];
+  const currentMission=LIVE?.mission || LAST?.mission;
+  if(currentMission){
+    const current=rows.findIndex(r=>r.mission_id===currentMission.id), fact={mission_id:currentMission.id,...currentMission};
     if(current===-1) rows.unshift(fact);else rows[current]={...rows[current],...fact};
   }
   return rows;
 }
+function projectLabel(row){const registered=row.execution_backend==="codex_app_server"?PROJECTS.find(p=>p.id===row.project_id):null;const location=row.project_path || row.source?.original_path || row.source?.project_path;return registered?.name || (location?location.split(/[\\/]/).filter(Boolean).at(-1):row.project_id) || "项目未提供";}
 function renderTaskList(){
-  const filter=$("taskFilter").value;
-  region("missionsList",[taskRows(),filter,LAST?.running,latestPhase()?.phase,latestPhase()?.status],box=>{
-    const rows=taskRows().filter(r=>filter==="all" || filter==="active" && !TERMINAL.has(r.state) || filter==="needs" && stateInfo(r)[0]==="需处理" || filter==="done" && ["MISSION_DONE","CANCELLED"].includes(r.state));
+  const filter=$("taskFilter").value, search=$("taskSearch").value.trim().toLocaleLowerCase(), project=$("projectFilter").value;
+  region("projectFilter",[...new Set(taskRows().map(r=>r.project_id).filter(Boolean))],box=>{const first=el("option","全部项目");first.value="";box.append(first);for(const id of new Set(taskRows().map(r=>r.project_id).filter(Boolean))){const option=el("option",projectLabel(taskRows().find(r=>r.project_id===id)));option.value=id;box.append(option);}box.value=project;});
+  region("missionsList",[taskRows(),filter,search,project,LIVE?.running,latestPhase()?.phase,latestPhase()?.status],box=>{
+    const rows=taskRows().filter(r=>(!search || text(r.objective).toLocaleLowerCase().includes(search)) && (!project || r.project_id===project)).filter(r=>filter==="all" || filter==="active" && !TERMINAL.has(r.state) || filter==="needs" && stateInfo(r)[0]==="需处理" || filter==="done" && ["MISSION_DONE","CANCELLED"].includes(r.state));
     for(const item of rows){
       const row=el("div",null,"mrow");row.dataset.missionId=item.mission_id;
       const body=el("div",null,"grow"), title=el("button",null,"link-row");
       title.append(el("h3",item.objective || "目标未提供"),icon("chevron-right"));title.onclick=()=>openTask(item.mission_id);
       body.append(title,statusBadge(item));
+      if(item.project_id) body.append(el("p",projectLabel(item),"subtle"));
       if(item.error) body.append(el("pre","读取失败："+text(item.error),"diagnostic"));
       const actions=el("div",null,"row-actions");
       const view=el("button","查看");view.onclick=()=>openTask(item.mission_id);actions.append(view);
@@ -367,54 +411,60 @@ function nextStep(m){
 function renderTaskDetail(){
   $("taskListArea").hidden=!!DETAIL_ID;$("taskDetail").hidden=!DETAIL_ID;
   if(!DETAIL_ID) return;
-  const loaded=DETAIL_ID===LAST?.mission?.id;
+  const loaded=DETAIL_ID===LAST?.mission?.id, live=loaded && DETAIL_ID===LIVE?.mission?.id;
   const m=loaded?LAST.mission:taskRows().find(r=>r.mission_id===DETAIL_ID);
-  $("detailTitle").textContent=m?.objective || "任务目标未提供";putStatus("detailState",m);
-  $("detailReason").textContent=taskReason(m);$("detailReason").hidden=!$("detailReason").textContent;
-  $("detailNext").textContent=nextStep(m);
+  $("detailTitle").textContent=m?.objective || "正在读取任务…";putStatus("detailState",m);
+  const reason=taskReason(m);
+  $("detailReason").textContent=reason;$("detailReason").hidden=!reason;
+  $("detailNext").textContent=LIVE?.launch_blocked || (loaded && LAST.actions?.reason?LAST.actions.reason:nextStep(m));
   $("loadedDetail").hidden=!loaded;$("detailUnloaded").hidden=loaded;
-  $("detailUnloaded").textContent=LAST?.running?"当前另有任务运行，暂不能切换存档。此处只显示已有摘要，不展示其他任务的证据。":"选择“加载存档”读取这个任务的证据。";
-  $("btnStop").hidden=!loaded || !LAST?.running;
-  // Leave the stable Stop button in place during status updates.
-  region("detailExtraActions",[m?.state,loaded,LAST?.running,m?.inspection_only,m?.worker_stop,m?.cancellation],box=>{
-    if(!loaded && !LAST?.running) box.append(actionButton("加载存档","mission",()=>attach(DETAIL_ID)));
-    if(!LAST?.running && m){
-      if(TERMINAL.has(m.state)){
-        const next=actionButton("重新执行","mission",()=>newAttempt(DETAIL_ID));
-        if(m.worker_stop?.status==="UNKNOWN" || m.cancellation?.status==="unknown") {next.dataset.blocked="1";next.disabled=true;next.title="Worker 停止尚未确认，不能开始替代执行。";}
-        box.append(next);
-      }
-      else box.append(actionButton("检查并恢复","mission",()=>resume(DETAIL_ID)));
-    }
+  if(!loaded) $("detailUnloaded").textContent="正在只读加载任务详情…";
+  $("btnStop").hidden=!live || !LIVE?.running;
+  const busy=LIVE?.running || LIVE?.preparing;
+  region("detailExtraActions",[DETAIL_ID,m?.state,loaded,busy,LIVE?.launch_blocked,LAST?.actions],box=>{
+    if(!loaded || busy) return;
+    const capability=TERMINAL.has(m?.state)?"new_attempt":"resume";
+    const button=actionButton(capability==="new_attempt"?"重新执行":"检查并恢复","mission",()=>capability==="new_attempt"?newAttempt(m.id):resume(m.id));
+    if(LIVE?.launch_blocked || LAST.actions && !LAST.actions[capability]){button.dataset.blocked="1";button.disabled=true;button.title=LIVE?.launch_blocked || LAST.actions.reason;}
+    box.append(button);
   });
-  $("friendlyPhase").textContent=loaded?"阶段尚未提供":"存档尚未加载，耗时未知。";
-  const p=loaded?latestPhase():null;
-  // This is a stage key, never an invented percentage or a claim of completed checks.
-  const phase=p?.phase || "", index=/preflight|prepare|spawn/.test(phase)?0:/gate/.test(phase)?2:/materializ|merge|verifier/.test(phase)?3:/worker|observ|approval|model_request|planner|auditor|retry/.test(phase)?1:-1;
+  $("friendlyPhase").textContent=loaded?"阶段尚未提供":"正在读取阶段记录…";
+  if(!loaded) return;
+  const p=latestPhase(), phase=p?.phase || "", index=/preflight|prepare|spawn/.test(phase)?0:/gate/.test(phase)?2:/materializ|merge|verifier/.test(phase) || phase==="model_request" && p.role==="verifier"?3:/worker|observ|approval|model_request|planner|auditor|retry/.test(phase)?1:-1;
   region("phaseRail",index,box=>["准备","执行与观察","验收","成果复核"].forEach((label,i)=>box.append(el("span",label,i===index?"reached":""))));
   renderApprovals();
-  const summary=LAST?.last_summary;
-  $("resultLocation").textContent=LAST?.mission?.result_path?"成果目录："+text(LAST.mission.result_path):summary?.runtime_dir?"运行目录："+text(summary.runtime_dir):"运行记录：runtime/"+text(LAST?.mission?.id)+"/";
-  region("receiptSummary",LAST?.directive_receipts,box=>{
-    for(const receipt of (LAST?.directive_receipts?.records || []).slice(0,6)) box.append(el("p",text(receipt.target)+" · "+text(receipt.status)+" · "+text(receipt.reason)));
+  const result=LAST.result;
+  $("resultConclusion").textContent=m.state==="MISSION_DONE"?"任务已通过最终验收":m.state==="CANCELLED"?"任务已取消，未交付通过验收的结果":TERMINAL.has(m.state)?"本次任务未通过最终验收":"任务尚未完成验收";
+  $("resultLocation").textContent=result?.status==="available"?(result.accepted?"成果目录：":"未通过验收的产物目录：")+text(result.path):result?.status==="missing"?"历史结果位置已失效："+text(result.path):result?.status==="read_error"?"结果位置读取失败："+text(result.reason):"尚无可用成果目录";
+  const final=(LAST.verifications || []).find(v=>v.task_id===m.id || v.mission_id===m.id);
+  $("verifierSummary").textContent=final?"复核："+text(final.verdict || "unknown")+" · "+text(final.summary || final.reason || "历史未提供摘要"):"最终复核尚未提供记录";
+  region("receiptSummary",[m.id,LAST.directive_receipts],box=>{
+    for(const receipt of (LAST.directive_receipts?.records || []).slice(0,6)) box.append(el("p",text(receipt.target)+" · "+text(receipt.status)+" · "+text(receipt.reason)));
   });
   renderFriendlyPhase();syncButtons();
 }
 function renderReadiness(){
-  $("readiness").textContent=PROJECT_ERROR;
-  $("readiness").hidden=!!LAST?.mission || !PROJECT_ERROR;
+  const state=LIVE?.readiness || {status:"unchecked"};
+  $("environmentStatus").textContent=({unchecked:"尚未检查",checking:"检查中",ready:"可运行",needs_action:"需要处理"})[state.status] || "检查状态未知";
+  $("environmentStatus").className="status "+(state.status==="ready"?"good":state.status==="needs_action"?"bad":"neutral");
+  $("environmentReason").textContent=[state.reason,state.version?"Codex "+state.version:null,state.python?"Python "+state.python:null,state.action,state.checked_at?"检查于 "+new Date(state.checked_at*1000).toLocaleTimeString():null].filter(Boolean).join(" · ");
+  $("checkEnvironment").textContent=state.status==="unchecked"?"检查环境":"重新检查";
+  $("checkEnvironment").disabled=state.status==="checking" || PENDING.has("readiness");
+  $("readiness").textContent=PROJECT_ERROR;$("readiness").hidden=!!LIVE?.mission || !PROJECT_ERROR;
 }
+$("checkEnvironment").onclick=()=>writeAction("readiness","/api/readiness",{},d=>{if(LIVE){LIVE.readiness=d.readiness;renderReadiness();}});
 function renderWorkbench(s){
   const m=s.mission;putStatus("overviewState",m);
   region("currentTask",[m,s.running,s.phases?.records?.[0]?.phase],box=>{
     if(!m){const card=empty("还没有任务","点击“新建任务”开始。");card.prepend(icon("plus","blue"));box.append(card);return;}
     box.append(el("h3",m.objective || "目标未提供"),el("p",taskReason(m),"task-lead"));
     const meta=el("div",null,"current-meta");
-    for(const [label,value] of [["当前阶段",phaseLabel(latestPhase())]]){const pair=el("div");pair.append(el("span",label),el("p",value));meta.append(pair);}
+    for(const [label,value] of [["当前阶段",phaseLabel(latestPhase(s))]]){const pair=el("div");pair.append(el("span",label),el("p",value));meta.append(pair);}
     const button=el("button","查看任务详情","primary");button.append(icon("arrow-right"));button.onclick=()=>openTask(m.id);box.append(meta,button);
   });
-  region("attention",[m?.state,m?.reason,m?.worker_stop,s.alerts,s.panel_errors,s.read_errors,s.gate_query?.status,CONNECTED],box=>{
+  region("attention",[m?.state,m?.reason,m?.worker_stop,s.alerts,s.panel_errors,s.read_errors,s.gate_query?.status,s.approvals,CONNECTED],box=>{
     const notes=[], seen=new Set([taskReason(m)]);
+    if(s.approvals?.length){const button=el("button",s.approvals.some(r=>r.method==="item/tool/requestUserInput")?"有问题等待回答 · 去处理":"有审批等待处理 · 去处理","primary");button.onclick=()=>{openTask(m.id);$("approvalCard").scrollIntoView({block:"center"});};box.append(button);}
     function note(title,values,tone){
       const fresh=[...new Set(values.filter(v=>v!=null).map(text))].filter(v=>v && !seen.has(v));
       fresh.forEach(v=>seen.add(v));
@@ -431,7 +481,7 @@ function renderWorkbench(s){
       const link=el(m?"button":"p",m?"Gate 记录读取失败 · 查看证据":"Gate 记录读取失败："+text(s.gate_query.error),"text-button");if(m) link.onclick=()=>{openTask(m.id);$("evidence").scrollIntoView({block:"center"});};
       box.append(link);
     }
-    if(!notes.length && s.gate_query?.status!=="read_error") box.append(el("p",m && stateInfo(m)[0]==="需处理"?"请查看当前任务的原因与处理入口。":"暂无待处理事项。","subtle"));
+    if(!notes.length && !s.approvals?.length && s.gate_query?.status!=="read_error") box.append(el("p",m && stateInfo(m)[0]==="需处理"?"请查看当前任务的原因与处理入口。":"暂无待处理事项。","subtle"));
   });
   region("recentResults",s.missions,box=>{
     const rows=(s.missions || []).filter(r=>TERMINAL.has(r.state)).slice(0,3);
@@ -451,8 +501,8 @@ function renderWorkbench(s){
 /* ---------------- navigation, dialogs and progressive form ---------------- */
 $("detailActions").append(el("span",null,"button-row"));$("detailActions").lastChild.id="detailExtraActions";
 document.querySelectorAll("[data-view],[data-go]").forEach(b=>b.onclick=()=>navigate(b.dataset.view || b.dataset.go,true));
-$("backToTasks").onclick=()=>{DETAIL_ID=null;renderTaskDetail();$("tasksHeading").focus();};
-$("taskFilter").onchange=renderTaskList;
+$("backToTasks").onclick=()=>{DETAIL_ID=null;HISTORY=null;navigate("tasks");renderSelected();renderTaskDetail();$("tasksHeading").focus();};
+$("taskFilter").onchange=renderTaskList;$("taskSearch").oninput=renderTaskList;$("projectFilter").onchange=renderTaskList;
 const DIALOG_OPENERS=new Map();
 function showDialog(id){const dialog=$(id);DIALOG_OPENERS.set(id,document.activeElement);if(!dialog.open) dialog.showModal();showClientErrors();}
 function closeDialog(id){$(id).close();}
@@ -481,14 +531,17 @@ $("f_project").onchange=()=>{SOURCE=null;$("sourceConfirmed").checked=false;load
 $("btnProjects").onclick=loadProjects;
 
 async function loadSource(){
-  SOURCE=null;$("sourceConfirmed").checked=false;
+  SOURCE=null;$("sourceConfirmed").checked=false;$("sourceSummary").textContent="正在读取来源…";$("sourceFiles").textContent="";
   if(!$("f_project").value) return;
-  await writeAction("source","/api/projects/source",{project_id:$("f_project").value},d=>{
+  if(PENDING.has("source")) return;
+  const projectId=$("f_project").value;
+  await writeAction("source","/api/projects/source",{project_id:projectId},d=>{
     if(d.source.project_id!==$("f_project").value) return;
     SOURCE=d.source;$("sourceSummary").textContent=SOURCE.file_count+" 个文件 · "+SOURCE.bytes+" 字节";
     $("sourceFiles").textContent="纳入当前目录内容：\n"+SOURCE.files.map(f=>f.path).join("\n")+"\n\n排除：\n"+SOURCE.excluded.map(f=>f.path+" · "+f.reason).join("\n");
     if(WIZARD_STEP===3) renderReview();
   });
+  if($("f_project").value && $("f_project").value!==projectId) loadSource();
 }
 $("refreshSource").dataset.writeKey="source";$("refreshSource").onclick=loadSource;
 for(const [id,path] of [["openProject","/api/projects/open"],["createProject","/api/projects/create"]]){
@@ -501,33 +554,85 @@ for(const [id,path] of [["openProject","/api/projects/open"],["createProject","/
   };
 }
 function renderApprovals(){
-  const requests=LAST?.approvals || [], receipts=LAST?.approval_receipts || [];$("approvalCard").hidden=!requests.length && !receipts.length;
-  $("approvalReceipts").textContent=receipts.map(r=>"请求 "+r.request_id+"："+r.reason).join("\n");
-  region("approvalRequests",[LAST?.mission?.id,requests],box=>{
+  const requests=LAST?.approvals || [], receipts=LAST?.approval_receipts || [], mid=LAST?.mission?.id;
+  $("approvalCard").hidden=!requests.length && !receipts.length;
+  $("approvalReceipts").textContent=receipts.map(r=>text(r.reason)+"（"+text(r.adoption || r.status)+"）").join("\n");
+  const keys=new Set(requests.map(r=>r.worker_id+":"+r.request_id));
+  // Retire closed requests immediately, even while a focused region defers replacement.
+  $("approvalRequests").querySelectorAll("[data-request-key]").forEach(n=>{
+    if(!keys.has(n.dataset.requestKey)){n.querySelectorAll("button,input,textarea,select").forEach(b=>{b.disabled=true;b.dataset.blocked="1";});n.dataset.closed="true";}
+  });
+  region("approvalRequests",[mid,requests],box=>{
     for(const request of requests){
       const row=el("div",null,"list-row"),body=el("div",null,"grow"),actions=el("div",null,"button-row");
-      body.append(el("p",request.reason || request.policy_reason),el("pre",[request.command,request.cwd,...(request.paths || [])].filter(Boolean).join("\n"),"diagnostic"));
+      row.dataset.requestKey=request.worker_id+":"+request.request_id;
+      body.append(el("h3",request.method==="item/tool/requestUserInput"?"等待回答":"待审阅请求"),el("p",request.task_objective || "任务归属："+text(request.task_id)),
+        el("p",request.reason || request.policy_reason),el("pre",[request.command,request.cwd,...(request.paths || [])].filter(Boolean).join("\n"),"diagnostic"));
+      if(request.reason && request.policy_reason && request.policy_reason!==request.reason) body.append(el("p",request.policy_reason,"subtle"));
+      for(const change of request.changes || []){const d=el("details");d.append(el("summary",text(change.path)+" · 查看文件差异"),el("pre",change.diff || "引擎未提供差异正文","diagnostic"));if(change.truncated)d.append(el("p","差异展示已截断；此处不是完整审阅材料。","field-error"));body.append(d);}
       const key="approval:"+request.worker_id+":"+request.request_id;
-      const send=(decision,answers)=>writeAction(key,"/api/approval",{worker_id:request.worker_id,request_id:request.request_id,decision,answers});
-      if(request.allow_once_supported){
-        actions.append(actionButton("允许一次",key,()=>send("accept")),actionButton("拒绝",key,()=>send("decline")));
-      }else if(request.method==="item/tool/requestUserInput"){
+      const send=(decision,answers)=>{
+        if(LAST?.mission?.id!==mid || LIVE?.mission?.id!==mid || !(LAST.approvals || []).some(r=>r.worker_id===request.worker_id && r.request_id===request.request_id)) return;
+        return writeAction(key,"/api/approval",{mission_id:mid,worker_id:request.worker_id,request_id:request.request_id,decision,answers},d=>{
+          $("approvalReceipts").textContent=d.reason || (d.status==="UNKNOWN"?"请求已提交；采纳尚未确认，不会自动重发。":"已记录响应；后续结果见执行记录。");
+        });
+      };
+      if(request.method==="item/tool/requestUserInput"){
         const fields=[];
-        for(const question of request.questions || []){const label=el("label",question.question),input=el("textarea");input.rows=2;input.setAttribute("aria-label",question.question);label.append(input);body.append(label);fields.push([question.id,input]);}
-        actions.append(actionButton("提交回答",key,()=>send("answer",Object.fromEntries(fields.map(([id,input])=>[id,input.value])))));
-      }else body.append(el("p","此请求暂不支持在此授权，可取消任务并查看高级记录。","field-error"));
+        for(const question of request.questions || []){
+          const label=el("label",question.question),input=el(question.isSecret?"input":"textarea");if(question.isSecret)input.type="password";else input.rows=2;input.setAttribute("aria-label",question.question);input.autocomplete="off";
+          if(question.options?.length){const selector=el("select");selector.setAttribute("aria-label",question.question+" 可用选项");const prompt=el("option","选择一个选项");prompt.value="";selector.append(prompt);
+            for(const option of question.options){const node=el("option",option.label+(option.description?" · "+option.description:""));node.value=option.label;selector.append(node);}selector.onchange=()=>{input.value=selector.value;};label.append(selector);}
+          // The existing backend supports one text answer per question; secret
+          // questions are not echoed or stored as a browser draft.
+          label.append(input);fields.push([question.id,input]);
+          body.append(label);
+        }
+        const error=el("p",null,"field-error");body.append(error);
+        actions.append(actionButton("提交回答",key,()=>{const missing=fields.find(([,input])=>!input.value.trim());if(missing){error.textContent="请回答每个问题。";missing[1].focus();return;}send("answer",Object.fromEntries(fields.map(([id,input])=>[id,input.value])));}));
+      }else{
+        if(request.allow_once_supported) actions.append(actionButton("允许一次",key,()=>send("accept")));
+        else body.append(el("p","本任务禁止或当前不支持授权，不能允许一次。","field-error"));
+        if(request.decline_supported) actions.append(actionButton("拒绝",key,()=>send("decline")));
+      }
       body.append(actions);row.append(body);box.append(row);
     }
   });
 }
 
+const MISSION_FIELDS=[
+ ["worker.model","Worker 模型","model"],["roles.planner.model","Planner 模型","model"],["roles.auditor.model","Auditor 模型","model"],["roles.verifier.model","Verifier 模型","model"],
+ ["budgets.max_runtime_seconds","任务预算（秒）","seconds"],["runner.cap_seconds","本次运行上限（秒）","seconds"],
+ ["budgets.max_total_replans","总重新规划次数","count"],["budgets.subtask_budgets.max_local_fixes","每个子任务修正次数","count"],
+ ["gate.timeout_seconds","每条 Gate 超时（秒）","seconds"],["gate.output_limit_chars","每段 Gate 输出上限（字符）","count"]
+];
+function configValue(values,path){return path.split(".").reduce((v,k)=>v?.[k],values);}
+function configSet(values,path,value){const parts=path.split(".");let node=values;for(const key of parts.slice(0,-1)) node=node[key] ||= {};node[parts.at(-1)]=value;}
+function initializeParameters(){
+  if(FORM_BASE || !LIVE?.default_config) return;
+  FORM_BASE=structuredClone(LIVE.default_config);
+  const box=$("missionParameters");
+  for(const [path,label,kind] of MISSION_FIELDS){const l=el("label",label),input=el("input");input.id="param_"+path.replaceAll(".","_");input.dataset.configPath=path;input.type=kind==="model"?"text":"number";input.value=configValue(FORM_BASE.values,path);if(kind!=="model")input.step=kind==="seconds"?"any":"1";input.oninput=()=>{FORM_CONFIG=null;CONFIG_VERSION++;$("configConfirmStatus").textContent="配置已修改，正在核对…";confirmConfig();};l.append(input);box.append(l);}
+  if(!$("f_sub").dataset.dirty) $("f_sub").value=String(FORM_BASE.values.budgets.max_subtasks);
+}
+async function confirmConfig(){
+  initializeParameters();if(!FORM_BASE || PENDING.has("config-preview")) return;
+  const version=CONFIG_VERSION, overrides={budgets:{max_subtasks:Number($("f_sub").value)}};
+  for(const [path,,kind] of MISSION_FIELDS){const input=$("param_"+path.replaceAll(".","_"));configSet(overrides,path,kind==="model"?input.value:input.value.trim()?Number(input.value):null);}
+  FORM_CONFIG=null;
+  await writeAction("config-preview","/api/mission-config",{base:FORM_BASE,overrides},d=>{
+    if(version!==CONFIG_VERSION) return;
+    FORM_CONFIG=d.snapshot;renderReview();$("missionParametersError").textContent="";$("configConfirmStatus").textContent="以上配置将在本次任务中固定；新默认设置不改动本次确认。";
+  });
+  if(version!==CONFIG_VERSION && $("newMission").open) confirmConfig();
+}
 function showStep(step,focus=true){
   WIZARD_STEP=step;
   document.querySelectorAll("[data-step]").forEach(n=>n.hidden=Number(n.dataset.step)!==step);
   document.querySelectorAll("#wizardSteps>li").forEach((n,i)=>{if(i===step)n.setAttribute("aria-current","step");else n.removeAttribute("aria-current");});
   $("stepBack").hidden=step===0;$("stepNext").hidden=step===3;$("btnStart").hidden=step!==3;
   $("stepCounter").textContent="第 "+(step+1)+" 步，共 4 步";
-  if(step===3) renderReview();
+  if(step===3){renderReview();confirmConfig();}
   if(focus) document.querySelector('[data-step="'+step+'"] input, [data-step="'+step+'"] select, [data-step="'+step+'"] textarea')?.focus();
 }
 function fieldError(id,message){$(id+"_error").textContent=message;$(id).setAttribute("aria-invalid",message?"true":"false");return !message;}
@@ -543,25 +648,26 @@ function validateStep(step){
 }
 function renderReview(){
   const box=$("formReview");box.replaceChildren();
-  for(const [label,value,step] of [["项目",PROJECTS.find(p=>String(p.id)===$("f_project").value)?.name || "未选择",0],["目标与验收",$("f_obj").value+"\n"+$("f_ac").value,1],["范围与 Gate",$("f_paths").value+"\n"+$("f_gate").value,2]]){
+  for(const [label,value,step] of [["项目",PROJECTS.find(p=>String(p.id)===$("f_project").value)?.name || "未选择",0],["目标与验收",$("f_obj").value+"\n"+$("f_ac").value,1],["范围与 Gate","允许：\n"+$("f_paths").value+"\n禁止：\n.git/**\n"+$("f_forbidden").value+"\nGate：\n"+$("f_gate").value,2]]){
     const row=el("div",null,"review-row"),body=el("div",null,"grow"),edit=el("button","编辑");edit.type="button";edit.onclick=()=>showStep(step);body.append(el("span",label,"subtle"),el("p",value));row.append(body,edit);box.append(row);
   }
   box.append(el("p","执行后端：Codex App Server · 来源："+text(SOURCE?.path || "尚未确认")+" · "+text(SOURCE?.file_count ?? "unknown")+" 个文件"));
-  const values=LAST?.default_config?.values;
-  if(LAST?.running) box.append(el("p","当前已有任务运行，不能同时启动另一任务。表单输入会保留。","notice warning"));
-  box.append(el("p","Worker："+text(values?.worker?.model || "unknown")+"；Planner / Auditor / Verifier："+["planner","auditor","verifier"].map(r=>text(values?.roles?.[r]?.model || "unknown")).join(" / ")+"。如需修改，请打开设置。","notice"));
+  const values=FORM_CONFIG?.values;
+  if(LIVE?.launch_blocked) box.append(el("p",LIVE.launch_blocked,"notice warning"));
+  if(LIVE?.running || LIVE?.preparing) box.append(el("p","当前已有任务运行，不能同时启动另一任务。表单输入会保留。","notice warning"));
+  box.append(el("p","Worker："+text(values?.worker?.model || "unknown")+"；Planner / Auditor / Verifier："+["planner","auditor","verifier"].map(r=>text(values?.roles?.[r]?.model || "unknown")).join(" / ")+"。可在下方调整本次参数。","notice"));
 }
 function openNew(){
-  if(!$("f_sub").dataset.dirty) $("f_sub").value=String(LAST?.default_config?.values?.budgets?.max_subtasks ?? 1);
-  showDialog("newMission");showStep(WIZARD_STEP);if(!PROJECTS.length) loadProjects();
+  initializeParameters();
+  showDialog("newMission");showStep(WIZARD_STEP);if(!PROJECTS.length) loadProjects();else if(!SOURCE && $("f_project").value) loadSource();
 }
 $("btnNew").onclick=openNew;document.querySelectorAll("[data-new]").forEach(b=>b.onclick=openNew);
-$("f_sub").onchange=()=>{$("f_sub").dataset.dirty="1";};
+$("f_sub").onchange=()=>{$("f_sub").dataset.dirty="1";FORM_CONFIG=null;CONFIG_VERSION++;confirmConfig();};
 $("stepBack").onclick=()=>showStep(Math.max(0,WIZARD_STEP-1));
 $("stepNext").onclick=()=>{if(validateStep(WIZARD_STEP)) showStep(Math.min(3,WIZARD_STEP+1));};
 $("missionForm").onsubmit=e=>{e.preventDefault();if(WIZARD_STEP<3) $("stepNext").click();else $("btnStart").click();};
 for(const [id,key] of [["btnStart","mission"],["btnStop","stop"],["btnCfg","config"],["btnConfigAll","config"],["btnSend","directive"]]) $(id).dataset.writeKey=key;
-$("btnStop").onclick=()=>writeAction("stop","/api/stop",{},()=>toast("取消请求已持久接收；正在确认停止，详见任务记录"));
+$("btnStop").onclick=()=>writeAction("stop","/api/stop",{mission_id:DETAIL_ID},()=>toast("取消请求已持久接收；正在确认停止，详见任务记录"));
 const CONFIG_INPUTS={k_poll:"poll_seconds",k_idle:"idle_audit_cooldown_seconds",k_block:"blocked_escalation_seconds",k_grace:"l0_nudge_grace_seconds"};
 for(const id of Object.keys(CONFIG_INPUTS)) $(id).oninput=()=>{$(id).dataset.dirty="1";};
 $("btnCfg").onclick=()=>{
@@ -582,27 +688,29 @@ $("btnStart").onclick=()=>{
   for(let step=0;step<4;step++) if(!validateStep(step)){showStep(step);validateStep(step);return;}
   if(!SOURCE || SOURCE.project_id!==$("f_project").value || !$("sourceConfirmed").checked){$("sourceConfirmError").textContent="请先读取并确认本次来源摘要。";return;}
   $("sourceConfirmError").textContent="";
-  writeAction("mission","/api/mission",{source_revision:SOURCE.revision,project_id:$("f_project").value,objective:$("f_obj").value,acceptance_criteria:$("f_ac").value,allowed_paths:$("f_paths").value,gate_commands:$("f_gate").value,max_subtasks:Number($("f_sub").value),user_instruction:$("f_instr").value},d=>{
-    toast("已启动 "+d.mission_id);closeDialog("newMission");DETAIL_ID=d.mission_id;navigate("tasks");renderTaskDetail();
+  if(!FORM_CONFIG){$("missionParametersError").textContent="请等待配置核对完成，或修正参数后重试。";confirmConfig();return;}
+  $("formSubmitStatus").textContent="正在准备任务与隔离工作区…";
+  writeAction("mission","/api/mission",{config_snapshot:FORM_CONFIG,forbidden_paths:$("f_forbidden").value,source_revision:SOURCE.revision,project_id:$("f_project").value,objective:$("f_obj").value,acceptance_criteria:$("f_ac").value,allowed_paths:$("f_paths").value,gate_commands:$("f_gate").value,max_subtasks:Number($("f_sub").value),user_instruction:$("f_instr").value},d=>{
+    toast("任务已启动");closeDialog("newMission");FORM_BASE=null;FORM_CONFIG=null;CONFIG_VERSION++;$("missionParameters").replaceChildren();delete $("f_sub").dataset.dirty;SOURCE=null;$("sourceConfirmed").checked=false;openTask(d.mission_id);
   });
 };
 $("btnSend").onclick=()=>{
   const target=$("d_target").value, message=$("d_text").value.trim();if(!message) return;
-  const signature=target+"\n"+message;
+  const signature=DETAIL_ID+"\n"+target+"\n"+message;
   if(!window.directiveDraft || window.directiveDraft.signature!==signature) window.directiveDraft={signature,command_id:"CMD-"+crypto.randomUUID()};
-  writeAction("directive","/api/directive",{target,text:message,command_id:window.directiveDraft.command_id},d=>{
+  writeAction("directive","/api/directive",{mission_id:DETAIL_ID,target,text:message,command_id:window.directiveDraft.command_id},d=>{
     toast("指令已持久接收："+d.directive.command_id+"；消费结果见回执");window.directiveDraft=null;
     if($("d_text").value.trim()===message) $("d_text").value="";
   });
 };
 $("d_text").addEventListener("keydown",e=>{if(e.key==="Enter") $("btnSend").click();});
-function submitAttempt(target){return writeAction("mission","/api/new-attempt",target,d=>{toast("已创建新的执行记录");if($("retryMission").open) closeDialog("retryMission");DETAIL_ID=d.mission_id;navigate("tasks");renderTaskDetail();});}
+function submitAttempt(target){return writeAction("mission","/api/new-attempt",target,d=>{toast("已创建新的执行记录");if($("retryMission").open) closeDialog("retryMission");openTask(d.mission_id);});}
 let RETRY_TARGET=null;
 function newAttempt(mid){
   const target={mission_id:mid};RETRY_TARGET=target;
   showDialog("retryMission");$("retrySource").textContent="正在读取目标任务的项目…";$("confirmRetry").dataset.blocked="1";$("confirmRetry").disabled=true;
   $("retryError").textContent="";$("confirmRetry").onclick=null;
-  return writeAction("source","/api/projects/source",{mission_id:mid},d=>{
+  return writeAction("retry-source:"+mid,"/api/projects/source",{mission_id:mid},d=>{
     if(RETRY_TARGET!==target || !$("retryMission").open) return;
     if(d.mission_id!==mid) throw new Error("历史任务关联不一致");
     const source=d.source;
@@ -612,7 +720,7 @@ function newAttempt(mid){
   });
 }
 $("confirmRetry").dataset.writeKey="mission";$("closeRetry").onclick=()=>closeDialog("retryMission");
-function resume(mid){return writeAction("mission","/api/resume",{mission_id:mid},()=>{toast("检查通过，已恢复 "+mid);DETAIL_ID=mid;renderTaskDetail();});}
+function resume(mid){return writeAction("mission","/api/resume",{mission_id:mid},()=>{toast("检查通过，已恢复 "+mid);openTask(mid);});}
 function attach(mid){return writeAction("mission","/api/attach",{mission_id:mid},()=>{toast("已加载 "+mid);DETAIL_ID=mid;renderTaskDetail();});}
 
 /* ---------------- theme and ordered live feed ---------------- */
@@ -628,13 +736,15 @@ document.querySelectorAll("button[data-theme]").forEach(b=>b.onclick=()=>applyTh
 SYSTEM_THEME.addEventListener("change",()=>{if(THEME==="system") applyTheme(THEME,false);});applyTheme(THEME,false);
 function disconnect(){
   if(CONNECTED || DISCONNECTED_MONO===null) DISCONNECTED_MONO=performance.now();
-  CONNECTED=false;renderPhases();if(LAST) renderWorkbench(LAST);
+  CONNECTED=false;renderPhases();if(LAST) renderWorkbench(LIVE || LAST);
 }
 function connect(){
   const stream=new EventSource("/api/stream");
   stream.onmessage=event=>{try{acceptSnapshot(JSON.parse(event.data));uiError("状态连接",null);}catch(error){uiError("状态连接",error.message);}};
   stream.onerror=()=>{disconnect();stream.close();setTimeout(connect,4000);};
 }
+const savedRoute=location.hash.slice(1).split("/");
+if(["overview","tasks","models","settings"].includes(savedRoute[0])){if(savedRoute[0]==="tasks" && savedRoute[1]){try{DETAIL_ID=decodeURIComponent(savedRoute[1]);}catch{/* invalid URL is never a write */}}navigate(savedRoute[0]);}
 connect();loadProjects();
 setInterval(()=>{if(LAST && CONNECTED) renderPhases();},1000);
 setInterval(()=>{if(VIEW==="tasks" && (ACTIVE_TAB==="mem"||ACTIVE_TAB==="proj")) loadFile(ACTIVE_TAB==="mem"?"memory.md":"project.md");},10000);

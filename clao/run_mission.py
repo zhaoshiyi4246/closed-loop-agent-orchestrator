@@ -467,9 +467,21 @@ def build_runtime(mission_dict: dict, cfg: dict, *, dry_run: bool = False,
     return rt
 
 
+def local_preflight(cwd):
+    """Same no-model tool/account/sandbox check for startup and Panel readiness."""
+    from loopcore.codex_backend import preflight
+    executable = shutil.which('git')
+    if not executable:
+        raise ValueError('未找到 Git；安装 Git 并重新打开 CLAO 后重试')
+    result = subprocess.run([executable, '--version'], capture_output=True, timeout=15)
+    if result.returncode:
+        raise ValueError('Git 无法运行；请检查 Git 安装与 PATH 后重试')
+    return preflight(cwd)
+
+
 def build_local_runtime(mission_dict, cfg, *, dry_run=False):
     from loopcore import local_projects
-    from loopcore.codex_backend import preflight, CodexBackend
+    from loopcore.codex_backend import CodexBackend
     from loopcore.recovery import validate_checkpoint, RecoveryError
     runtime = ROOT / 'runtime' / mission_dict['mission_id']
     db = runtime / 'state.db'
@@ -483,7 +495,7 @@ def build_local_runtime(mission_dict, cfg, *, dry_run=False):
                 raise RecoveryError('local backend snapshot missing')
             cfg = restore_snapshot(row.get('effective_config'))
             mission_dict = copy.deepcopy(row['mission'])
-            engine = preflight(runtime)
+            engine = local_preflight(runtime)
             if engine['version'] != row['engine']['version']:
                 raise RecoveryError('Codex protocol version differs from frozen Mission')
             adapter = CodexBackend(store, mission_dict['mission_id'], engine['executable'], cfg['worker']['model'], row['source'])
@@ -508,7 +520,7 @@ def build_local_runtime(mission_dict, cfg, *, dry_run=False):
             if mission_dict.get('previous_attempt'):
                 store.record_mission(mission.mission_id, {'previous_attempt': mission_dict['previous_attempt']})
             with Diagnostics(store, mission.mission_id).phase('preflight', reason='确认本地来源与 Codex 登录/沙箱能力'):
-                engine = preflight(runtime)
+                engine = local_preflight(runtime)
                 source = local_projects.snapshot(project, runtime, mission_dict.get('source_revision'))
             store.record_mission(mission.mission_id, {'source': source, 'engine': engine})
         finally:

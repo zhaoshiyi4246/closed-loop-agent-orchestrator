@@ -33,8 +33,12 @@ fs.mkdirSync(out,{recursive:true});
   await page.locator('#btnStart').evaluate(b=>{b.click();b.click();});
   await page.waitForFunction(()=>!document.getElementById('newMission').open);
   assert.equal(writes.filter(p=>p==='/api/mission').length,1);
-  if(scenario==='question'){
+  if(scenario==='question' || scenario==='question_options'){
    await page.locator('#approvalRequests textarea').waitFor();
+   if(scenario==='question_options'){
+    await page.locator('#approvalRequests select').selectOption('保留中文 <tag>');
+    assert.equal(await page.locator('#approvalRequests textarea').inputValue(),'保留中文 <tag>');
+   }
    await page.fill('#approvalRequests textarea','保留中文 <tag>');
    // An SSE update may refresh facts, but must preserve the in-progress answer.
    await page.waitForTimeout(2200);
