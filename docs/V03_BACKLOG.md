@@ -42,7 +42,7 @@
 | V03-R02 | M2 | 指令回执、取消恢复、固定基线 | F03/F05/R01 | DONE（PR #38 审计 PASS / merged） |
 | V03-U01 | M3 | iPhone风格界面骨架与状态夹具 | G1；R01/R02字段设计 | DONE（PR #39 代码/产品整改审计 PASS / merged） |
 | V03-U02 | M3 | 完整任务GUI与数据接线 | U01/R02/F04 | DONE（首切片 PR #40、完整旅程 PR #41 均再次审计 PASS / merged） |
-| V03-U03 | M3 | 结果中心与独立导出 | U02/F03 | IN_REVIEW |
+| V03-U03 | M3 | 结果中心与独立导出 | U02/F03 | IN_REVIEW（PR #42，待审计） |
 | V03-P01 | M4 | 模型配置／凭据与GLM语义后端 | F01/R01/F04 | TODO |
 | V03-P02 | M4 | Kimi语义后端与切换评测 | P01 | TODO |
 | V03-P03 | M4 | 第二Worker能力准入决策 | P01/P02；AO官方契约 | TODO |
@@ -318,7 +318,7 @@ PR #41 审计返修（2026-09-08，再次外部审计 PASS，已合入）：
 
 ## V03-U03｜结果中心与独立导出
 
-- 状态：IN_REVIEW；2026-09-08 授权实施，base `f251535e209e14f6e9c698e290cce67aff8a2c16`，分支 `codex/v03-u03-results-export`。沿用现有结果/StateStore/Git/Panel，不实施闭环运行视图或模型扩展。
+- 状态：IN_REVIEW；[PR #42](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/42) 已提交，实现提交 `13fae1ebefc66d62b165b968119460a17637d444`，等待审计；2026-09-08 授权实施，base `f251535e209e14f6e9c698e290cce67aff8a2c16`，分支 `codex/v03-u03-results-export`。沿用现有结果/StateStore/Git/Panel，不实施闭环运行视图或模型扩展。
 - 对应：A12、A03。工作：AC/Gate/Verifier/diff/commit；open/copy/export；完整patch和manifest；无效linked worktree的可读说明。
 - 必测：新增/删除/rename/二进制（支持或明确拒绝）；隔离clone应用；export后临时worktree不可用仍能读取；无密钥/Prompt/.git导出。
 - 完成：用户能在60秒内找到结果并知道main未改（建议体验目标）；补丁应用后内容/验收匹配；动作API不接受任意外部路径。
