@@ -703,7 +703,10 @@ def test_audit_history_retry_b_while_a_loaded(http_panel,engine,tmp_path,monkeyp
             'source':{'project_id':project['id'],'project_path':str(folder)},'worker_stop':{'status':'CONFIRMED'}})
         db.close();originals[mid]=(folder/'app.py').read_bytes()
     http_panel.state.rt=run_mission.inspect_runtime('A')
-    captured=[];monkeypatch.setattr(http_panel.state,'start_mission',lambda spec:captured.append(spec))
+    captured=[];captured_configs=[]
+    def capture(spec, *, config_snapshot):
+        captured.append(spec);captured_configs.append(config_snapshot)
+    monkeypatch.setattr(http_panel.state,'start_mission',capture)
     source=request(http_panel,'POST','/api/projects/source',{'mission_id':'B'})
     assert source[0]==200 and source[2]['project_id']==rows['B']['id'] and source[2]['execution_backend']==b_backend
     assert source[2]['project_path']==rows['B']['path']
@@ -736,6 +739,7 @@ const {chromium}=require('playwright');const assert=require('node:assert/strict'
     result=subprocess.run([node,'-e',script,http_panel.origin,rows['B']['path'],b_backend],capture_output=True,text=True,encoding='utf-8',timeout=35)
     assert result.returncode==0,result.stdout+result.stderr
     assert len(captured)==1
+    assert captured_configs[0]['values']==dict(http_panel.state.defaults())
     new=captured[0]
     assert new['previous_attempt']=='B' and new['project_id']==rows['B']['id'] and new['execution_backend']==b_backend
     assert new['mission_id'] not in ('A','B')

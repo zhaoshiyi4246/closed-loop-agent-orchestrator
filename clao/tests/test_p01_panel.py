@@ -214,3 +214,27 @@ def test_browser_profiles_credentials_consent_and_real_pipeline(journey,glm_http
     assert journey.state.rt.cfg['roles']['verifier']['profile']=='browser-glm'
     assert journey.state.rt.cfg['model_profiles'][-1]['timeout_seconds']==4.125
     print(result.stdout)
+
+
+def test_audit_browser_consent_scope_and_new_missions(journey,glm_http,tmp_path,monkeypatch):
+    use_http_verifier(journey,glm_http,monkeypatch)
+    journey.state.set_config({'model_profiles':[profile(),dict(profile(),id='glm-other',credential_ref='other-key')]})
+    codex_calls=[]
+    def codex_response(**kwargs):
+        # Replace only the Codex model call; keep the production role validation.
+        codex_calls.append(kwargs['model'])
+        _,reply=glm_http.responder({'messages':[{}, {'content':kwargs['prompt']}]})
+        return json.loads(reply['choices'][0]['message']['content'])
+    monkeypatch.setattr('loopcore.verifier.run_codex_json',codex_response)
+    a=form(journey,tmp_path/'项目 A 中文')
+    b=form(journey,tmp_path/'项目 B 中文')
+    script=Path(__file__).resolve().parents[2]/'dev'/'panel'/'p01-consent.cjs'
+    result=subprocess.run([os.environ['U01_NODE'],str(script),journey.origin,a['project_id'],b['project_id']],
+        capture_output=True,encoding='utf-8',errors='replace',timeout=150)
+    assert result.returncode==0,result.stdout+'\n'+result.stderr
+    assert len(glm_http.calls)==3 and len(codex_calls)==1
+    assert methods(journey).count('thread/start')==4
+    for folder in ('项目 A 中文','项目 B 中文'):
+        assert (tmp_path/folder/'app.py').read_text()=='x=0\n'
+        assert not (tmp_path/folder/'.git').exists()
+    print(result.stdout)
