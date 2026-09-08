@@ -70,6 +70,7 @@ MissionController是控制编排权威，ClosedLoop负责子任务；StateStore�
 - 准备中即有状态，失败保留原因与草稿；任务首层区分真实角色执行、审批/回答、验收、整理结果与取消/停止未知。待处理项链接到所属任务；文件差异使用已收到的 item facts，展示截断明确标识。后端禁止批准的命令/文件仍能按现有能力拒绝，回答选项来自原请求；UNKNOWN 回执不伪称采纳，也不覆盖后续独立执行结果。
 - `GET /api/mission?mission_id=...` 和限定 Markdown 文件读取只投影对应历史记录，不替换正在运行的 runtime。任务目标搜索与项目/状态筛选、刷新后的任务路由、每个任务的输入草稿及延迟响应检查防止串数据；生产写请求携带任务 ID，后端核对当前消费者。SSE 仍按 epoch/sequence 接收完整快照，不重放动作。当前 Worker 停止未知时后端也阻止另一任务启动。
 - 结果摘要分别展示 Mission 结论、关联终局 Verifier、各 Gate 分项与实际 integration 位置；目录存在不代表验收成功，失效或无法读取明确显示。历史详情只读，恢复仍通过原检查点/配置/source/停止校验，重新执行仍绑定目标存档自己的项目与后端。
+- PR #41 审计返修：Panel 启动边界与界面共用现有存档查询的停止限制，覆盖持久 worker_stop / local_execution / cancellation UNKNOWN；重启和只读历史句柄不能解除，读取失败保留原因并阻止新启动。明确停止和未产生 Worker 的正常失败记录不因终态或缺字段永久阻塞。草稿先恢复本任务 Worker 选项再恢复接收对象；失效 Worker 保留选中提示，不回退 Planner。延迟指令回执按任务与编辑版本更新，审批仅渲染任务归属的持久回执，不直接覆盖共享区域。
 
 验证为 Windows 隔离 Git/SQLite/HTTP、原 Controller/Gate/Verifier 路径与外部协议/Provider 替身，含实际 Edge 浏览器；命令、截图自查和 NOT_RUN 见 [U02 台账](V03_BACKLOG.md#v03-u02完整任务gui与数据接线)。真实模型、任意进程重连、独立导出、安装/发布兼容性未验收或未实现；本轮不改变协议引擎主体，也不增加并发或写回原项目。
 

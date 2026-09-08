@@ -233,9 +233,87 @@ def test_stop_unknown_cannot_launch_another_worker(journey, tmp_path, monkeypatc
     data=until(journey,lambda d:(d['mission'].get('worker_stop') or {}).get('status')=='UNKNOWN')
     journey.state.thread.join(5)
     assert data['launch_blocked']
+    journey.state.rt.close()
+    journey.state=server.PanelState(config_path=journey.state.config_path)
+    monkeypatch.setattr(server,'PANEL',journey.state)
+    assert aid in request(journey)[2]['launch_blocked']
+    assert request(journey,'POST','/api/attach',{'mission_id':aid})[0]==200
+    assert journey.state.rt.controller is None
     second=form(journey,tmp_path/'B')
     assert request(journey,'POST','/api/mission',second)[0]==409
     assert methods(journey).count('thread/start')==1
+
+
+@pytest.mark.parametrize('facts,blocked', [
+    ({'worker_stop':{'status':'UNKNOWN','unconfirmed':['worker-A']}}, True),
+    ({'local_execution':{'status':'unknown','pid':123}}, True),
+    ({'cancellation':{'status':'unknown'}}, True),
+    ({'worker_stop':{'status':'CONFIRMED','sessions':['worker-A']}}, False),
+    ({'state':'MISSION_DONE','worker_stop':{'status':'CONFIRMED'},'local_execution':{'status':'stopped'}}, False),
+    ({'state':'FAILED','reason':'preflight failed before Worker'}, False),
+    ({'state':'CANCELLED','worker_stop':{'status':'CONFIRMED','sessions':[]},'cancellation':{'status':'cancelled'}}, False),
+])
+def test_audit_persisted_stop_boundary_after_restart_and_other_history(journey,tmp_path,monkeypatch,facts,blocked):
+    a='ARCHIVE-A';c='ARCHIVE-C'
+    for mid,payload in [(a,facts),(c,{'state':'FAILED','reason':'no Worker'})]:
+        store=StateStore(journey.root/'runtime'/mid/'state.db')
+        try:store.record_mission(mid,dict({'mission':{'mission_id':mid,'objective':mid},'state':'HUMAN'},**payload))
+        finally:store.close()
+    before=(journey.root/'runtime'/a/'state.db').read_bytes()
+    journey.state=server.PanelState(config_path=journey.state.config_path)
+    monkeypatch.setattr(server,'PANEL',journey.state)
+    first=request(journey)[2]
+    assert bool(first['launch_blocked']) is blocked
+    assert request(journey,'POST','/api/attach',{'mission_id':c})[0]==200
+    for path in ['/api/state','/api/mission?mission_id='+a,'/api/mission?mission_id='+c]:
+        assert bool(request(journey,path=path)[2]['launch_blocked']) is blocked
+    body=form(journey,tmp_path/'new-project')
+    response=request(journey,'POST','/api/mission',body)
+    if blocked:
+        assert response[0]==409 and response[2]['error']==first['launch_blocked']
+        assert not methods(journey)
+    else:
+        assert response[0]==200,response
+        until(journey,lambda d:d['mission']['state']=='MISSION_DONE')
+    assert (journey.root/'runtime'/a/'state.db').read_bytes()==before
+
+
+def test_audit_reconciled_stop_fact_clears_restriction(journey):
+    mid='RECONCILED'
+    store=StateStore(journey.root/'runtime'/mid/'state.db')
+    try:
+        store.record_mission(mid,{'mission':{'mission_id':mid},'state':'HUMAN',
+            'worker_stop':{'status':'UNKNOWN','unconfirmed':['worker-A']}})
+        assert mid in request(journey)[2]['launch_blocked']
+        # Simulate the existing reconciler persisting a confirmed result, not a UI override.
+        store.record_mission(mid,{'worker_stop':{'status':'CONFIRMED','unconfirmed':[],'sessions':['worker-A']}})
+        assert not request(journey)[2]['launch_blocked']
+    finally:store.close()
+
+
+@pytest.mark.parametrize('case',['same','different','approval'])
+def test_audit_browser_mission_drafts_and_delayed_success(journey,tmp_path,monkeypatch,case):
+    monkeypatch.setenv('CLAO_TEST_CODEX_SCENARIO','manual' if case=='approval' else 'hold')
+    body=form(journey,tmp_path/'A');body['gate_commands']='python -c "pass"'
+    aid=request(journey,'POST','/api/mission',body)[2]['mission_id']
+    until(journey,lambda d: bool(d.get('approvals')) if case=='approval' else
+          bool(d.get('subtasks')) and bool(d['subtasks'][0].get('worker_session_id')))
+    bid='B-DRAFTS';store=StateStore(journey.root/'runtime'/bid/'state.db')
+    try:
+        store.record_mission(bid,{'mission':{'mission_id':bid,'objective':'B 草稿与回执'},'state':'RUNNING','execution_backend':'codex_app_server'})
+        store.record_task('B-TASK',{'task_id':'B-TASK','subtask_of':bid,'objective':'B worker','worker_session_id':'B-WORKER'})
+        store.record_transition(task_id='B-TASK',from_state='NEW',to_state='WORKER_RUNNING',actor='test',reason='stored history',evidence={})
+        store.receive_directive(bid,'B-RECEIPT','auditor','B existing receipt')
+        store.ensure_operation('B-APPROVAL','approval',bid,'B-WORKER',{'request_id':'B-REQUEST'})
+        store.operation_observe('B-APPROVAL','UNKNOWN',{},result={'status':'UNKNOWN','adoption':'UNKNOWN','reason':'B 的审批回执'})
+    finally:store.close()
+    node=os.environ['U01_NODE']
+    script=Path(__file__).resolve().parents[2]/'dev'/'panel'/'u02-journey.cjs'
+    result=subprocess.run([node,str(script),journey.origin,aid,'audit-'+case,str(tmp_path/'shots')],
+        capture_output=True,encoding='utf-8',errors='replace',timeout=90)
+    assert result.returncode==0,result.stdout+'\n'+result.stderr
+    assert methods(journey).count('thread/start')==1
+    assert (tmp_path/'A'/'app.py').read_text()=='x=0\n'
 
 
 @pytest.mark.parametrize('scenario',['no_login','normal','manual','kill_live'])

@@ -264,13 +264,14 @@ class PanelState:
         if mid is not None and (not self.rt or _mission_id(mid) != self.rt.mission.mission_id):
             raise ClientError('操作目标已变化；请重新查看目标任务，不会提交到其他任务', 409)
 
-    def launch_blocked(self, payload=None):
-        rt = self.rt
-        if rt and getattr(rt, 'store', None) is not None:
-            row = payload if payload is not None else rt.store.mission_config(rt.mission.mission_id) or {}
-            if ((row.get('worker_stop') or {}).get('status') == 'UNKNOWN'
-                    or (row.get('local_execution') or {}).get('status') == 'unknown'):
-                return '当前执行停止尚未确认；不能启动另一任务，请保留记录并人工核对'
+    def launch_blocked(self, missions=None):
+        # The archive is authoritative across restarts and read-only attaches.
+        # Do not infer a stop failure merely from a terminal state or missing Worker.
+        for row in list_missions() if missions is None else missions:
+            if row.get('status') == 'read_error':
+                return '任务 %s 的停止事实读取失败，暂不能启动任务：%s' % (row['mission_id'], row['error'])
+            if row.get('launch_blocked'):
+                return row['launch_blocked']
         return ''
 
     # ---- persisted defaults (never mutate active runtime)
@@ -318,6 +319,14 @@ def _rows(conn, sql, args=(), retries=3):
             time.sleep(0.15)
 
 
+def _stop_restriction(mid, payload):
+    if ((payload.get('worker_stop') or {}).get('status') == 'UNKNOWN'
+            or (payload.get('local_execution') or {}).get('status') == 'unknown'
+            or (payload.get('cancellation') or {}).get('status') == 'unknown'):
+        return '任务 %s 的执行停止尚未确认；不能启动另一任务，请保留记录并人工核对' % mid
+    return ''
+
+
 def list_missions() -> list:
     out = []
     base = _contained(ROOT, ROOT / "runtime")
@@ -345,6 +354,7 @@ def list_missions() -> list:
                 out.append({"mission_id": d.name, "state": state, "objective": objective,
                             'project_id': mission.get('project_id'),
                             'project_path': source.get('original_path') or source.get('project_path'),
+                            'launch_blocked': _stop_restriction(d.name, payload) if r else '',
                             'execution_backend': payload.get('execution_backend', 'ao') if r else 'ao'})
             finally:
                 conn.close()
@@ -402,7 +412,6 @@ def _snapshot(view_rt=None, *, historical=False) -> dict:
             snap["read_errors"].append({"source": source, "error": str(exc)})
             return default
 
-    snap['launch_blocked'] = read('停止事实', PANEL.launch_blocked, '停止事实读取失败，暂不能启动任务')
     defaults = read("default configuration", lambda: PANEL.defaults().snapshot(), None)
     snap["default_config"] = defaults
     if defaults:
@@ -413,6 +422,8 @@ def _snapshot(view_rt=None, *, historical=False) -> dict:
     snap["mission_config"] = {"status": "not_loaded", "snapshot": None}
     snap["phases"] = {"status": "not_called", "records": [], "sequence": None}
     snap["missions"] = read("missions", list_missions, [])
+    snap['launch_blocked'] = (PANEL.launch_blocked(snap['missions']) if not any(
+        e['source'] == 'missions' for e in snap['read_errors']) else '停止事实读取失败，暂不能启动任务')
     if not rt:
         snap["mission"] = None
         return snap
@@ -450,7 +461,7 @@ def _snapshot(view_rt=None, *, historical=False) -> dict:
         mission_payload = mission_rows[0] if mission_rows else {}
         if not historical and mission_rows:
             # Project the launch restriction from the same stop fact shown below.
-            snap['launch_blocked'] = PANEL.launch_blocked(mission_payload)
+            snap['launch_blocked'] = snap['launch_blocked'] or _stop_restriction(rt.mission.mission_id, mission_payload)
         saved = mission_payload.get("effective_config")
         snap["mission_config"] = {"status": "historical_missing" if saved is None else "ok",
                                   "snapshot": read("Mission configuration", lambda: restore_snapshot(saved).snapshot(), None) if saved is not None else None}

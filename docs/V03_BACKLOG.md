@@ -305,6 +305,15 @@ PR #40 审计返修证据（再次外部审计 PASS，已合入）：
 - NOT_RUN：全量、安装/clean install、打包、smoke、真实 AO/收费模型、最终发布兼容性及负责人完整体验审计。仍需已安装工具、现有登录与受支持的 Windows 沙箱；不支持任意进程重连、不增加并发，U03 独立导出、模型扩展、安装器未实施。提交后停止等待审计，不合并、不创建 tag/Release。
 
 
+PR #41 审计返修（2026-09-08，等待再次审计）：
+
+- 返修基线 `78c1272fd67072e8bb2e87da6dcb6f91e644c62b`，原分支/PR 不变。停止限制复用已有 runtime 存档只读查询；Panel 重建、加载其它历史及正常 GET 使用同一持久 UNKNOWN，启动边界在产生 Worker 前再次核对。明确停止、正常完成或未产生 Worker 的失败不因缺字段误拦截；存档读取失败明确阻断，不当作没有限制。没有新数据库或强制忽略入口。
+- 草稿在本任务 Worker 选项安装之后恢复接收目标，目标失效明确提示、保持原选择；文本、目标和编辑版本仍只存在原前端草稿 Map 中。指令成功只更新提交所属任务；同文 B 草稿及 A 提交后继续编辑的草稿不会被清空。审批/回答成功不再直接写共享回执区域，采用已有持久投影，返回原任务可查看；接收/采纳语义、失效保护与在途去重不变。
+- Windows 产品 venv（CPython 3.12.7，Scripts 前置 PATH、`src`/产品目录为 PYTHONPATH，开发 `U01_NODE`/`NODE_PATH` 与前轮相同）：`pytest tests/test_u02_journey.py -k 'audit or stop_unknown_cannot' -q --tb=short` → **12 passed / 26 deselected / 48.79s**。含真实停止未知后重建 Panel、正式 API 阻断、另一只读句柄/历史查询、正常/未启动 Worker/已对账正例，以及 3 条实际 Edge A→B→A、相同/不同草稿、延迟真实 HTTP 成功响应与审批回执归属。Controller/Git/SQLite 使用生产路径，只替换引擎/模型边界；缺失 Worker 的展示另用隔离浏览器投影验证。
+- 兼容定向：`pytest tests/test_u02_journey.py tests/test_f04_panel_boundaries.py::test_same_origin_page_nonce_allows_normal_write tests/test_f04_panel_boundaries.py::test_real_browser_text_rendering_nonce_and_pending_writes -k 'readiness or confirmed_config or history_b_while or actual_journey_browser or failed_start or same_origin or real_browser' -q --tb=short` → **16 passed / 24 deselected / 66.11s**。覆盖环境、配置冻结、历史只读、正常执行/审批/取消和安全文本/写保护，非全量；前轮大集合未重跑。
+- 修改的 Python compileall、产品/开发 JS 语法、diff-check 与 3 个文档的 49 个本地链接路径检查通过；未新增文件、运行资源或依赖。
+- NOT_RUN：全量、安装、打包、smoke、真实 AO/收费模型、完整 GUI/发布验收。保留现有任意进程重连未实现的边界；本轮不新增恢复平台或清除 UNKNOWN 的用户动作。U02 本切片与整卡 IN_REVIEW、M3 IN_PROGRESS、U03 TODO；更新原 PR 后停止等待再次审计。
+
 ## V03-U03｜结果中心与独立导出
 
 - 对应：A12、A03。工作：AC/Gate/Verifier/diff/commit；open/copy/export；完整patch和manifest；无效linked worktree的可读说明。
