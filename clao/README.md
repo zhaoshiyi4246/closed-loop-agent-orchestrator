@@ -1,8 +1,8 @@
-# CLAO v0.2
+# CLAO（v0.3 开发版；已发布版本仍为 v0.2）
 
 Closed-Loop Agent Orchestrator
 
-CLAO 是构建在 Agent Orchestrator（AO）之上的本地闭环软件开发控制层。它把用户的
+CLAO 是本地闭环软件开发控制层。新本地任务通过 Codex App Server 执行，无需 AO。它把用户的
 Mission 交给受控的 Codex Worker，在确定性观察、Gate 和最终验证后生成可审计结果。
 当前架构见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)。
 
@@ -11,25 +11,35 @@ Mission 交给受控的 Codex Worker，在确定性观察、Gate 和最终验证
 - Windows；
 - CPython 3.12.x；
 - Git；
-- AO Desktop 0.12.9（基准版本），daemon 已启动；
-- Codex CLI，并已通过 `codex login` 使用 ChatGPT 登录。
+- Codex CLI **0.150.1**，已通过官方 `codex login` 使用 ChatGPT 登录；
+- Codex Windows 沙箱已在官方 Codex 中设置就绪。版本/登录/沙箱不满足时明确拒绝启动，不自动升级或登录。
 
 CLAO 不安装或启动 Git、AO Desktop、Codex CLI，也不读取 API Key 作为默认认证方式。
 
-## 准备 AO Project
+## 本地项目与来源确认
 
-先在 AO 中注册要使用的 Git repository。针对已验证的 AO Desktop 0.12.9，Project
-必须具有名为 `origin` 的 remote 和可用的 remote-backed base ref：
+在“新建任务”中输入本机目录完整路径，选择“打开目录”或“创建空项目”。项目登记保存在
+`runtime/projects.json`，重启后仍可选择；无需 origin、GitHub、AO 配置或 daemon。
+Git 仓库须选择根目录，普通非 Git 目录和空目录均可使用。
 
-- 显式 `defaultBranch=<branch>` 时，`refs/remotes/origin/<branch>` 必须存在；
-- `defaultBranch=auto` 时，`refs/remotes/origin/HEAD` 必须指向一个可解析的
-  remote branch；
-- 没有 `origin` 的 local-only repository 当前不受支持。
+启动前读取文件清单并确认：采用**当前磁盘内容**（包括未提交修改），不会只用旧 HEAD。
+Git 项目遵循已跟踪文件及未被 ignore 的未跟踪文件；默认排除凭据文件、链接/junction、
+运行缓存、`.git` / `.ao` / `.codex`、虚拟环境、node_modules、vendor、build、dist 等目录。
+链接/junction 遇到时拒绝导入；不扫描项目外内容。`.env.example` 等模板、
+`data.pyconfig`、`.coverage_policy.py` 正常保留。摘要可查看实际排除项。
+单文件上限 10 MiB、总计 100 MiB / 10000 文件；超过时拒绝，不静默截断。这里是有限的
+文件名/目录规则，不是万能密钥扫描器；用户仍应核对清单，移出其它含密钥材料。
 
-`origin` 可以指向 GitHub/GitLab，也可以指向完全本地的 bare Git repository；这一
-要求本身不需要互联网。CLAO 不会自动执行 `git fetch`、添加 remote、设置 remote
-HEAD 或修改 AO Project config。Panel 与 CLI 先保存无密钥的有效配置快照，再通过共享的只读 preflight
-报告缺失项；失败的准备阶段也可在 Panel 中查询，尚未创建 Worker。
+确认后在 `runtime/<mission-id>/source` 建立私有 Git 快照，以冻结 commit 创建 detached
+Worker 工作树；原项目的内容、index、分支和 ignore 配置不变。读取时发现内容变化要求
+重新确认；不承诺正在被其它程序修改的文件系统具有跨文件原子快照。
+默认配置、来源 revision、后端和协议版本随 Mission 冻结，恢复不能切换后端。
+私有 Git 不运行来源附带的 hooks 或继承的内容过滤器；不会修改用户全局配置。
+若当前进程设置了 `GIT_CONFIG_COUNT/PARAMETERS`，导入会明确拒绝，需在没有这类覆盖的环境中启动 CLAO。
+
+旧 AO 任务仍可历史只读查看；显式 `execution_backend: "ao"` 的旧 CLI 执行路径保留
+AO Desktop 0.12.9、注册 Git Project、origin/base 一致性要求。缺省后端的旧 Mission JSON
+按 AO 兼容解释，不能将其静默恢复成本地任务。
 
 ## 安装与启动
 
@@ -50,14 +60,14 @@ bootstrap 只管理本目录的 Python 环境，不连接 AO，也不调用模�
 
 ## 使用 Panel
 
-1. 启动 AO Desktop；
-2. 双击 `启动CLAO.bat`；
-3. 选择“新建任务”，明确选择已注册的 AO Git Project；
-4. 依次填写目标与验收、允许路径与 Gate 命令；
-5. 在确认页检查现有默认模型与预算，保持默认单 Worker；只有确有独立子任务时选择 2；
-6. 确认启动后，在“任务”详情查看当前阶段、待处理事项和验收证据。
+1. 双击 `启动CLAO.bat`；
+2. 选择“新建任务”，打开本地目录或创建空项目，查看纳入/排除清单；
+3. 填写目标、验收条件、允许路径与 Gate 命令；
+4. 确认实际项目、来源内容、模型和预算，再启动；默认单 Worker，2 仅表示两个独立子任务；
+5. 在任务详情查看进展、允许一次/拒绝审批、回答问题或补充指令；
+6. 最终查看 Gate / Verifier 结论与 `integration` 成果位置。Worker 回合完成本身不是任务成功。
 
-真实模式不会构造 demo Project，也不会替用户注册或修改 AO Project。
+本地任务不读取 AO 项目或 runfile，不调用 AO REST/CLI；不能用未知停止事实继续交付。
 模型与默认参数在“设置”中修改，只影响后续新任务；原始事实位于高级详情。
 
 ## 任务工作台（v0.3 U01）
@@ -72,7 +82,7 @@ U01 的 PR #39 已通过本轮外部代码与产品整改审计并 rebase 合入
 正常启动只读取真实任务；没有记录时显示空态。旧 `preview` 参数不改变数据来源，
 正式服务不提供样例资源。主层使用少量中文状态，断连单独提示，Gate 读取失败在证据卡
 中保留；原始状态和完整诊断可展开查看。“重新执行”会创建关联的新执行记录，不重跑旧终态。
-当前仍需要上述 AO Project 前提。下一任务 U02 TODO，先“独立项目入口与本地执行”，再完成完整任务旅程；尚未实施。U03 结果导出及 GLM/Kimi 等模型扩展仍未开始。
+U02 首切片已接入本地项目与真实 App Server 生产适配，等待审计；仅做协议替身/离线集成和浏览器验证，真实 Codex 模型任务 NOT_RUN。U02 后续完整旅程、U03 导出、模型扩展与 Q01 安装/发布兼容性未完成。
 
 视觉参考：[Framework7 分组列表](https://framework7.io/docs/list-view)、
 [Konsta iOS 列表](https://konstaui.com/react/list)；没有引入这些框架。
@@ -82,17 +92,24 @@ U01 的 PR #39 已通过本轮外部代码与产品整改审计并 rebase 合入
 
 ## 使用 CLI
 
-复制一个 sample，替换 `project_id` 和 `mission_id`，然后运行：
+准备 Mission JSON（唯一 `mission_id`、objective、acceptance_criteria、allowed_paths、
+forbidden_paths、gate_commands，格式可参考 `tasks/mission-quick.json`），先只读预览本地来源：
 
 ```powershell
 $env:PYTHONPATH = (Resolve-Path ".\src").Path
-.\.venv\Scripts\python.exe .\run_mission.py .\tasks\mission-quick.json `
-  --poll-seconds 5 --cap-seconds 1200
+.\.venv\Scripts\python.exe .\run_mission.py .\my-mission.json --project-path "E:\Projects\我的项目"
 ```
 
-`tasks/mission-quick.json` 与 `tasks/e2e-smoke.json` 都是模板，其中
-`REPLACE_WITH_AO_PROJECT_ID` 必须替换为真实 AO Project ID。每次新运行应使用唯一
-`mission_id`。
+检查输出的文件与排除项后，以该摘要的完整 revision 启动（会调用已登录 Codex 模型）：
+
+```powershell
+.\.venv\Scripts\python.exe .\run_mission.py .\my-mission.json `
+  --project-path "E:\Projects\我的项目" --confirm-source "摘要中的完整revision"
+```
+
+`--project-path` 使用本地后端并替换模板的 project_id；首次预览不启动 Worker。
+没有此参数、也没有显式本地后端的旧模板继续走 AO 兼容路径，此时
+`REPLACE_WITH_AO_PROJECT_ID` 才需要真实 AO Project ID。新 Mission 必须使用新 identity。
 
 仅查看确定性单任务计划可使用：
 
@@ -126,32 +143,40 @@ cap 是 runner 的循环边界检查，不是抢占中断或确认所有 Worker 
 进程输出仍捕获在内存中，这不是进程内存上限。截断片段无法通过
 F01 的完整证据校验，不能因此假装 Gate 或 Verifier 已通过。
 
-页面显示准备、AO 调用、观察/审批等待、语义角色、各 Gate、materialization/merge
+页面显示准备、实际执行后端调用、观察/审批等待、语义角色、各 Gate、materialization/merge
 和重试等真实阶段。独立模型请求记录开始/结束、attempt、耗时和错误类别；未调用、
 历史 unknown、未知模型/用量/费用分开表达。Worker 的配置请求/传入值、AO Session 创建时
 resolved model、conversation 后续 reroute 各自显示来源；缺字段不从配置猜测，也不把
-Session 或 reroute 事实当成单次 provider 请求模型/精确耗时。SSE 断连保留最后状态，重连以顺序化
+Session 或 reroute 事实当成单次 provider 请求模型/精确耗时。本地 Worker 单列
+`thread/start` 返回的 model（线程配置确认，非单次 provider 请求证据）；未知用量/费用仍为 unknown。SSE 断连保留最后状态，重连以顺序化
 完整快照替换，不重放写请求。HTTP 处理耗时和状态快照耗时不等于模型调用耗时。
 
 ## 指令、取消与恢复（v0.3 R02 已审计 PASS 并合入）
 
 指令发送成功表示 receipt 已持久接收；页面显示 received/applied/rejected/unknown，
-以及实际消费者、时间与原因。Worker applied 仅表示 AO 接受消息；Planner 镜像单列，
+以及实际消费者、时间与原因。Worker applied 仅表示相应执行后端确认接受消息；Planner 镜像单列，
 不代表 Auditor/Verifier/Worker 主目标已消费。Observer/Gate 是确定性程序，不能接受
 语义指令。Final Verifier 实际读取面向 verifier 的 notes；同 command 重试不重复发送。
 
-“取消本次执行”先接收请求，再确认当前本地 Codex/Gate 子进程与 AO Worker 停止；
+“取消本次执行”先接收请求，再确认当前本地 Codex/Gate 子进程与对应后端 Worker 停止；
 requested/cancelling 不等于 cancelled，unknown 表示需人工核对。未知停止不继续交付。
 历史查看不连接 AO、也不修改原库；非终态“检查并恢复”必须验证原配置/source、当前
 所需 Git/workspace/Session/operation/证据。缺材料不自动补造；终态只可创建有关联的新
 attempt，具有独立 identity/config/source/历史，原记录不变。旧停止未知时也不能开替代 attempt。
 
-每次新 Mission 要求 AO 来源分支的 local/origin tracking/真实 remote commit 一致，
+旧 AO 后端的每次新 Mission 要求来源分支的 local/origin tracking/真实 remote commit 一致，
 用只读查询冻结 exact source；需要访问已配置 origin。CLAO 不代为 fetch 或同步分支。
 后续来源漂移会阻断新 Worker spawn，integration 保持原 source。缺少 Worker 创建基线
 证据时交人工；AO 当前没有 exact-commit spawn 参数，source 检查与 AO 创建不是原子事务，
 不匹配继续 fail closed，不宣称 exactly-once。最多两个独立子任务保持可用；本版明确拒绝
 有 dependencies 的计划，避免下游 Worker 在没有上游代码的基线上执行。
+
+本地后端使用 `turn/interrupt` 请求取消，以关联的回合结束通知且没有仍在进行的命令/文件
+item 确认停止；interrupt 返回空对象不等于已停。spawn、send、审批 intent/ACK 留在原
+StateStore；缺少唯一确认不盲重发。进程重启时活跃/等待审批/断连 Worker 保留 UNKNOWN，
+不能自动重新发起回合；已结束回合的完整检查点按既有恢复规则检查。历史仍只读，
+“重新执行”要求旧停止已确认，并重新确认当前目录内容。暂不实现 App Server 任意进程重连、
+背景命令重接管、MCP/第三方工具授权或 API Key 登录管理，不承诺 exactly-once。
 
 ## 结果与 SCM 边界
 
@@ -167,10 +192,11 @@ runtime/<mission-id>/
 
 ## 故障排查
 
-- **AO unavailable**：启动 AO Desktop，确认默认 `~/.ao/running.json` 可用；若 `ao`
+- **本地后端准备失败**：按页面提示检查 Codex 0.150.1、ChatGPT 登录和 Windows 沙箱；不需要 AO。
+- **AO unavailable（仅旧 AO 后端）**：启动 AO Desktop，确认默认 `~/.ao/running.json` 可用；若 `ao`
   不在 PATH，可为当前进程设置 `CLAO_AO_BIN`。
 - **Codex login**：运行 `codex login status`，确认显示 ChatGPT 登录。
-- **origin/default branch**：确认 Project 有 `origin`，运行
+- **origin/default branch（仅旧 AO 后端）**：确认 Project 有 `origin`，运行
   `git rev-parse refs/remotes/origin/<branch>`；auto 模式还需确认
   `git symbolic-ref refs/remotes/origin/HEAD`。
 - **spawn failure**：Panel/StateStore 会显示经过脱敏且有长度上限的根因摘要；凭据、

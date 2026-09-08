@@ -35,6 +35,67 @@ class ApprovalDecision:
     decision_id: str = ""
 
 
+def codex_reviewable(request):
+    """Whether a human can review this exact one-request effect in the Panel."""
+    params = request.get("params") or {}
+    if request.get("method") == "item/commandExecution/requestApproval":
+        return (isinstance(params.get("command"), str) and bool(params["command"])
+                and isinstance(params.get("cwd"), str) and bool(params["cwd"])
+                and params.get("kind", "command") == "command"
+                and not params.get("environmentId") and not params.get("networkApprovalContext"))
+    if request.get("method") == "item/fileChange/requestApproval" and not params.get("grantRoot"):
+        item = request.get("item") or {}
+        changes = item.get("changes")
+        return bool(item.get("id") == params.get("itemId") and item.get("type") == "fileChange"
+                    and item.get("status") == "inProgress" and isinstance(changes, list) and changes
+                    and all(isinstance(c, dict) and isinstance(c.get("path"), str) and c["path"]
+                            and (c.get("kind") or {}).get("type") in ("add", "update", "delete")
+                            and isinstance(c.get("diff"), str) for c in changes))
+    return False
+
+
+def decide_codex_approval(request, *, allowed_paths, forbidden_paths, gate_commands, worktree_root):
+    """Native 0.150.1 facts; reuse the exact path/command policy, not AO DTOs."""
+    identity = request.get("request_id", "")
+    try:
+        root = _root(worktree_root)
+        allowed, forbidden = _patterns(allowed_paths), _patterns(forbidden_paths)
+        # Local detached worktrees use a .git pointer FILE, not a directory.
+        # It is control metadata, never an automatically editable deliverable.
+        forbidden += [".git", ".git/**", "**/.git", "**/.git/**"]
+        params, method = request["params"], request["method"]
+        if method == "item/commandExecution/requestApproval":
+            if not isinstance(params.get("cwd"), str) or not params["cwd"]:
+                raise ValueError("缺少真实执行 cwd")
+            if params.get("kind", "command") != "command" or params.get("networkApprovalContext") or params.get("additionalPermissions") or params.get("environmentId"):
+                raise ValueError("特殊执行、网络或额外权限请求需人工处理")
+            reason = _command_reason(params.get("command"), gate_commands, root, _cwd(params.get("cwd"), root))
+        elif method == "item/fileChange/requestApproval":
+            if params.get("grantRoot"):
+                raise ValueError("拒绝扩大目录或会话授权")
+            item = request.get("item")
+            if not isinstance(item, dict) or item.get("id") != params.get("itemId") or item.get("type") != "fileChange" or item.get("status") != "inProgress":
+                raise ValueError("缺少同一回合 item/started 的完整拟修改清单")
+            changes = item.get("changes")
+            if not isinstance(changes, list) or not changes:
+                raise ValueError("缺少拟修改路径")
+            for change in changes:
+                if not isinstance(change, dict) or not isinstance(change.get("diff"), str):
+                    raise ValueError("拟修改条目不完整")
+                kind = change.get("kind") or {}
+                if kind.get("type") not in ("add", "delete", "update"):
+                    raise ValueError("未知文件修改类型")
+                _edit_path(change.get("path"), root, root, allowed, forbidden)
+                if kind.get("move_path") is not None:
+                    _edit_path(kind["move_path"], root, root, allowed, forbidden)
+            reason = "全部拟修改路径在工作区和授权范围内"
+        else:
+            raise ValueError("需要人工输入或不支持的引擎请求")
+        return ApprovalDecision(identity, True, reason, "accept")
+    except (KeyError, ValueError, TypeError, OSError, RuntimeError) as exc:
+        return ApprovalDecision(identity, False, str(exc))
+
+
 def pending_approvals(conversation: Any) -> list[dict]:
     activities = conversation.get("activities") if isinstance(conversation, dict) else None
     if not isinstance(activities, list):

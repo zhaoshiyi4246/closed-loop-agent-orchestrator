@@ -12,6 +12,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from panel import server as panel_server
+from loopcore import local_projects
 
 
 SERVER = Path(__file__).resolve().parents[1] / "panel" / "server.py"
@@ -36,7 +37,7 @@ def _start_panel_mission(monkeypatch, tmp_path, max_subtasks=...):
     project_path.mkdir(exist_ok=True)
     monkeypatch.setattr(panel_server, "ROOT", tmp_path)
     monkeypatch.setattr(panel_server.PANEL, "start_mission", start)
-    monkeypatch.setattr(panel_server, "_load_ao_projects", lambda: [{
+    monkeypatch.setattr(local_projects, "projects", lambda _root: [{
         "id": "project-a", "name": "Project A", "path": str(project_path),
         "kind": "git",
     }])
@@ -64,49 +65,24 @@ def _valid_mission_body(project_id="project-a"):
     }
 
 
-def test_project_api_uses_current_ao_registry_and_public_runtime_config(
-        monkeypatch, tmp_path):
-    run_file = tmp_path / "running.json"
-    adapter = MagicMock()
-    adapter.get_projects.return_value = [{
-        "id": "project-a", "name": "Project A", "path": "C:/repo/a",
-        "kind": "git", "internal": "must-not-leak",
-    }]
-    adapter_type = MagicMock(return_value=adapter)
-    monkeypatch.setattr(panel_server, "AOAdapter", adapter_type)
-    monkeypatch.setattr(panel_server.run_mission, "load_config", lambda: {
-        "ao": {"base_url": "http://127.0.0.1:4321",
-               "request_timeout_seconds": 9},
-    })
-    monkeypatch.setattr(panel_server.run_mission, "resolve_ao_run_file",
-                        lambda: run_file)
+def test_project_api_uses_local_registry_without_ao(monkeypatch, tmp_path):
+    monkeypatch.setattr(panel_server, "ROOT", tmp_path)
+    folder = tmp_path / "local repository"
+    folder.mkdir()
+    row = local_projects.register(tmp_path, str(folder))
+    adapter = MagicMock(side_effect=AssertionError("local project list accessed AO"))
+    monkeypatch.setattr(panel_server, "AOAdapter", adapter)
     response = MagicMock()
-
-    panel_server.Handler._get(SimpleNamespace(
-        path="/api/projects", _json=response))
-
-    adapter_type.assert_called_once_with(
-        base_url="http://127.0.0.1:4321", timeout=9.0,
-        run_file=run_file)
-    adapter.get_projects.assert_called_once_with()
-    response.assert_called_once_with({
-        "ok": True,
-        "projects": [{"id": "project-a", "name": "Project A",
-                      "path": "C:/repo/a", "kind": "git"}],
-    })
+    panel_server.Handler._get(SimpleNamespace(path="/api/projects", _json=response))
+    response.assert_called_once_with({"ok": True, "projects": [row]})
+    adapter.assert_not_called()
 
 
-def test_project_api_reports_ao_failure_without_fabricated_project(monkeypatch):
-    monkeypatch.setattr(
-        panel_server, "_load_ao_projects",
-        MagicMock(side_effect=RuntimeError("AO daemon unavailable")))
+def test_project_api_reports_registry_read_failure_without_fabrication(monkeypatch):
+    monkeypatch.setattr(local_projects, "projects", MagicMock(side_effect=ValueError("registry unreadable")))
     response = MagicMock()
-
-    panel_server.Handler._get(SimpleNamespace(
-        path="/api/projects", _json=response))
-
-    response.assert_called_once_with(
-        {"ok": False, "error": "AO daemon unavailable"}, 503)
+    panel_server.Handler._get(SimpleNamespace(path="/api/projects", _json=response))
+    response.assert_called_once_with({"ok": False, "error": "registry unreadable"}, 503)
     assert "closed-loop-demo" not in str(response.call_args)
 
 
@@ -242,7 +218,7 @@ def test_panel_rejects_out_of_range_workers(monkeypatch, tmp_path, value):
     project_path.mkdir()
     monkeypatch.setattr(panel_server, "ROOT", tmp_path)
     monkeypatch.setattr(panel_server.PANEL, "start_mission", start)
-    monkeypatch.setattr(panel_server, "_load_ao_projects", lambda: [{
+    monkeypatch.setattr(local_projects, "projects", lambda _root: [{
         "id": "project-a", "name": "Project A", "path": str(project_path),
         "kind": "git",
     }])
@@ -287,7 +263,7 @@ def test_panel_frontend_defaults_to_bounded_single_worker():
     assert 'max_subtasks:+$("f_sub").value||2' not in script
 
 
-def test_panel_frontend_loads_and_selects_ao_projects():
+def test_panel_frontend_loads_and_selects_local_projects():
     html = INDEX.read_text(encoding="utf-8")
     script = INDEX.with_name("app.js").read_text(encoding="utf-8")
     assert 'id="f_project" disabled' in html

@@ -189,6 +189,11 @@ class ClosedLoop:
             return result
         if not self.dry_run:
             self.executor.reconcile_pending(self.task.subtask_of or self.task.task_id)
+            if getattr(self.adapter, "backend", None) == "codex_app_server" and self.task.worker_session_id:
+                fact = self._worker_status() or {}
+                if fact.get("execution_state") in ("unknown", "failed", "interrupted"):
+                    self._halt_budget(fact.get("reason") or "Codex Worker result is unknown/failed")
+                    return dict(state=self.state, acted=True)
         # Runtime watchdog: enforce max_runtime_seconds (budget).
         if self._runtime_exceeded():
             result["acted"] = True
@@ -257,7 +262,7 @@ class ClosedLoop:
                 # a transient AO/API error must never read as 'worker done';
                 # review 簇四).
                 return result
-            act_state = (ws.get("activity") or {}).get("state") or \
+            act_state = ws.get("execution_state") or (ws.get("activity") or {}).get("state") or \
                 (ws.get("status") or "")
             if act_state not in ("idle", "waiting_input", "needs_input",
                                  "exited", "terminated"):
@@ -357,8 +362,8 @@ class ClosedLoop:
             worker_status = self._worker_status()
             worker_active = (
                 isinstance(worker_status, dict)
-                and isinstance(worker_status.get("activity"), dict)
-                and worker_status["activity"].get("state") == "active")
+                and (worker_status.get("execution_state") == "active" or
+                     (worker_status.get("activity") or {}).get("state") == "active"))
         actionable_alerts = new_alerts
         if worker_active:
             actionable_alerts = [
@@ -418,6 +423,10 @@ class ClosedLoop:
         """
         if self.dry_run or not self.task.worker_session_id:
             return []
+        if getattr(self.adapter, "backend", None) == "codex_app_server":
+            approvals = self.adapter.pending_approvals(self.task.worker_session_id)
+            self._waiting_for_approval = bool(approvals)
+            return approvals
         try:
             conv = self.adapter.get_worker_conversation(
                 self.task.worker_session_id)
@@ -460,6 +469,20 @@ class ClosedLoop:
         pending = self._pending_approvals()
         unresolved = False
         for activity in pending:
+            if getattr(self.adapter, "backend", None) == "codex_app_server":
+                from .approvals import decide_codex_approval
+                decision = decide_codex_approval(activity, allowed_paths=self.task.allowed_paths,
+                    forbidden_paths=self.task.forbidden_paths, gate_commands=self.task.gate_commands, worktree_root=worktree)
+                self.store.record_event("codex-policy:" + self.task.worker_session_id + ":" + decision.request_id,
+                    {"kind": "approval_policy", "task_id": self.task.task_id, "request_id": decision.request_id,
+                     "allow": decision.allow, "reason": decision.reason, "requires_human": not decision.allow})
+                if decision.allow:
+                    ok = self.adapter.resolve_approval(self.task.worker_session_id, decision.request_id, "accept")
+                    acted = acted or ok
+                    unresolved = unresolved or not ok
+                else:
+                    unresolved = True
+                continue
             decision = decide_approval(
                 activity, allowed_paths=self.task.allowed_paths,
                 forbidden_paths=self.task.forbidden_paths,
@@ -503,7 +526,7 @@ class ClosedLoop:
         # send can kill the controller ("controller ended before the turn
         # completed"). Wait until the worker is idle.
         ws = self._worker_status() or {}
-        act_state = (ws.get("activity") or {}).get("state") or \
+        act_state = ws.get("execution_state") or (ws.get("activity") or {}).get("state") or \
             (ws.get("status") or "")
         if act_state not in ("idle", "exited", "terminated", ""):
             return False
@@ -569,7 +592,7 @@ class ClosedLoop:
         ws = self._worker_status()
         if ws is None:
             return False  # status unknown: never audit as 'idle' (fail-closed)
-        act_state = (ws.get("activity") or {}).get("state") or \
+        act_state = ws.get("execution_state") or (ws.get("activity") or {}).get("state") or \
             (ws.get("status") or "")
         if act_state not in ("idle", "waiting_input", "needs_input",
                              "exited", "terminated"):
@@ -682,6 +705,8 @@ class ClosedLoop:
         return self.store.counter_incr(key)
 
     def _collect_events(self, worker_id: str) -> List:
+        if getattr(self.adapter, "backend", None) == "codex_app_server":
+            return self.adapter.normalized_events(worker_id, self.task.project_id)
         pid = self.task.project_id
         # Advance the activity cursor: pulling every activity from sequence 0
         # each tick is O(N) per poll and O(N^2) over a long task, which can

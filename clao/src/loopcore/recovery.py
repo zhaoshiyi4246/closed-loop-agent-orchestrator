@@ -86,9 +86,19 @@ def validate_checkpoint(store, mission_id, adapter):
         raise RecoveryError('frozen source identity missing or mismatched')
     if commit(source['project_path'], source['source_commit']) != source['source_commit']:
         raise RecoveryError('frozen source commit unavailable')
-    detail = adapter.get_project(source['project_id'])
-    if str(Path(detail.get('path', '')).resolve()) != source['project_path']:
-        raise RecoveryError('AO project does not match frozen source')
+    local = getattr(adapter, 'backend', None) == 'codex_app_server'
+    if local:
+        if row.get('execution_backend') != 'codex_app_server' or source.get('backend') != 'codex_app_server':
+            raise RecoveryError('local execution/source backend mismatch')
+        if Path(source['project_path']).resolve() != (Path(store.path).parent / 'source').resolve():
+            raise RecoveryError('local source is outside Mission managed directory')
+        for worker in adapter.workers.values():
+            if worker.get('state') in ('active', 'waiting_input', 'starting', 'unknown'):
+                raise RecoveryError('interrupted local Worker execution cannot be assumed stopped; inspect only')
+    else:
+        detail = adapter.get_project(source['project_id'])
+        if str(Path(detail.get('path', '')).resolve()) != source['project_path']:
+            raise RecoveryError('AO project does not match frozen source')
     plan = row.get('plan') or {}
     if any(t.get('dependencies') for t in plan.get('subtasks', [])):
         raise RecoveryError('dependent MissionPlan unsupported: no upstream code delivery')
@@ -124,6 +134,9 @@ def validate_checkpoint(store, mission_id, adapter):
             if op['kind'] == 'spawn':
                 worker_source(source, adapter.get_session_workspace(fact['result']['session_id']))
         elif op['kind'] == 'spawn' and op['status'] == 'SUCCEEDED' and op['operation_id'] in unbound:
+            if local:
+                worker_source(source, adapter.get_session_workspace(op['result']['session_id']))
+                continue
             session = adapter.operation_session(op['result']['session_id'])
             if session.get('projectId') != source['project_id']:
                 raise RecoveryError('unbound Worker Session project mismatch')
@@ -134,6 +147,18 @@ def validate_checkpoint(store, mission_id, adapter):
     for task in tasks.values():
         sid = task.get('worker_session_id')
         if not sid:
+            continue
+        if local:
+            if not adapter.stopped(sid):
+                raise RecoveryError('local Worker stop is unconfirmed')
+            if task['task_id'] in merged:
+                continue
+            expected = workspaces.get(sid)
+            path = adapter.get_session_workspace(sid)
+            if not expected or worker_source(source, path) != expected:
+                raise RecoveryError('local Worker workspace/source mismatch')
+            if wt._read_base_sidecar(path, task['task_id'] + ':' + sid) != source['source_commit']:
+                raise RecoveryError('local Worker frozen base missing or mismatched')
             continue
         session = adapter.operation_session(sid)
         if session.get('projectId') != source['project_id']:

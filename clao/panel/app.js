@@ -1,5 +1,6 @@
 
 let LAST = null, ACTIVE_TAB = "ev", PROJECTS = [];
+let SOURCE=null;
 let VIEW="overview", DETAIL_ID=null, WIZARD_STEP=0, PROJECT_ERROR="";
 const $ = id => document.getElementById(id);
 const PANEL_NONCE = document.currentScript.nonce;
@@ -19,6 +20,8 @@ function uiError(source,error){
   showClientErrors();
   if(source==="mission") $("formSubmitError").textContent=error?text(error):"";
   if(source==="config") $("settingsError").textContent=error?text(error):"";
+  if(source==="project" || source==="source") $("projectPathError").textContent=error?text(error):"";
+  if($("retryMission").open) $("retryError").textContent=error?text(error):"";
 }
 function showClientErrors(){
   const visible=[...UI_ERRORS].filter(([key])=>!(key==="config" && VIEW==="settings") && !(key==="mission" && $("newMission").open));
@@ -41,7 +44,7 @@ async function writeAction(key,path,body,success){
     REQUEST_TIMING={key, round_trip_seconds:(performance.now()-requestStarted)/1000, ...data.request_timing};
     renderTiming();
     if(!response.ok || !data.ok) throw new Error(data.error || "请求失败（HTTP "+response.status+"）");
-    uiError(key,null); if(success) success(data);
+    uiError(key,null); if(success) await success(data);
   }catch(error){ uiError(key,error.message); toast(error.message); }
   finally{ PENDING.delete(key); syncButtons(); }
 }
@@ -143,14 +146,14 @@ function renderPhases(){
   $("modelStatus").textContent=["worker","planner","auditor","verifier"].map(role=>{
     const p=query?.roles?.[role] || records.find(p=>p.role===role && ["model_request","spawn"].includes(p.phase));
     return !p?role+"："+((LAST?.mission_config?.status==="ok" && ["ok","not_called"].includes(query?.status))?"未调用":"历史 unknown"):
-      role+"：请求="+text(p.requested_model ?? "unknown")+" · 传入="+text(p.passed_model ?? "unknown")+(role==="worker"?" · 模型确认见下方 AO Session 事实":" · 外部确认="+text(p.confirmed_model ?? "unknown"))+" · transport="+text(p.transport ?? "unknown")+" · attempt="+text(p.attempt)+" · 调用耗时="+seconds(elapsed(p))+" · usage="+text(p.usage ?? "unknown")+" · cost="+text(p.cost ?? "unknown");
+      role+"：请求="+text(p.requested_model ?? "unknown")+" · 传入="+text(p.passed_model ?? "unknown")+(role==="worker"?" · 模型确认见下方执行后端事实":" · 外部确认="+text(p.confirmed_model ?? "unknown"))+" · transport="+text(p.transport ?? "unknown")+" · attempt="+text(p.attempt)+" · 调用耗时="+seconds(elapsed(p))+" · usage="+text(p.usage ?? "unknown")+" · cost="+text(p.cost ?? "unknown");
   }).join("\n") + (query?.workers || []).map(w=>{
     // Old R01 records confirmed only a reroute; never relabel it as spawn model.
     const legacy=w.model_evidence==="AO conversation.modelReroute.toModel (conversation-level, not per-call timing)";
     const reroute=w.model_reroute ?? (legacy?{to_model:w.confirmed_model,source:w.model_evidence}:null);
-    return "\nWorker "+text(w.session_id)+" · AO activity="+text(w.activity ?? "unknown")+
+    return "\nWorker "+text(w.session_id)+" · activity="+text(w.activity ?? "unknown")+
       " · 请求="+text(w.requested_model ?? "unknown")+" · 传入="+text(w.passed_model ?? "unknown")+
-      " · AO spawn-resolved="+text(w.spawn_resolved_model ?? "unknown")+"（创建时解析） · 来源="+text(w.spawn_model_evidence ?? "Session model 未提供/unknown")+
+      (w.transport==="codex_stdio"?" · Codex thread model=":" · AO spawn-resolved=")+text(w.spawn_resolved_model ?? "unknown")+"（创建时解析） · 来源="+text(w.spawn_model_evidence ?? "外部 model 未提供/unknown")+
       " · conversation reroute="+(reroute?text(reroute.from_model ?? "unknown")+" → "+text(reroute.to_model ?? "unknown")+" · 来源="+text(reroute.source):"未提供/unknown")+
       "（会话后续模型变更） · 本次观察到该 activity 持续="+seconds(w.activity_elapsed_seconds)+"（非模型请求耗时） · 单次 provider 请求模型/耗时 unknown · usage="+text(w.usage ?? "unknown")+" · cost="+text(w.cost ?? "unknown");
   }).join("");
@@ -182,6 +185,7 @@ function render(s){
   if(s.default_config && document.activeElement!==$("configJson") && !$("configJson").dataset.dirty) $("configJson").value=JSON.stringify(s.default_config.values,null,2);
   $("defaultConfigInfo").textContent=configText(s.default_config,s.config_fields);
   $("missionConfig").textContent=s.mission_config?.status==="ok"?configText(s.mission_config.snapshot,s.config_fields):"本次配置："+text(s.mission_config?.status || "unknown")+"；不使用最新默认值伪造历史";
+  if(s.mission?.execution_backend==="codex_app_server") $("missionConfig").textContent="执行后端：Codex App Server；ao.* 仅用于旧后端，本次不消费。\n"+$("missionConfig").textContent;
   renderPhases();
   const subs=s.subtasks || [];
   region("subtasks",[subs,m?.state,m?.cancellation],tasks=>{
@@ -352,7 +356,7 @@ function renderTaskList(){
   });
 }
 function nextStep(m){
-  if(m?.cancellation?.status==="unknown" || m?.worker_stop?.status==="UNKNOWN" && m?.state!=="CANCELLING") return "请在 AO 核对执行是否已停止。";
+  if(m?.cancellation?.status==="unknown" || m?.worker_stop?.status==="UNKNOWN" && m?.state!=="CANCELLING") return m.execution_backend==="codex_app_server"?"Codex 停止尚未确认；保留工作区并人工核对执行记录。":"请在 AO 核对执行是否已停止。";
   if(m?.state==="CANCELLING") return "等待停止确认。";
   if(m?.state==="CANCELLED") return "可查看记录，或重新执行。";
   if(m?.state==="MISSION_DONE") return "查看成果与验收记录。";
@@ -388,8 +392,9 @@ function renderTaskDetail(){
   // This is a stage key, never an invented percentage or a claim of completed checks.
   const phase=p?.phase || "", index=/preflight|prepare|spawn/.test(phase)?0:/gate/.test(phase)?2:/materializ|merge|verifier/.test(phase)?3:/worker|observ|approval|model_request|planner|auditor|retry/.test(phase)?1:-1;
   region("phaseRail",index,box=>["准备","执行与观察","验收","成果复核"].forEach((label,i)=>box.append(el("span",label,i===index?"reached":""))));
+  renderApprovals();
   const summary=LAST?.last_summary;
-  $("resultLocation").textContent=summary?.runtime_dir?"运行目录："+text(summary.runtime_dir):"运行记录：runtime/"+text(LAST?.mission?.id)+"/";
+  $("resultLocation").textContent=LAST?.mission?.result_path?"成果目录："+text(LAST.mission.result_path):summary?.runtime_dir?"运行目录："+text(summary.runtime_dir):"运行记录：runtime/"+text(LAST?.mission?.id)+"/";
   region("receiptSummary",LAST?.directive_receipts,box=>{
     for(const receipt of (LAST?.directive_receipts?.records || []).slice(0,6)) box.append(el("p",text(receipt.target)+" · "+text(receipt.status)+" · "+text(receipt.reason)));
   });
@@ -451,7 +456,7 @@ $("taskFilter").onchange=renderTaskList;
 const DIALOG_OPENERS=new Map();
 function showDialog(id){const dialog=$(id);DIALOG_OPENERS.set(id,document.activeElement);if(!dialog.open) dialog.showModal();showClientErrors();}
 function closeDialog(id){$(id).close();}
-for(const id of ["newMission"]) $(id).addEventListener("close",()=>{const opener=DIALOG_OPENERS.get(id);if(opener?.isConnected) opener.focus();showClientErrors();});
+for(const id of ["newMission","retryMission"]) $(id).addEventListener("close",()=>{const opener=DIALOG_OPENERS.get(id);if(opener?.isConnected) opener.focus();showClientErrors();});
 $("closeMission").onclick=()=>closeDialog("newMission");
 function showSelectedProject(){
   const selected=PROJECTS.find(p=>String(p.id)===$("f_project").value);
@@ -463,17 +468,58 @@ async function loadProjects(){
   selector.disabled=true;$("btnProjects").disabled=true;syncButtons();
   try{
     const d=await (await fetch("/api/projects")).json();
-    if(!d.ok) throw new Error(d.error || "AO Project API 请求失败");
+    if(!d.ok) throw new Error(d.error || "本地项目读取失败");
     PROJECTS=d.projects || [];
-    const prompt=el("option",PROJECTS.length?"请选择一个项目":"AO 中没有已注册项目");prompt.value="";selector.replaceChildren(prompt);
-    PROJECTS.forEach(p=>{const option=el("option",p.name+" ("+p.id+")");option.value=String(p.id);selector.append(option);});
+    const prompt=el("option",PROJECTS.length?"请选择一个项目":"请打开本地目录或创建空项目");prompt.value="";selector.replaceChildren(prompt);
+    PROJECTS.forEach(p=>{const option=el("option",p.name);option.value=String(p.id);selector.append(option);});
     selector.value=selected;if(!selector.value) selector.value="";selector.disabled=!PROJECTS.length;
-    PROJECT_ERROR=PROJECTS.length?"":"AO 中没有已注册项目";
-  }catch(error){PROJECTS=[];PROJECT_ERROR=error.message;const prompt=el("option","AO 项目加载失败");prompt.value="";selector.replaceChildren(prompt);}
+    PROJECT_ERROR=PROJECTS.length?"":"请打开本地目录或创建空项目";
+  }catch(error){PROJECTS=[];PROJECT_ERROR=error.message;const prompt=el("option","本地项目加载失败");prompt.value="";selector.replaceChildren(prompt);}
   finally{$("f_project_error").textContent=PROJECT_ERROR;$("btnProjects").disabled=false;showSelectedProject();renderReadiness();}
 }
-$("f_project").onchange=()=>{$("f_project_error").textContent="";$("f_project").removeAttribute("aria-invalid");showSelectedProject();};
+$("f_project").onchange=()=>{SOURCE=null;$("sourceConfirmed").checked=false;loadSource();$("f_project_error").textContent="";$("f_project").removeAttribute("aria-invalid");showSelectedProject();};
 $("btnProjects").onclick=loadProjects;
+
+async function loadSource(){
+  SOURCE=null;$("sourceConfirmed").checked=false;
+  if(!$("f_project").value) return;
+  await writeAction("source","/api/projects/source",{project_id:$("f_project").value},d=>{
+    if(d.source.project_id!==$("f_project").value) return;
+    SOURCE=d.source;$("sourceSummary").textContent=SOURCE.file_count+" 个文件 · "+SOURCE.bytes+" 字节";
+    $("sourceFiles").textContent="纳入当前目录内容：\n"+SOURCE.files.map(f=>f.path).join("\n")+"\n\n排除：\n"+SOURCE.excluded.map(f=>f.path+" · "+f.reason).join("\n");
+    if(WIZARD_STEP===3) renderReview();
+  });
+}
+$("refreshSource").dataset.writeKey="source";$("refreshSource").onclick=loadSource;
+for(const [id,path] of [["openProject","/api/projects/open"],["createProject","/api/projects/create"]]){
+  $(id).dataset.writeKey="project";
+  $(id).onclick=()=>{
+    const value=$("projectPath").value.trim();
+    if(!value){$("projectPathError").textContent="请填写本地目录的完整路径。";$("projectPath").focus();return;}
+    $("projectPathError").textContent="";
+    writeAction("project",path,{path:value},async d=>{await loadProjects();$("f_project").value=d.project.id;showSelectedProject();await loadSource();});
+  };
+}
+function renderApprovals(){
+  const requests=LAST?.approvals || [];$("approvalCard").hidden=!requests.length;
+  region("approvalRequests",[LAST?.mission?.id,requests],box=>{
+    for(const request of requests){
+      const row=el("div",null,"list-row"),body=el("div",null,"grow"),actions=el("div",null,"button-row");
+      body.append(el("p",request.reason || request.policy_reason),el("pre",[request.command,request.cwd,...(request.paths || [])].filter(Boolean).join("\n"),"diagnostic"));
+      const key="approval:"+request.worker_id+":"+request.request_id;
+      const send=(decision,answers)=>writeAction(key,"/api/approval",{worker_id:request.worker_id,request_id:request.request_id,decision,answers});
+      if(request.allow_once_supported){
+        actions.append(actionButton("允许一次",key,()=>send("accept")),actionButton("拒绝",key,()=>send("decline")));
+      }else if(request.method==="item/tool/requestUserInput"){
+        const fields=[];
+        for(const question of request.questions || []){const label=el("label",question.question),input=el("textarea");input.rows=2;input.setAttribute("aria-label",question.question);label.append(input);body.append(label);fields.push([question.id,input]);}
+        actions.append(actionButton("提交回答",key,()=>send("answer",Object.fromEntries(fields.map(([id,input])=>[id,input.value])))));
+      }else body.append(el("p","此请求暂不支持在此授权，可取消任务并查看高级记录。","field-error"));
+      body.append(actions);row.append(body);box.append(row);
+    }
+  });
+}
+
 function showStep(step,focus=true){
   WIZARD_STEP=step;
   document.querySelectorAll("[data-step]").forEach(n=>n.hidden=Number(n.dataset.step)!==step);
@@ -488,7 +534,7 @@ function validateStep(step){
   const ids=step===0?["f_project"]:step===1?["f_obj","f_ac"]:step===2?["f_paths","f_gate"]:["f_sub"];
   let first=null;
   for(const id of ids){let error=$(id).value.trim()?"":"请填写此项。";
-    if(id==="f_project" && !PROJECTS.some(p=>String(p.id)===$(id).value)) error="请选择一个可用的 AO 项目。";
+    if(id==="f_project" && !PROJECTS.some(p=>String(p.id)===$(id).value)) error="请选择一个可用的本地项目。";
     if(id==="f_sub" && !["1","2"].includes($(id).value)) error="当前仅支持 1 或 2 个独立子任务。";
     if(!fieldError(id,error) && !first) first=$(id);
   }
@@ -499,6 +545,7 @@ function renderReview(){
   for(const [label,value,step] of [["项目",PROJECTS.find(p=>String(p.id)===$("f_project").value)?.name || "未选择",0],["目标与验收",$("f_obj").value+"\n"+$("f_ac").value,1],["范围与 Gate",$("f_paths").value+"\n"+$("f_gate").value,2]]){
     const row=el("div",null,"review-row"),body=el("div",null,"grow"),edit=el("button","编辑");edit.type="button";edit.onclick=()=>showStep(step);body.append(el("span",label,"subtle"),el("p",value));row.append(body,edit);box.append(row);
   }
+  box.append(el("p","执行后端：Codex App Server · 来源："+text(SOURCE?.path || "尚未确认")+" · "+text(SOURCE?.file_count ?? "unknown")+" 个文件"));
   const values=LAST?.default_config?.values;
   if(LAST?.running) box.append(el("p","当前已有任务运行，不能同时启动另一任务。表单输入会保留。","notice warning"));
   box.append(el("p","Worker："+text(values?.worker?.model || "unknown")+"；Planner / Auditor / Verifier："+["planner","auditor","verifier"].map(r=>text(values?.roles?.[r]?.model || "unknown")).join(" / ")+"。如需修改，请打开设置。","notice"));
@@ -532,7 +579,9 @@ $("btnConfigAll").onclick=()=>{
 };
 $("btnStart").onclick=()=>{
   for(let step=0;step<4;step++) if(!validateStep(step)){showStep(step);validateStep(step);return;}
-  writeAction("mission","/api/mission",{project_id:$("f_project").value,objective:$("f_obj").value,acceptance_criteria:$("f_ac").value,allowed_paths:$("f_paths").value,gate_commands:$("f_gate").value,max_subtasks:Number($("f_sub").value),user_instruction:$("f_instr").value},d=>{
+  if(!SOURCE || SOURCE.project_id!==$("f_project").value || !$("sourceConfirmed").checked){$("sourceConfirmError").textContent="请先读取并确认本次来源摘要。";return;}
+  $("sourceConfirmError").textContent="";
+  writeAction("mission","/api/mission",{source_revision:SOURCE.revision,project_id:$("f_project").value,objective:$("f_obj").value,acceptance_criteria:$("f_ac").value,allowed_paths:$("f_paths").value,gate_commands:$("f_gate").value,max_subtasks:Number($("f_sub").value),user_instruction:$("f_instr").value},d=>{
     toast("已启动 "+d.mission_id);closeDialog("newMission");DETAIL_ID=d.mission_id;navigate("tasks");renderTaskDetail();
   });
 };
@@ -546,7 +595,18 @@ $("btnSend").onclick=()=>{
   });
 };
 $("d_text").addEventListener("keydown",e=>{if(e.key==="Enter") $("btnSend").click();});
-function newAttempt(mid){return writeAction("mission","/api/new-attempt",{mission_id:mid},d=>{toast("已创建新的执行记录");DETAIL_ID=d.mission_id;navigate("tasks");renderTaskDetail();});}
+function submitAttempt(mid,revision){return writeAction("mission","/api/new-attempt",{mission_id:mid,source_revision:revision},d=>{toast("已创建新的执行记录");if($("retryMission").open) closeDialog("retryMission");DETAIL_ID=d.mission_id;navigate("tasks");renderTaskDetail();});}
+function newAttempt(mid){
+  if(LAST?.mission?.execution_backend!=="codex_app_server") return submitAttempt(mid);
+  showDialog("retryMission");$("retrySource").textContent="正在读取当前目录内容…";$("confirmRetry").dataset.blocked="1";$("confirmRetry").disabled=true;
+  $("retryError").textContent="";
+  return writeAction("source","/api/projects/source",{project_id:LAST.mission.source.project_id},d=>{
+    const source=d.source;
+    $("retrySource").textContent=source.path+"\n"+source.file_count+" 个文件\n\n纳入：\n"+source.files.map(f=>f.path).join("\n")+"\n\n排除：\n"+source.excluded.map(f=>f.path+" · "+f.reason).join("\n");
+    $("confirmRetry").dataset.blocked="0";$("confirmRetry").disabled=false;$("confirmRetry").onclick=()=>submitAttempt(mid,source.revision);
+  });
+}
+$("confirmRetry").dataset.writeKey="mission";$("closeRetry").onclick=()=>closeDialog("retryMission");
 function resume(mid){return writeAction("mission","/api/resume",{mission_id:mid},()=>{toast("检查通过，已恢复 "+mid);DETAIL_ID=mid;renderTaskDetail();});}
 function attach(mid){return writeAction("mission","/api/attach",{mission_id:mid},()=>{toast("已加载 "+mid);DETAIL_ID=mid;renderTaskDetail();});}
 

@@ -1,6 +1,6 @@
-# CLAO v0.2 Architecture
+# CLAO Architecture（v0.3 开发版）
 
-CLAO（Closed-Loop Agent Orchestrator）是 AO 之上的 Mission 控制层。正式运行入口只有
+CLAO（Closed-Loop Agent Orchestrator）是本地 Mission 控制层。正式运行入口只有
 Panel 和 `run_mission.py`，二者共享同一 runtime 组装与 preflight。
 
 ## Authority boundaries
@@ -9,7 +9,8 @@ Panel 和 `run_mission.py`，二者共享同一 runtime 组装与 preflight。
   Gate、最终验证、预算和恢复。
 - `StateStore` 是 CLAO runtime authority，保存 Mission、Task、transition、alert、
   Planner action、Gate 和 verification 证据。
-- AO 是 Worker、Session、conversation、activity 与 Session workspace 的外部
+- 新本地 Worker 通过 Codex App Server 0.150.1 stdio 提供 thread/turn/item 事实；本地项目与私有 Git 快照不要求 AO/origin。原 operation/审批/停止屏障复用，只有确认停止才能交付。
+- 旧 AO 后端仍是其 Worker、Session、conversation、activity 与 Session workspace 的外部
   authority。CLAO 通过 `AOAdapter` 读取公开 API，通过 `ActionExecutor` 执行有限的
   spawn/send/kill 写操作。
 - `LoopBus`、`StoreBusProjector`、Markdown、JSONL 和 Panel timeline 都是派生投影；
@@ -26,8 +27,8 @@ Panel / run_mission.py
      ├─ Verifier (headless Codex CLI)
      ├─ deterministic Observer
      ├─ Integration Gate
-     ├─ AOAdapter / ActionExecutor
-     │    └─ AO Codex Worker
+     ├─ ActionExecutor
+     │    └─ Codex App Server Worker / 旧 AOAdapter
      └─ StateStore
           └─ StoreBusProjector → Panel / Markdown / JSONL
 ```
@@ -44,7 +45,7 @@ Observer 和 Integration Gate 都是确定性程序，不调用模型。Gate 在
 integrity；必要 Git probe 失败时 fail closed。最终 integration 必须从 clean 状态开始，
 通过 Final Gate 和 Mission Verifier 后才能成为 `MISSION_DONE`。
 
-## AO Project workspace contract
+## 旧 AO 后端的 Project workspace contract
 
 已验证的 AO Desktop 0.12.9 Git workspace 要求 Project 具有 `origin` remote。显式
 `defaultBranch=<branch>` 时，`refs/remotes/origin/<branch>` 必须可解析；auto 模式

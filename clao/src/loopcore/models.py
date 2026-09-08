@@ -12,6 +12,7 @@ from typing import Any, Dict, Optional
 
 
 class Source(str, Enum):
+    CODEX_STDIO = "codex_stdio"
     AO_API = "ao_api"
     AO_SSE = "ao_sse"
     AO_WEBSOCKET = "ao_websocket"

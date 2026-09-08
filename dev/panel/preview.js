@@ -17,7 +17,8 @@ label.append(selector);banner.append(label);document.getElementById("main").prep
 window.fetch=async (url,options={})=>{
   const path=new URL(url,location.href).pathname;
   let data,status=200;
-  if((options.method || "GET")!=="GET") {data={ok:false,error:"开发样例不执行写操作。"};status=403;}
+  if(path==="/api/projects/source") data={ok:true,source:{project_id:"sample-project",path:"示例项目 / data-tools",revision:"sample-only",file_count:1,bytes:0,files:[{path:"app.py"}],excluded:[]}};
+  else if((options.method || "GET")!=="GET") {data={ok:false,error:"开发样例不执行写操作。"};status=403;}
   else if(path==="/api/projects") data={ok:true,projects:[{id:"sample-project",name:"示例 · 数据工具",path:"示例项目 / data-tools",kind:"git"}]};
   else if(path==="/api/file") data={ok:true,content:"样例运行投影；未读取真实任务文件。"};
   else {data={ok:false,error:"没有此开发夹具"};status=404;}

@@ -212,6 +212,22 @@ class PanelState:
             raise ClientError(directive.reason + ' (command_id=' + directive.command_id + ')', 422)
         return dict(asdict(directive), mirrored_to_planner=target != 'planner')
 
+    def approval(self, body):
+        with self.lock:
+            rt = self.rt
+            if not rt or not rt.controller or getattr(rt.adapter, 'backend', None) != 'codex_app_server':
+                raise ClientError('当前任务没有本地审批消费者', 409)
+            if rt.store.mission_stop_requested(rt.mission.mission_id) or rt.controller.state in MISSION_TERMINAL:
+                raise ClientError('任务已结束或正在取消', 409)
+            worker = body.get('worker_id')
+            request_id = body.get('request_id')
+            if not isinstance(request_id, str) or not request_id or len(request_id) > 128:
+                raise ClientError('无效审批请求标识', 400)
+            if not isinstance(worker, str) or worker not in {t.worker_session_id for t in rt.controller.tasks.values()}:
+                raise ClientError('审批不属于当前任务', 400)
+        ok = rt.adapter.resolve_approval(worker, body.get('request_id'), body.get('decision'), body.get('answers'))
+        return {'ok': ok}
+
     # ---- persisted defaults (never mutate active runtime)
     def set_config(self, updates: dict) -> dict:
         if "auto_ff_master" in updates:
@@ -418,6 +434,9 @@ def _snapshot() -> dict:
                 "stop_request": mission_payload.get('stop_request'),
                 "worker_stop": mission_payload.get('worker_stop'),
                 "source": mission_payload.get('source'),
+                "execution_backend": mission_payload.get('execution_backend', 'ao'),
+                "engine": {k: v for k, v in mission_payload.get('engine', {}).items() if k != 'executable'},
+                "result_path": str(rt.runtime / 'integration') if mission_payload.get('merged') else None,
                 "previous_attempt": mission_payload.get('previous_attempt'),
                 "inspection_only": rt.controller is None,
                 "objective": rt.mission_dict.get("objective", ""),
@@ -433,6 +452,23 @@ def _snapshot() -> dict:
             "counters": counters,
             "directives_pending": rt.controller.directives.pending_count() if rt.controller else None,
         })
+        snap['approvals'] = []
+        if rt.controller and getattr(getattr(rt, 'adapter', None), 'backend', None) == 'codex_app_server':
+            from loopcore.approvals import decide_codex_approval, codex_reviewable
+            for task in list(rt.controller.tasks.values()):
+                if not task.worker_session_id:
+                    continue
+                for request in rt.adapter.pending_approvals(task.worker_session_id):
+                    policy = decide_codex_approval(request, allowed_paths=task.allowed_paths,
+                        forbidden_paths=task.forbidden_paths, gate_commands=task.gate_commands,
+                        worktree_root=rt.adapter.get_session_workspace(task.worker_session_id))
+                    params = request['params']
+                    snap['approvals'].append({'worker_id': task.worker_session_id,
+                        'request_id': request['request_id'], 'method': request['method'],
+                        'reason': params.get('reason'), 'command': params.get('command'), 'cwd': params.get('cwd'),
+                        'questions': params.get('questions'), 'policy_reason': policy.reason,
+                        'paths': [c.get('path') for c in (request.get('item') or {}).get('changes', [])],
+                        'allow_once_supported': codex_reviewable(request)})
         if snap["gate_query"]["status"] == "read_error":
             snap["ok"] = False
     except (OSError, sqlite3.Error, ValueError, TypeError, AttributeError) as exc:
@@ -609,7 +645,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/projects":
             try:
-                self._json({"ok": True, "projects": _load_ao_projects()})
+                from loopcore.local_projects import projects
+                self._json({"ok": True, "projects": projects(ROOT)})
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 503)
             return
@@ -651,6 +688,17 @@ class Handler(BaseHTTPRequestHandler):
                 self._discard_rejected_body()
                 raise
             body = self._body()
+            if path == '/api/projects/open' or path == '/api/projects/create':
+                from loopcore.local_projects import register
+                self._json({'ok': True, 'project': register(ROOT, body.get('path'), create=path.endswith('/create'))})
+                return
+            if path == '/api/projects/source':
+                from loopcore.local_projects import inspect, project
+                self._json({'ok': True, 'source': inspect(project(ROOT, body.get('project_id')))})
+                return
+            if path == '/api/approval':
+                self._json(PANEL.approval(body))
+                return
             if path == "/api/mission":
                 self._json(self._start_mission(body))
                 return
@@ -711,6 +759,8 @@ class Handler(BaseHTTPRequestHandler):
         mission = {
             "mission_id": mid,
             "project_id": project_id,
+            "execution_backend": "codex_app_server",
+            "source_revision": body.get("source_revision"),
             "objective": objective,
             "allowed_paths": allowed,
             "forbidden_paths": [".git/**"],
@@ -749,6 +799,7 @@ class Handler(BaseHTTPRequestHandler):
         return {"ok": True, "mission_id": mid, "attached": True}
 
     def _new_attempt(self, body):
+        from loopcore import local_projects
         mid = _mission_id(body.get('mission_id'))
         mission = _saved_mission(mid)
         store = StateStore(_runtime_dir(mid) / 'state.db', readonly=True)
@@ -763,6 +814,11 @@ class Handler(BaseHTTPRequestHandler):
                     or row.get('local_execution', {}).get('status') in ('running', 'unknown')):
                 raise ClientError('旧 attempt 的停止事实未确认，不能启动替代 Worker', 409)
             mission = dict(mission, mission_id='MISSION-ATTEMPT-' + secrets.token_hex(12), previous_attempt=mid)
+            if row.get('execution_backend') == local_projects.BACKEND:
+                revision = body.get('source_revision')
+                if not isinstance(revision, str) or not re.fullmatch(r'[0-9a-f]{64}', revision):
+                    raise ClientError('重新执行前请读取并确认当前项目来源', 422)
+                mission.update(execution_backend=local_projects.BACKEND, source_revision=revision)
         finally:
             store.close()
         PANEL.start_mission(mission)

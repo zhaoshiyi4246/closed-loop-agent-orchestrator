@@ -73,7 +73,7 @@ def test_edge_workbench_preview_keyboard_themes_and_actual_200_percent_zoom(http
     node = os.environ.get("U01_NODE") or shutil.which("node")
     if not node:
         pytest.skip("Development Node/Playwright unavailable; set U01_NODE and NODE_PATH")
-    monkeypatch.setattr(server, "_load_ao_projects", lambda: [{"id": "safe-project", "name": "本地测试项目", "path": "测试路径 / 中文 空格", "kind": "git"}])
+    monkeypatch.setattr("loopcore.local_projects.projects", lambda _root: [{"id": "safe-project", "name": "本地测试项目", "path": "测试路径 / 中文 空格", "kind": "git"}])
     # Real Panel/SQLite transport with isolated execution facts; no Worker runs.
     import time
     http_panel.state.rt.mission_dict["objective"] = "为订单导入增加格式校验"

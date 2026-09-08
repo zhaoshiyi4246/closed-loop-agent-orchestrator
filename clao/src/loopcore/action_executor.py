@@ -163,6 +163,8 @@ class ActionExecutor:
     @phase_call("reconciliation", role="worker")
     def reconciliation_fact(self, op):
         """AO 0.12.9 public reads only. Absence is NEVER proof of non-execution."""
+        if getattr(self.adapter, "backend", None) == "codex_app_server":
+            return self.adapter.reconciliation_fact(op)
         try:
             if op["kind"] == "spawn":
                 req = op["request"]
@@ -215,9 +217,12 @@ class ActionExecutor:
 
     def reconcile_pending(self, owner_id: str) -> None:
         """A restart cannot skip an unresolved side effect to run later work."""
-        for op in self.store.operations(owner_id):
-            if op["status"] in ("IN_FLIGHT", "UNKNOWN"):
-                self._require_known(self._reconcile(op))
+        from contextlib import nullcontext
+        lock = self.adapter.approval_lock if getattr(self.adapter, "backend", None) == "codex_app_server" else nullcontext()
+        with lock:
+            for op in self.store.operations(owner_id):
+                if op["status"] in ("IN_FLIGHT", "UNKNOWN"):
+                    self._require_known(self._reconcile(op))
 
     def _effect(self, op, args, *, timeout=120, counters=(), max_attempts=3):
         if op["status"] in ("SUCCEEDED", "FAILED"):
@@ -281,6 +286,29 @@ class ActionExecutor:
 
     def _spawn(self, project_id: str, harness: str, name: str,
                prompt: str, *, identity: str, owner_id: str, counters=()) -> Optional[str]:
+        if getattr(self.adapter, "backend", None) == "codex_app_server":
+            if harness != "codex":
+                raise ValueError("local Worker only supports Codex App Server")
+            op = self.store.ensure_operation(identity, "spawn", owner_id, project_id,
+                {"backend": "codex_app_server", "model": self.worker_model,
+                 "prompt_sha256": hashlib.sha256(prompt.encode()).hexdigest(), "success_counters": list(counters)})
+            op = self._backend_effect(op, lambda: self.adapter.start(op, prompt), counters=counters,
+                                      max_attempts=self.max_spawn_attempts)
+            if op["status"] == "NOT_STARTED":
+                return None
+            if not self._require_known(op):
+                self._last_spawn_error = op["evidence"][-1]["fact"]["reason"]
+                return None
+            session = op["result"]["session_id"]
+            mission = self.store.mission_config(owner_id) or {}
+            from .recovery import worker_source
+            fact = worker_source(mission["source"], self.adapter.get_session_workspace(session))
+            workspaces = dict(mission.get("workspaces", {}))
+            if session in workspaces and workspaces[session] != fact:
+                raise ValueError("local Worker workspace/source changed")
+            workspaces[session] = fact
+            self.store.record_mission(owner_id, {"workspaces": workspaces})
+            return session
         request = {"harness": harness, "model": self.worker_model,
                    "success_counters": list(counters),
                    "prompt_sha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
@@ -452,7 +480,7 @@ class ActionExecutor:
             json.dumps(spec['gate_commands'], ensure_ascii=False) + '\nUser instruction:\n' + instruction +
             '\nYour working directory is your private worktree; paths are relative to it. '
             'Follow the allowed/forbidden scope. Run the Gate when ready; reply DONE and stop.')
-        if len(prompt.encode("utf-8")) > 4096:
+        if getattr(self.adapter, "backend", None) != "codex_app_server" and len(prompt.encode("utf-8")) > 4096:
             raise ProtocolError('EVIDENCE_MISSING', 'complete Worker task prompt exceeds AO 4096-byte limit')
         return prompt
 
@@ -534,6 +562,8 @@ class ActionExecutor:
         op = self.store.ensure_operation(identity, "send", owner_id, session_id,
             {"message_sha256": hashlib.sha256(message.encode("utf-8")).hexdigest(),
              "success_counters": list(counters)})
+        if getattr(self.adapter, "backend", None) == "codex_app_server":
+            return self._backend_effect(op, lambda: self.adapter.send(op, message), counters=counters)
         # Ordinary AO send has no caller key. A missing ACK is reconciled to
         # UNKNOWN, even when an identical message appears in the conversation.
         return self._effect(op, ["send", "--session", session_id, "--message", message],
@@ -627,6 +657,11 @@ class ActionExecutor:
         prior = self.store.operation(identity)
         owner_id = prior["owner_id"] if prior else (owner_id or session_id)
         op = self.store.ensure_operation(identity, "kill", owner_id, session_id, {})
+        if getattr(self.adapter, "backend", None) == "codex_app_server":
+            if op["status"] != "NOT_STARTED" or self.adapter.stopped(session_id):
+                return self._reconcile(op)["status"] == "SUCCEEDED"
+            op = self._backend_effect(op, lambda: self.adapter.stop(op), stopping=True)
+            return op["status"] == "SUCCEEDED"
         if op["status"] != "NOT_STARTED":
             return self._reconcile(op)["status"] == "SUCCEEDED"
         try:
@@ -646,3 +681,42 @@ class ActionExecutor:
         identity = identity or operation_id("send-nudge", session_id, message)
         op = self._send(identity, owner_id or session_id, session_id, message)
         return self._require_known(op)
+
+    def _backend_effect(self, op, invoke, *, counters=(), max_attempts=3, stopping=False):
+        """The same durable intent/claim barrier for the local stdio backend."""
+        from .codex_backend import CodexNotStarted, CodexRejected
+        if op["status"] in ("SUCCEEDED", "FAILED"):
+            return op
+        if op["status"] in ("IN_FLIGHT", "UNKNOWN"):
+            return self._reconcile(op, counters)
+        if not self.store.operation_claim(op["operation_id"], max_attempts):
+            current = self.store.operation(op["operation_id"])
+            self._require_known(current)
+            return current
+        op = self.store.operation(op["operation_id"])
+        try:
+            diag = getattr(self, "diagnostics", None)
+            if isinstance(diag, Diagnostics):
+                with diag.phase(op["kind"], task_id=op["owner_id"], role="worker",
+                                attempt=op["attempts"], requested_model=self.worker_model if op["kind"] == "spawn" else None,
+                                passed_model=self.worker_model if op["kind"] == "spawn" else None,
+                                transport="codex_stdio", reason="waiting for Codex protocol acknowledgement; not task acceptance") as fact:
+                    result = invoke()
+                    fact["result"] = "protocol acknowledgement"
+            else:
+                result = invoke()
+        except CodexNotStarted:
+            claimed = self.store.operation(op["operation_id"])
+            return self._observe(op, "FAILED" if claimed["attempts"] >= max_attempts else "NOT_STARTED",
+                                 "Codex App Server process not created")
+        except CodexRejected as exc:
+            if stopping:
+                return self._reconcile(op)
+            return self._observe(op, "FAILED", str(exc))
+        except Exception as exc:
+            self._observe(op, "IN_FLIGHT", "Codex acknowledgement unavailable: " + type(exc).__name__)
+            return self._reconcile(op, counters)
+        if stopping:
+            return self._reconcile(op)
+        return self._observe(op, "SUCCEEDED", "Codex protocol acknowledgement (not task acceptance)",
+                             result=result or {}, counters=counters)
