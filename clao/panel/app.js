@@ -501,7 +501,8 @@ for(const [id,path] of [["openProject","/api/projects/open"],["createProject","/
   };
 }
 function renderApprovals(){
-  const requests=LAST?.approvals || [];$("approvalCard").hidden=!requests.length;
+  const requests=LAST?.approvals || [], receipts=LAST?.approval_receipts || [];$("approvalCard").hidden=!requests.length && !receipts.length;
+  $("approvalReceipts").textContent=receipts.map(r=>"请求 "+r.request_id+"："+r.reason).join("\n");
   region("approvalRequests",[LAST?.mission?.id,requests],box=>{
     for(const request of requests){
       const row=el("div",null,"list-row"),body=el("div",null,"grow"),actions=el("div",null,"button-row");
@@ -595,15 +596,19 @@ $("btnSend").onclick=()=>{
   });
 };
 $("d_text").addEventListener("keydown",e=>{if(e.key==="Enter") $("btnSend").click();});
-function submitAttempt(mid,revision){return writeAction("mission","/api/new-attempt",{mission_id:mid,source_revision:revision},d=>{toast("已创建新的执行记录");if($("retryMission").open) closeDialog("retryMission");DETAIL_ID=d.mission_id;navigate("tasks");renderTaskDetail();});}
+function submitAttempt(target){return writeAction("mission","/api/new-attempt",target,d=>{toast("已创建新的执行记录");if($("retryMission").open) closeDialog("retryMission");DETAIL_ID=d.mission_id;navigate("tasks");renderTaskDetail();});}
+let RETRY_TARGET=null;
 function newAttempt(mid){
-  if(LAST?.mission?.execution_backend!=="codex_app_server") return submitAttempt(mid);
-  showDialog("retryMission");$("retrySource").textContent="正在读取当前目录内容…";$("confirmRetry").dataset.blocked="1";$("confirmRetry").disabled=true;
-  $("retryError").textContent="";
-  return writeAction("source","/api/projects/source",{project_id:LAST.mission.source.project_id},d=>{
+  const target={mission_id:mid};RETRY_TARGET=target;
+  showDialog("retryMission");$("retrySource").textContent="正在读取目标任务的项目…";$("confirmRetry").dataset.blocked="1";$("confirmRetry").disabled=true;
+  $("retryError").textContent="";$("confirmRetry").onclick=null;
+  return writeAction("source","/api/projects/source",{mission_id:mid},d=>{
+    if(RETRY_TARGET!==target || !$("retryMission").open) return;
+    if(d.mission_id!==mid) throw new Error("历史任务关联不一致");
     const source=d.source;
-    $("retrySource").textContent=source.path+"\n"+source.file_count+" 个文件\n\n纳入：\n"+source.files.map(f=>f.path).join("\n")+"\n\n排除：\n"+source.excluded.map(f=>f.path+" · "+f.reason).join("\n");
-    $("confirmRetry").dataset.blocked="0";$("confirmRetry").disabled=false;$("confirmRetry").onclick=()=>submitAttempt(mid,source.revision);
+    Object.assign(target,{project_id:d.project_id,execution_backend:d.execution_backend,source_revision:source?.revision});
+    $("retrySource").textContent="任务："+mid+"\n项目："+d.project_id+"\n位置："+(d.project_path || "历史未提供")+"\n后端："+d.execution_backend+(source?"\n"+source.file_count+" 个文件\n\n纳入：\n"+source.files.map(f=>f.path).join("\n")+"\n\n排除：\n"+source.excluded.map(f=>f.path+" · "+f.reason).join("\n"):"\n使用旧 AO 执行路径，启动时仍需核对其前置条件。");
+    $("confirmRetry").dataset.blocked="0";$("confirmRetry").disabled=false;$("confirmRetry").onclick=()=>submitAttempt(target);
   });
 }
 $("confirmRetry").dataset.writeKey="mission";$("closeRetry").onclick=()=>closeDialog("retryMission");

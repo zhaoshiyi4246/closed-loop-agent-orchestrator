@@ -254,6 +254,9 @@ class CodexBackend:
                         status = "failed"
                     row.update(state="idle" if status == "completed" else status, ended=True,
                                reason=(turn.get("error") or {}).get("message") or row.get("terminal_error") or ("Worker 回合完成，等待验收" if status == "completed" else "Worker " + status))
+                for receipt in row.get("approval_receipts", {}).values():
+                    if receipt["turn_id"] == turn_id:
+                        receipt["turn_end"] = turn.get("status")
                 self._event(wid, "worker_finished" if row.get("state") == "idle" else "error", row["reason"], turn_id)
             elif method in ("item/started", "item/completed"):
                 item = params.get("item") or {}
@@ -263,6 +266,9 @@ class CodexBackend:
                 # finished diff or human-facing parsed commandActions.
                 row.setdefault("items", {})[item["id"]] = copy.deepcopy(item)
                 if method == "item/completed":
+                    for receipt in row.get("approval_receipts", {}).values():
+                        if receipt["turn_id"] == turn_id and receipt["item_id"] == item["id"]:
+                            receipt.update(item_status=item.get("status"), exit_code=item.get("exitCode"))
                     kind = item.get("type")
                     text = item.get("text") or item.get("command") or kind or "item"
                     failure = item.get("status") in ("failed", "declined") or item.get("exitCode") not in (None, 0)
@@ -270,6 +276,11 @@ class CodexBackend:
                     self._event(wid, event_type, text, str(turn_id) + ":" + str(item.get("id")))
             elif method == "serverRequest/resolved":
                 key = str(params.get("requestId"))
+                receipt = row.get("approval_receipts", {}).get(key)
+                if receipt:
+                    receipt["request_closed"] = True
+                    if not receipt.get("response_written"):
+                        receipt["invalidated"] = True
                 self.requests.pop((wid, key), None)
                 row.setdefault("pending", {}).pop(key, None)
                 if row.get("state") == "waiting_input" and not row.get("pending"):
@@ -281,6 +292,9 @@ class CodexBackend:
                 self.requests[(wid, key)] = copy.deepcopy(message)
                 # Store identity and category, never complete tool input/patch.
                 row.setdefault("pending", {})[key] = {"method": method, "item_id": params.get("itemId"), "turn_id": turn_id}
+                row.setdefault("approval_receipts", {})[key] = {
+                    "method": method, "turn_id": turn_id, "item_id": params.get("itemId"),
+                    "request_id": key, "response_written": False, "request_closed": False}
                 row.update(state="waiting_input", reason="等待审批或补充信息")
             elif method == "error":
                 row.update(state="failed" if not params.get("willRetry") else "active",
@@ -422,6 +436,8 @@ class CodexBackend:
                 return dict(status="SUCCEEDED", evidence={"reason": "persisted matching Codex protocol ACK"},
                             result={"session_id": wid, "thread_id": row["thread_id"],
                                     "turn_id": row["accepted_operations"][op["operation_id"]]})
+        if op["kind"] == "approval":
+            return self._approval_fact(op["target"], op["request"]["request_id"], op["request"].get("turn_id"))
         if op["kind"] == "kill" and self.stopped(op["target"]):
             return dict(status="SUCCEEDED", evidence={"reason": "Codex matching turn ended; no in-flight command/file item"}, result={"session_id": op["target"]})
         return dict(status="UNKNOWN", evidence={"reason": "App Server 无已持久唯一 ACK；未确认结果，不重发"}, result=None)
@@ -469,51 +485,119 @@ class CodexBackend:
         with self.approval_lock:
             return self._resolve_approval(wid, request_id, decision, answers)
 
+    def approval_policy(self, wid, request):
+        from .approvals import decide_codex_approval
+        tasks = [self.store.load_task(t) for t in self.store.all_task_ids()]
+        tasks = [t for t in tasks if t and t.get("worker_session_id") == wid]
+        if len(tasks) != 1:
+            raise ValueError("无法唯一确认审批所属任务及范围")
+        task = tasks[0]
+        return decide_codex_approval(request, allowed_paths=task["allowed_paths"],
+            forbidden_paths=task["forbidden_paths"], gate_commands=task["gate_commands"],
+            worktree_root=self.get_session_workspace(wid))
+
+    def _approval_fact(self, wid, key, turn_id):
+        with self.lock:
+            row = self.workers.get(wid, {})
+            receipt = row.get("approval_receipts", {}).get(key, {})
+            saved = self.store.operation(receipt['operation_id']) if receipt.get('operation_id') else None
+            if saved and saved['status'] == 'SUCCEEDED' and receipt.get('turn_id') == turn_id:
+                return dict(status='SUCCEEDED', evidence=saved['evidence'][-1]['fact'], result=saved['result'])
+            written, closed = receipt.get("response_written", False), receipt.get("request_closed", False)
+            result = {"request_id": key, "response_written": written, "request_closed": closed,
+                      "adoption": "UNKNOWN", "status": "UNKNOWN", "observation_only": False,
+                      "turn_end": receipt.get('turn_end'), "item_status": receipt.get('item_status')}
+            status, reason = "UNKNOWN", "响应结果无法确认；不会重复发送"
+            result['reason'] = reason
+            if receipt.get("turn_id") != turn_id:
+                return dict(status=status, evidence={"reason": reason}, result=result)
+            invalidated = receipt.get("invalidated") or receipt.get("turn_end") == "interrupted"
+            if invalidated:
+                result["status"] = "INVALIDATED" if written else "EXPIRED"
+                status = "UNKNOWN" if written else "FAILED"
+                reason = "请求因取消或生命周期变化关闭；不能确认本次响应已被采纳" if written else "请求已失效，未发送响应"
+            elif written and closed:
+                item_status = receipt.get("item_status")
+                decision = receipt.get("decision")
+                if decision in ("accept", "decline") and item_status == "declined":
+                    status = "SUCCEEDED" if decision == "decline" else "FAILED"
+                    result.update(status="DECLINED", adoption="DECLINED")
+                    reason = "关联 item 明确拒绝；不代表命令执行成功"
+                elif decision == "accept" and (item_status == "completed" or
+                        item_status == "failed" and receipt.get("exit_code") is not None):
+                    status = "SUCCEEDED"
+                    result.update(status="CONFIRMED", adoption="CONFIRMED")
+                    reason = "关联请求关闭且同一回合 item 有执行结果；不等于 Gate PASS"
+                else:
+                    # v0.150.1 has no public answer-adoption receipt. Closing a
+                    # request is insufficient, even on a normal completed turn.
+                    # Observation/Gate can consume subsequent independent facts;
+                    # this closed response must never be sent again.
+                    result["observation_only"] = True
+                    reason = ("回合已结束且请求关闭；采纳未知，无法区分响应采纳与生命周期清理，不重发"
+                              if receipt.get('turn_end') else "响应已写入且请求已关闭；采纳未知，继续观察独立执行事实，不重发")
+            result["reason"] = reason
+            return dict(status=status, evidence={"reason": reason, "turn_id": turn_id,
+                        "item_id": receipt.get("item_id"), "request_closed": closed}, result=result)
+
+    def approval_receipts(self):
+        with self.lock:
+            return [dict(self._approval_fact(wid, key, r["turn_id"])["result"], worker_id=wid)
+                    for wid, row in self.workers.items() for key, r in row.get("approval_receipts", {}).items()
+                    if r.get("response_written") or r.get("request_closed")]
+
     def _resolve_approval(self, wid, request_id, decision, answers=None):
         with self.lock:
             message = self.requests.get((wid, request_id))
             if not message or not self.client or self.client.closed or self._stop_intended(wid) or self.workers[wid].get("ended"):
                 raise CodexUnknown("请求已失效或连接断开；未重发审批")
-            method = message["method"]
+            method, params = message["method"], message["params"]
             if method in ("item/commandExecution/requestApproval", "item/fileChange/requestApproval"):
                 if decision not in ("accept", "decline"):
                     raise ValueError("仅支持允许一次或拒绝")
-                from .approvals import codex_reviewable
-                current = next((r for r in self.pending_approvals(wid) if r['request_id'] == request_id), {})
-                if decision == "accept" and not codex_reviewable(current):
-                    raise ValueError("请求缺少完整可审阅事实或要求特殊授权；不接受")
-                if method == "item/fileChange/requestApproval" and message["params"].get("grantRoot") and decision == "accept":
-                    raise ValueError("不支持扩大到目录/会话的授权")
+                current = next(r for r in self.pending_approvals(wid) if r['request_id'] == request_id)
+                policy = self.approval_policy(wid, current)
+                if decision == "accept" and not (policy.allow or policy.reviewable):
+                    raise ValueError("本任务禁止或不支持授权：" + policy.reason)
                 result = {"decision": decision}
             elif method == "item/tool/requestUserInput":
-                questions = message["params"].get("questions") or []
-                if not isinstance(answers, dict) or set(answers) != {q["id"] for q in questions} or any(not isinstance(v, str) or not v.strip() for v in answers.values()):
+                questions = params.get("questions") or []
+                if decision != "answer" or not isinstance(answers, dict) or set(answers) != {q["id"] for q in questions} or any(not isinstance(v, str) or not v.strip() for v in answers.values()):
                     raise ValueError("请回答每个问题")
                 result = {"answers": {k: {"answers": [v]} for k, v in answers.items()}}
             else:
                 raise ValueError("不支持的引擎请求；请取消任务并人工处理")
-            identity = "codex-approval:" + wid + ":" + request_id
+            turn_id = params["turnId"]
+            identity = "codex-approval:" + wid + ":" + turn_id + ":" + request_id
             op = self.store.ensure_operation(identity, "approval", self.mission_id, wid,
-                    {"request_id": request_id, "decision": decision,
+                    {"request_id": request_id, "decision": decision, "turn_id": turn_id, "backend": BACKEND,
                      "answer_sha256": hashlib.sha256(json.dumps(answers, sort_keys=True).encode()).hexdigest()})
-            if op["status"] == "SUCCEEDED":
-                return True
             if not self.store.operation_claim(identity, 1):
-                raise CodexUnknown("审批提交结果未知；不会重复提交")
-            self.client._write({"id": message["id"], "result": result})
-            # stdout resolved notification is stronger than a successful pipe
-            # write. Retain IN_FLIGHT until that confirmation arrives.
+                raise CodexUnknown("审批已提交或结果未知；不会重复提交")
+            receipt = self.workers[wid]["approval_receipts"][request_id]
+            receipt.update(decision=decision, operation_id=identity)
+            try:
+                self.client._write({"id": message["id"], "result": result})
+                receipt["response_written"] = True
+                self._save()
+            except Exception:
+                self.store.operation_observe(identity, "UNKNOWN", {"reason": "响应写入或持久确认失败；不重发"})
+                raise
         deadline = time.monotonic() + self.timeout
-        while time.monotonic() < deadline:
-            with self.lock:
-                if (wid, request_id) not in self.requests:
-                    self.store.operation_observe(identity, "SUCCEEDED", {"reason": "serverRequest/resolved observed"})
-                    return True
-            if self.client.closed:
+        while True:
+            if self._stop_intended(wid) or self.store.mission_stop_requested(self.mission_id):
+                with self.lock:
+                    receipt['invalidated'] = True
+                    self._save()
+            fact = self._approval_fact(wid, request_id, turn_id)
+            if (fact["status"] != "UNKNOWN" or fact["result"]["status"] == "INVALIDATED"
+                    or decision == "answer" and fact["result"]["request_closed"]
+                    or time.monotonic() >= deadline or self.client.closed):
                 break
             time.sleep(.02)
-        self.store.operation_observe(identity, "UNKNOWN", {"reason": "审批回执未确认"})
-        raise CodexUnknown("审批回执未确认；需要人工处理")
+        self.store.operation_observe(identity, fact["status"], fact["evidence"], fact["result"])
+        ok = fact['status'] != 'FAILED' and fact['result']['status'] not in ('INVALIDATED', 'EXPIRED')
+        return dict(fact["result"], ok=ok, error=None if ok else fact['result']['reason'], operation_status=fact["status"])
 
     def close(self):
         if self.client:

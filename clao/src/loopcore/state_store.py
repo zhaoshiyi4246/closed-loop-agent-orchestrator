@@ -358,10 +358,8 @@ class StateStore:
                 payload = json.loads(mission[0]) if mission else {}
                 if payload.get("stop_request") or payload.get("state") in self._MISSION_TERMINAL:
                     return False
-                other = self._conn.execute(
-                    "SELECT 1 FROM external_operations WHERE owner_id=? AND operation_id<>? "
-                    "AND status IN ('IN_FLIGHT','UNKNOWN') LIMIT 1",
-                    (op["owner_id"], operation_id)).fetchone()
+                other = any(o['operation_id'] != operation_id and o['status'] in ('IN_FLIGHT', 'UNKNOWN')
+                            and not self.closed_approval_response(o) for o in self.operations(op['owner_id']))
                 if other:
                     return False
             cur = self._conn.execute(
@@ -398,6 +396,19 @@ class StateStore:
                 "UPDATE external_operations SET status=?,result_json=?,evidence_json=?,updated_at=? "
                 "WHERE operation_id=?", (status, json.dumps(values), json.dumps(history), now_iso(), operation_id))
         return self.operation(operation_id)
+
+    @staticmethod
+    def closed_approval_response(op):
+        """A closed, once-written response is not a new execution instruction.
+
+        Its adoption stays UNKNOWN. Subsequent independently checked engine
+        facts may be observed; this does not authorize response replay or relax
+        UNKNOWN spawn/send/kill or the confirmed-stop requirement.
+        """
+        result = op.get('result', {})
+        return (op['kind'] == 'approval' and op['request'].get('backend') == 'codex_app_server'
+                and result.get('response_written') is True and result.get('request_closed') is True
+                and result.get('observation_only') is True)
 
     def request_mission_stop(self, mission_id: str) -> None:
         """Receipt is durable before any in-memory latch or external kill."""

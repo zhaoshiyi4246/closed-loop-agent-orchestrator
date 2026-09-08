@@ -273,7 +273,7 @@ def test_actual_panel_mission_and_one_request_approval(http_panel,engine,tmp_pat
             time.sleep(.03)
         assert data['mission']['execution_backend']==projects.BACKEND and data['approvals'], data
         approval=data['approvals'][0]
-        assert 'Git write' in approval['policy_reason']
+        assert '需要确认' in approval['policy_reason'] and approval['allow_once_supported']
         before=engine.trace.read_text()
         assert '"method": null' not in before
         body={'worker_id':approval['worker_id'],'request_id':approval['request_id'],'decision':decision}
@@ -362,7 +362,7 @@ def test_actual_http_question_and_supplemental_input(http_panel,engine,tmp_path,
         if decision=='answer':
             approval=snap['approvals'][0]
             assert approval['questions'][0]['id']=='choice'
-            assert request(http_panel,'POST','/api/approval',dict(worker_id=sid,request_id=approval['request_id'],decision='answer',answers={'choice':'保留 <tag> 中文'}))[0]==200
+            assert request(http_panel,'POST','/api/approval',dict(worker_id=sid,request_id=approval['request_id'],decision='answer',answers={'choice':'保留 <tag> 中文'}))[0]==202
         else:
             body={'target':'worker:'+sid,'text':'补充：保留接口','command_id':'CMD-ONE'}
             assert request(http_panel,'POST','/api/directive',body)[0]==200
@@ -427,7 +427,7 @@ def test_local_native_approval_scope_and_exact_commands(tmp_path):
     for command,allow in [('python -m pytest tests -q',True),('python',False),
         ('python -m pytest_evil tests -q',False),('python -m pytest tests -q --extra',False),
         ('python -m pytest tests -q\nwhoami',False),('git reset --hard',False),('git status --short',True)]:
-        request={'request_id':'1','method':'item/commandExecution/requestApproval','params':{'command':command,'cwd':str(root)}}
+        request={'request_id':'1','method':'item/commandExecution/requestApproval','params':{'itemId':'cmd','command':command,'cwd':str(root),'environmentId':'local'},'item':{'id':'cmd','type':'commandExecution','status':'inProgress','command':command,'cwd':str(root),'environmentId':'local'}}
         assert decision(request).allow is allow
     for value,allow in [('中文 新文件.py',True),('../outside',False),('private/key',False),('.git',False)]:
         request={'request_id':'2','method':'item/fileChange/requestApproval','params':{'itemId':'edit'},
@@ -467,14 +467,14 @@ def test_new_attempt_requires_fresh_source_and_uses_new_defaults(http_panel,engi
     assert drive(rt)['state']=='MISSION_DONE'
     old=rt.store.mission_config('LOCAL-1')
     http_panel.state.rt=rt
-    assert request(http_panel,'POST','/api/new-attempt',{'mission_id':'LOCAL-1'})[0]==422
+    assert request(http_panel,'POST','/api/new-attempt',{'mission_id':'LOCAL-1','project_id':spec['project_id'],'execution_backend':projects.BACKEND})[0]==422
     (folder/'app.py').write_text('x=9')
     source=request(http_panel,'POST','/api/projects/source',{'project_id':spec['project_id']})[2]['source']
     cfg=resolve_config(engine.cfg,overrides={'runner':{'poll_seconds':.1}})
     monkeypatch.setattr(http_panel.state,'defaults',lambda:cfg)
     http_panel.state._run=server.PanelState._run.__get__(http_panel.state)
     try:
-        response=request(http_panel,'POST','/api/new-attempt',{'mission_id':'LOCAL-1','source_revision':source['revision']})
+        response=request(http_panel,'POST','/api/new-attempt',{'mission_id':'LOCAL-1','project_id':spec['project_id'],'execution_backend':projects.BACKEND,'source_revision':source['revision']})
         assert response[0]==200,response
         http_panel.state.thread.join(timeout=15)
         new=http_panel.state.rt.store.mission_config(response[2]['mission_id'])
@@ -545,3 +545,218 @@ def test_managed_checkout_does_not_execute_inherited_content_filter(engine,tmp_p
         assert not marker.exists() and config.read_bytes()==before
         assert (folder/'app.py').read_text()=='x=0'
     finally:rt.close()
+
+
+# PR #40 audit repair: real native messages, backend submission and HTTP history.
+def pending_runtime(engine, tmp_path, monkeypatch, scenario="manual", gates=None):
+    monkeypatch.setenv('CLAO_TEST_CODEX_SCENARIO', scenario)
+    folder = tmp_path/'audit project'; folder.mkdir(); (folder/'app.py').write_text('x=0')
+    spec = mission(engine, folder)
+    if gates is not None:spec['gate_commands']=gates
+    rt = run_mission.build_runtime(spec, engine.cfg)
+    rt.controller.step()  # decompose
+    rt.controller._dispatch_ready()  # real spawn, before the next approval step
+    deadline = time.monotonic()+5
+    while time.monotonic()<deadline:
+        workers = rt.adapter.worker_ids()
+        if workers:
+            sid = workers[0]
+            requests = rt.adapter.pending_approvals(sid)
+            if requests:return rt, sid, requests[0]
+        time.sleep(.01)
+    rt.close()
+    raise AssertionError('controlled native request did not arrive')
+
+
+@pytest.mark.parametrize('environment,extra,allowed', [
+    ('local', {}, True), ('devbox', {}, False), ('', {}, False),
+    ('local', {'additionalPermissions': {'network': True}}, False),
+    ('local', {'kind': 'stdin'}, False), ('local', {'approvalId': 'other-callback'}, False)])
+def test_audit_native_environment_gate_at_backend(engine,tmp_path,monkeypatch,environment,extra,allowed):
+    monkeypatch.setenv('CLAO_TEST_CODEX_APPROVAL_PARAMS', json.dumps(dict(environmentId=environment, **extra)))
+    rt,sid,req=pending_runtime(engine,tmp_path,monkeypatch,'command_gate',gates=['python -m pytest tests -q'])
+    try:
+        before=engine.trace.read_text().count('"method": null')
+        decision=rt.adapter.approval_policy(sid,req)
+        assert decision.allow is allowed
+        if allowed:
+            assert req['params']['command'] != req['item']['command']
+            assert next(iter(rt.controller.loops.values()))._maybe_auto_approve()
+            result=rt.adapter.approval_receipts()[0]
+            assert result['status']=='CONFIRMED' and result['adoption']=='CONFIRMED'
+        else:
+            with pytest.raises(ValueError):rt.adapter.resolve_approval(sid,req['request_id'],'accept')
+            assert engine.trace.read_text().count('"method": null')==before
+            rt.adapter.resolve_approval(sid,req['request_id'],'decline')
+    finally:rt.close()
+
+
+@pytest.mark.parametrize('command,path,params', [
+    ('git reset --hard',None,{}), ('git push',None,{}), ('git checkout main',None,{}),
+    ('git clean -fd',None,{}), ('python -c "write evil"',None,{}),
+    (None,'forbidden.txt',{}), (None,'.git',{}), (None,'../outside.py',{}),
+    (None,'not-allowed.py',{}), (None,'app.py',{'grantRoot':'C:/'}),
+    ('cat .git',None,{}), ('git ls-files --stage',None,{'cwd':'C:/'})])
+def test_audit_hard_rules_cannot_be_overridden_at_submit(engine,tmp_path,monkeypatch,command,path,params):
+    if command:monkeypatch.setenv('CLAO_TEST_CODEX_COMMAND',command)
+    if path:monkeypatch.setenv('CLAO_TEST_CODEX_EDIT_PATH',path)
+    monkeypatch.setenv('CLAO_TEST_CODEX_APPROVAL_PARAMS',json.dumps(params))
+    rt,sid,req=pending_runtime(engine,tmp_path,monkeypatch,'manual_file' if path else 'manual')
+    try:
+        decision=rt.adapter.approval_policy(sid,req)
+        assert not decision.allow and not decision.reviewable
+        with pytest.raises(ValueError):rt.adapter.resolve_approval(sid,req['request_id'],'accept')
+        assert '"method": null' not in engine.trace.read_text()
+        # Rejection remains usable even for an unsupported/forbidden effect.
+        rt.adapter.resolve_approval(sid,req['request_id'],'decline')
+        assert engine.trace.read_text().count('"method": null')==1
+        assert (tmp_path/'audit project'/'app.py').read_text()=='x=0'
+    finally:rt.close()
+
+
+@pytest.mark.parametrize('scenario,decision,outcome', [
+    ('manual','accept','CONFIRMED'), ('manual','decline','DECLINED'),
+    ('manual_cancel','accept','INVALIDATED'), ('manual_cleanup','accept','UNKNOWN'),
+    ('question','answer','UNKNOWN'), ('question_cleanup','answer','UNKNOWN'),
+    ('question_ack_lost','answer','UNKNOWN')])
+def test_audit_response_closure_is_not_adoption(engine,tmp_path,monkeypatch,scenario,decision,outcome):
+    rt,sid,req=pending_runtime(engine,tmp_path,monkeypatch,scenario)
+    try:
+        result=rt.adapter.resolve_approval(sid,req['request_id'],decision, {'choice':'保留'} if decision=='answer' else None)
+        assert result['status']==outcome
+        op=next(o for o in rt.store.operations() if o['kind']=='approval')
+        assert op['request']['turn_id']==req['params']['turnId'] and op['attempts']==1
+        if outcome not in ('CONFIRMED','DECLINED'):
+            assert op['status']=='UNKNOWN' and result['adoption']=='UNKNOWN'
+        before=engine.trace.read_text().count('"method": null')
+        with pytest.raises((CodexUnknown,ValueError)):
+            rt.adapter.resolve_approval(sid,req['request_id'],decision,{'choice':'保留'} if decision=='answer' else None)
+        assert engine.trace.read_text().count('"method": null')==before==1
+        if scenario=='question':
+            # Answer adoption is unknown; independent file/Gate facts still
+            # follow the existing real Controller through to a verified result.
+            assert drive(rt)['state']=='MISSION_DONE'
+            assert rt.store.operation(op['operation_id'])['status']=='UNKNOWN'
+        if scenario in ('manual_cancel','manual_cleanup','question_ack_lost'):
+            assert not rt.adapter.stopped(sid)
+    finally:rt.close()
+    store=StateStore(rt.store.path,readonly=True)
+    try:
+        old=store.operation(op['operation_id'])
+        assert old['attempts']==1
+        if outcome not in ('CONFIRMED','DECLINED'):assert old['status']=='UNKNOWN'
+    finally:store.close()
+
+
+def test_audit_request_expired_without_response(engine,tmp_path,monkeypatch):
+    monkeypatch.setenv('CLAO_TEST_CODEX_SCENARIO','manual_expired')
+    folder=tmp_path/'p';folder.mkdir()
+    rt=run_mission.build_runtime(mission(engine,folder),engine.cfg)
+    try:
+        rt.controller.step()
+        rt.controller._dispatch_ready()
+        deadline=time.monotonic()+3
+        while time.monotonic()<deadline and not rt.adapter.approval_receipts():time.sleep(.01)
+        receipts=rt.adapter.approval_receipts()
+        assert receipts[0]['status']=='EXPIRED' and not receipts[0]['response_written']
+        with pytest.raises(CodexUnknown):rt.adapter.resolve_approval(receipts[0]['worker_id'],receipts[0]['request_id'],'accept')
+        assert '"method": null' not in engine.trace.read_text()
+        assert not [o for o in rt.store.operations() if o['kind']=='approval']
+    finally:rt.close()
+
+
+def test_audit_http_cancel_during_response(http_panel,engine,tmp_path,monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    engine.root=http_panel.root;monkeypatch.setattr(run_mission,'ROOT',engine.root)
+    cfg=resolve_config(engine.cfg,overrides={'worker':{'spawn_timeout_seconds':2}})
+    engine.cfg=cfg
+    rt,sid,req=pending_runtime(engine,tmp_path,monkeypatch,'manual_wait')
+    http_panel.state.rt=rt
+    try:
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            pending=pool.submit(request,http_panel,'POST','/api/approval',dict(worker_id=sid,request_id=req['request_id'],decision='accept'))
+            deadline=time.monotonic()+3
+            while time.monotonic()<deadline and '"method": null' not in engine.trace.read_text():time.sleep(.01)
+            assert request(http_panel,'POST','/api/stop',{})[0]==200
+            response=pending.result(timeout=4)
+        assert response[0]==409 and response[2]['status']=='INVALIDATED' and response[2]['adoption']=='UNKNOWN'
+        assert rt.store.mission_stop_requested(rt.mission.mission_id)
+        assert engine.trace.read_text().count('"method": null')==1
+        assert not rt.adapter.stopped(sid)
+    finally:rt.close()
+
+
+
+@pytest.mark.parametrize('a_backend,b_backend,same', [
+    (projects.BACKEND,projects.BACKEND,False), (projects.BACKEND,projects.BACKEND,True),
+    (projects.BACKEND,'ao',True), ('ao',projects.BACKEND,True)])
+def test_audit_history_retry_b_while_a_loaded(http_panel,engine,tmp_path,monkeypatch,a_backend,b_backend,same):
+    engine.root=http_panel.root;monkeypatch.setattr(run_mission,'ROOT',engine.root)
+    rows={}; originals={}
+    for mid,backend,content in [('A',a_backend,'x=0'),('B',b_backend,'x=0' if same else 'x=1')]:
+        folder=tmp_path/('项目 '+mid);folder.mkdir();(folder/'app.py').write_text(content)
+        project=projects.register(engine.root,str(folder)); rows[mid]=project
+        spec=mission(engine,folder);spec.update(mission_id=mid,objective='任务 '+mid,execution_backend=backend)
+        db=StateStore(engine.root/'runtime'/mid/'state.db')
+        db.freeze_config(mid,spec,engine.cfg.snapshot())
+        db.record_mission(mid,{'execution_backend':backend,'state':'MISSION_DONE',
+            'source':{'project_id':project['id'],'project_path':str(folder)},'worker_stop':{'status':'CONFIRMED'}})
+        db.close();originals[mid]=(folder/'app.py').read_bytes()
+    http_panel.state.rt=run_mission.inspect_runtime('A')
+    captured=[];monkeypatch.setattr(http_panel.state,'start_mission',lambda spec:captured.append(spec))
+    source=request(http_panel,'POST','/api/projects/source',{'mission_id':'B'})
+    assert source[0]==200 and source[2]['project_id']==rows['B']['id'] and source[2]['execution_backend']==b_backend
+    assert source[2]['project_path']==rows['B']['path']
+    assert http_panel.state.rt.mission.mission_id=='A'
+    target={'mission_id':'B','execution_backend':b_backend,'project_id':rows['B']['id'],
+            'source_revision':(source[2]['source'] or {}).get('revision')}
+    # Same file hashes never constitute the same project identity.
+    wrong=dict(target,project_id=rows['A']['id'])
+    assert request(http_panel,'POST','/api/new-attempt',wrong)[0]==409 and not captured
+    wrong=dict(target,execution_backend='ao' if b_backend==projects.BACKEND else projects.BACKEND)
+    assert request(http_panel,'POST','/api/new-attempt',wrong)[0]==409 and not captured
+    node=os.environ.get('U01_NODE')
+    assert node, 'Targeted browser validation requires configured development Node'
+    script=r"""
+const {chromium}=require('playwright');const assert=require('node:assert/strict');
+(async()=>{const browser=await chromium.launch({channel:'msedge',headless:true});try{
+ const page=await browser.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.goto(process.argv[1]);await page.click('[data-view="tasks"]');
+ await page.locator('[data-mission-id="B"] .link-row').click();
+ await page.getByRole('button',{name:'重新执行',exact:true}).click();
+ await page.waitForFunction(()=>!document.getElementById('confirmRetry').disabled);
+ const summary=await page.locator('#retrySource').textContent();
+ assert(summary.includes(process.argv[2]));assert(summary.includes(process.argv[3]));
+ const response=page.waitForResponse(r=>r.url().endsWith('/api/new-attempt'));
+ await page.locator('#confirmRetry').evaluate(b=>{b.click();b.click();});
+ assert.equal((await response).status(),200);assert.deepEqual(errors,[]);
+ console.log('HISTORY_TARGET_BROWSER_PASS');
+}finally{await browser.close();}})().catch(e=>{console.error(e);process.exitCode=1;});
+"""
+    result=subprocess.run([node,'-e',script,http_panel.origin,rows['B']['path'],b_backend],capture_output=True,text=True,encoding='utf-8',timeout=35)
+    assert result.returncode==0,result.stdout+result.stderr
+    assert len(captured)==1
+    new=captured[0]
+    assert new['previous_attempt']=='B' and new['project_id']==rows['B']['id'] and new['execution_backend']==b_backend
+    assert new['mission_id'] not in ('A','B')
+    if b_backend==projects.BACKEND:assert new['source_revision']==source[2]['source']['revision']
+    assert http_panel.state.rt.mission.mission_id=='A'
+    for mid in ('A','B'):assert (Path(rows[mid]['path'])/'app.py').read_bytes()==originals[mid]
+    assert not engine.trace.exists(), 'Historical routing must not call AO or any Worker'
+
+
+
+def test_audit_http_history_answer_unknown_remains_visible(http_panel,engine,tmp_path,monkeypatch):
+    engine.root=http_panel.root;monkeypatch.setattr(run_mission,'ROOT',engine.root)
+    rt,sid,req=pending_runtime(engine,tmp_path,monkeypatch,'question')
+    http_panel.state.rt=rt
+    response=request(http_panel,'POST','/api/approval',dict(worker_id=sid,request_id=req['request_id'],decision='answer',answers={'choice':'保留'}))
+    assert response[0]==202 and response[2]['adoption']=='UNKNOWN'
+    assert drive(rt)['state']=='MISSION_DONE'
+    rt.close(); before=engine.trace.read_bytes()
+    assert request(http_panel,'POST','/api/attach',{'mission_id':'LOCAL-1'})[0]==200
+    snap=request(http_panel)[2]
+    assert snap['mission']['inspection_only']
+    receipt=next(r for r in snap['approval_receipts'] if r['request_id']==req['request_id'])
+    assert receipt['adoption']=='UNKNOWN' and '采纳未知' in receipt['reason']
+    assert engine.trace.read_bytes()==before

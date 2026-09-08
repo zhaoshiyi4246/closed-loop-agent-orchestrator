@@ -358,7 +358,7 @@ def test_real_http_history_is_readonly_and_terminal_attempt_is_new(http_panel,mo
     assert Path(store.path).read_bytes()==before and Path(store.path).stat().st_mtime_ns==mtime
     captured=[]
     monkeypatch.setattr(http_panel.state,'start_mission',lambda spec:captured.append(spec))
-    result=request(http_panel,'POST','/api/new-attempt',{'mission_id':mid})
+    result=request(http_panel,'POST','/api/new-attempt',{'mission_id':mid,'project_id':server._saved_mission(mid)['project_id'],'execution_backend':'ao'})
     assert result[0]==200 and captured[0]['mission_id']!=mid
     assert captured[0]['previous_attempt']==mid
     assert Path(store.path).read_bytes()==before and store.mission_config(mid)['state']=='HUMAN'
@@ -454,7 +454,7 @@ def test_real_edge_r02_status_receipts_and_new_attempt_pending(http_panel,monkey
       check(find()?.disabled,'unknown stop must block new attempt');find().click();
       check(!PENDING.has('mission'),'unknown stop initiated a write');
       render({...LAST,mission:{...LAST.mission,state:'CANCELLED',cancellation:{status:'cancelled'},worker_stop:{status:'CONFIRMED'}}});
-      check(find(),'terminal missing new attempt');find().click();render(LAST);find().click();await wait(()=>!PENDING.has('mission'));
+      check(find(),'terminal missing new attempt');find().click();await wait(()=>!$('confirmRetry').disabled);$('confirmRetry').click();$('confirmRetry').click();await wait(()=>!PENDING.has('mission'));
       for(const state of ['requested','cancelling','cancelled','unknown']){
         render({...LAST,mission:{...LAST.mission,cancellation:{status:state,reason:'真实取消阶段 中文'},stop_request:{source:'user'}}});
         check($('diagnostics').textContent.includes('取消状态：'+state),'cancellation status missing '+state);
@@ -472,7 +472,7 @@ def test_real_edge_r02_status_receipts_and_new_attempt_pending(http_panel,monkey
         capture_output=True,timeout=50,encoding='utf-8',errors='replace')
     outcome=re.search(r'data-r02-result="([^"]*)"',result.stdout)
     assert outcome and outcome.group(1)=='PASS',outcome.group(1) if outcome else result.stdout[-1200:]
-    assert calls==[{'mission_id':'M-F04'}]
+    assert calls==[{'mission_id':'M-F04', 'project_id':mission['project_id'], 'execution_backend':'ao'}]
 
 
 
@@ -523,7 +523,7 @@ def test_new_attempt_refuses_unconfirmed_old_local_execution(http_panel, monkeyp
     start = MagicMock()
     monkeypatch.setattr(http_panel.state, 'start_mission', start)
     before = store.mission_config(mid)
-    result = request(http_panel, 'POST', '/api/new-attempt', {'mission_id': mid})
+    result = request(http_panel, 'POST', '/api/new-attempt', {'mission_id': mid,'project_id':server._saved_mission(mid)['project_id'],'execution_backend':'ao'})
     assert result[0] == 409
     start.assert_not_called()
     assert store.mission_config(mid) == before
@@ -548,7 +548,7 @@ def test_http_new_attempt_freezes_new_source_and_config_without_rewriting_old(ht
     # Exercise the real runtime and providers' configuration, but never step them.
     monkeypatch.setattr(http_panel.state, '_run', lambda: None)
     http_panel.state.set_config({'worker': {'model': 'new-worker-model'}})
-    status, _, result = request(http_panel, 'POST', '/api/new-attempt', {'mission_id': mid})
+    status, _, result = request(http_panel, 'POST', '/api/new-attempt', {'mission_id': mid,'project_id':server._saved_mission(mid)['project_id'],'execution_backend':'ao'})
     assert status == 200
     http_panel.state.thread.join(2)
     new = http_panel.state.rt

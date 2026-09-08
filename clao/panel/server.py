@@ -225,8 +225,7 @@ class PanelState:
                 raise ClientError('无效审批请求标识', 400)
             if not isinstance(worker, str) or worker not in {t.worker_session_id for t in rt.controller.tasks.values()}:
                 raise ClientError('审批不属于当前任务', 400)
-        ok = rt.adapter.resolve_approval(worker, body.get('request_id'), body.get('decision'), body.get('answers'))
-        return {'ok': ok}
+        return rt.adapter.resolve_approval(worker, body.get('request_id'), body.get('decision'), body.get('answers'))
 
     # ---- persisted defaults (never mutate active runtime)
     def set_config(self, updates: dict) -> dict:
@@ -453,22 +452,31 @@ def _snapshot() -> dict:
             "directives_pending": rt.controller.directives.pending_count() if rt.controller else None,
         })
         snap['approvals'] = []
+        snap['approval_receipts'] = []
+        if rt.controller is None and mission_payload.get('execution_backend') == 'codex_app_server':
+            for target, request_json, result_json in read('approval receipts', lambda: _rows(conn,
+                    "SELECT target,request_json,result_json FROM external_operations "
+                    "WHERE owner_id=? AND kind='approval' ORDER BY updated_at DESC LIMIT 50", (rt.mission.mission_id,)), []):
+                req, result = json.loads(request_json), json.loads(result_json)
+                snap['approval_receipts'].append({
+                    'worker_id': target, 'request_id': req.get('request_id'),
+                    'status': result.get('status', 'UNKNOWN'), 'adoption': result.get('adoption', 'UNKNOWN'),
+                    'reason': result.get('reason', '历史审批字段未提供；不推断已采纳')})
         if rt.controller and getattr(getattr(rt, 'adapter', None), 'backend', None) == 'codex_app_server':
-            from loopcore.approvals import decide_codex_approval, codex_reviewable
+            snap['approval_receipts'] = rt.adapter.approval_receipts()
             for task in list(rt.controller.tasks.values()):
                 if not task.worker_session_id:
                     continue
                 for request in rt.adapter.pending_approvals(task.worker_session_id):
-                    policy = decide_codex_approval(request, allowed_paths=task.allowed_paths,
-                        forbidden_paths=task.forbidden_paths, gate_commands=task.gate_commands,
-                        worktree_root=rt.adapter.get_session_workspace(task.worker_session_id))
+                    policy = rt.adapter.approval_policy(task.worker_session_id, request)
                     params = request['params']
                     snap['approvals'].append({'worker_id': task.worker_session_id,
                         'request_id': request['request_id'], 'method': request['method'],
                         'reason': params.get('reason'), 'command': params.get('command'), 'cwd': params.get('cwd'),
                         'questions': params.get('questions'), 'policy_reason': policy.reason,
+                        'policy': 'AUTO' if policy.allow else 'REVIEW' if policy.reviewable else 'PROHIBITED_OR_UNSUPPORTED',
                         'paths': [c.get('path') for c in (request.get('item') or {}).get('changes', [])],
-                        'allow_once_supported': codex_reviewable(request)})
+                        'allow_once_supported': policy.allow or policy.reviewable})
         if snap["gate_query"]["status"] == "read_error":
             snap["ok"] = False
     except (OSError, sqlite3.Error, ValueError, TypeError, AttributeError) as exc:
@@ -694,10 +702,25 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if path == '/api/projects/source':
                 from loopcore.local_projects import inspect, project
+                if 'mission_id' in body:
+                    mid = _mission_id(body['mission_id'])
+                    mission = _saved_mission(mid)
+                    with_store = StateStore(_runtime_dir(mid) / 'state.db', readonly=True)
+                    try:
+                        saved = with_store.mission_config(mid)
+                    finally:
+                        with_store.close()
+                    backend = saved.get('execution_backend', 'ao')
+                    pid = mission['project_id']
+                    source = inspect(project(ROOT, pid)) if backend == 'codex_app_server' else None
+                    self._json({'ok': True, 'mission_id': mid, 'project_id': pid, 'execution_backend': backend,
+                                'source': source, 'project_path': source['path'] if source else (saved.get('source') or {}).get('project_path')})
+                    return
                 self._json({'ok': True, 'source': inspect(project(ROOT, body.get('project_id')))})
                 return
             if path == '/api/approval':
-                self._json(PANEL.approval(body))
+                receipt = PANEL.approval(body)
+                self._json(receipt, 409 if not receipt['ok'] else 202 if receipt['status'] == 'UNKNOWN' else 200)
                 return
             if path == "/api/mission":
                 self._json(self._start_mission(body))
@@ -805,6 +828,11 @@ class Handler(BaseHTTPRequestHandler):
         store = StateStore(_runtime_dir(mid) / 'state.db', readonly=True)
         try:
             row = store.mission_config(mid)
+            backend = row.get('execution_backend', 'ao')
+            if backend not in ('ao', local_projects.BACKEND) or mission.get('execution_backend', backend) != backend:
+                raise ClientError('存档执行后端不一致', 409)
+            if body.get('project_id') != mission['project_id'] or body.get('execution_backend') != backend:
+                raise ClientError('重新执行的项目/后端确认与目标存档不一致', 409)
             if row.get('state') not in MISSION_TERMINAL:
                 raise ClientError('非终态应通过材料检查后恢复，不创建替代 attempt', 409)
             tasks = [store.load_task(t) or {} for t in store.all_task_ids()]
@@ -813,7 +841,7 @@ class Handler(BaseHTTPRequestHandler):
                     or row.get('cancellation', {}).get('status') == 'unknown'
                     or row.get('local_execution', {}).get('status') in ('running', 'unknown')):
                 raise ClientError('旧 attempt 的停止事实未确认，不能启动替代 Worker', 409)
-            mission = dict(mission, mission_id='MISSION-ATTEMPT-' + secrets.token_hex(12), previous_attempt=mid)
+            mission = dict(mission, mission_id='MISSION-ATTEMPT-' + secrets.token_hex(12), previous_attempt=mid, execution_backend=backend)
             if row.get('execution_backend') == local_projects.BACKEND:
                 revision = body.get('source_revision')
                 if not isinstance(revision, str) or not re.fullmatch(r'[0-9a-f]{64}', revision):

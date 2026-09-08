@@ -40,7 +40,8 @@ fs.mkdirSync(out,{recursive:true});
    await page.waitForTimeout(2200);
    assert.equal(await page.locator('#approvalRequests textarea').inputValue(),'保留中文 <tag>');
    await page.getByRole('button',{name:'提交回答',exact:true}).click();
-   await page.waitForFunction(()=>document.getElementById('approvalCard').hidden);
+   await page.waitForFunction(()=>!document.querySelector('#approvalRequests textarea'));
+   assert((await page.locator('#approvalReceipts').textContent()).includes('采纳未知'));
   }
   await page.waitForFunction(()=>document.getElementById('detailState').textContent.includes('已完成'),{},{timeout:20000});
   assert((await page.locator('#resultLocation').textContent()).includes('integration'));

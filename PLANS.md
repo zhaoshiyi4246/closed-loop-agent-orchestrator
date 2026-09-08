@@ -19,6 +19,7 @@
 - R01 审计返修：复用正常 Session/详情读取中的公开 `model`，记录独立 spawn-resolved 事实；conversation reroute 单列，缺失不猜测，旧 reroute 不重标为 spawn。Windows R01/AO/Panel 定向 **184 passed / 37.84s**，含 Edge 模型来源/安全渲染/SSE；compileall、diff-check、本地链接通过，未重跑 311 项大集合或 live。
 - R01 剩余边界：历史缺配置快照仅查看；R02 已补齐受支持的恢复检查；无法确认的模型、用量和费用保持 unknown，不伪造历史事实。
 - U02 首切片已接入本地项目/来源确认、Codex App Server stdio 和现有闭环。Windows U02/Panel 合同最终 57 passed（含正式 CLI、Edge 和内容过滤器负例）；生成协议校验与兼容补查见 U02 卡，集合重叠不累计。未运行真实模型、全量、安装、打包或 smoke；U02 整卡尚未完成。
+- [PR #40](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/40) 审计返修：支持固定协议的本地 environmentId 与 raw/display 命令差异；人工确认受任务硬性边界约束；请求关闭与采纳分开记录，回答无公开采纳证据时保持 UNKNOWN；重新执行按目标历史任务确认项目/后端。首切片仍 IN_REVIEW，验证分类见 U02 卡。
 - U01 已合入实现：四入口、浅/深/系统主题、桌面侧栏/窄屏底栏、四步表单；10 种同组件夹具仅在独立开发入口提供，正式产品不提供/加载样例；保留现有写保护、SSE 顺序、Gate/配置/停止事实和高级诊断。
 - U01 首轮历史验证（返修前）：Windows 定向集合 **166 passed / 29.07s**；最终窄屏调整后实际 Edge 浏览器 **184 项断言通过 / 8.68s**；图标子集/许可复查 **1 passed / 1.15s**，集合重叠不累计。19 张实际截图属于 Codex 自查证据；首轮当时待审计，最终收尾事实见 U01 卡。compileall、JS 语法、diff-check、链接和既有 panel 发布前缀检查通过。NOT_RUN：全量、安装、打包、smoke、真实 AO/模型和完整任务旅程验收。
 

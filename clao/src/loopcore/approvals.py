@@ -33,45 +33,80 @@ class ApprovalDecision:
     allow: bool
     reason: str
     decision_id: str = ""
+    reviewable: bool = False
 
 
-def codex_reviewable(request):
-    """Whether a human can review this exact one-request effect in the Panel."""
-    params = request.get("params") or {}
-    if request.get("method") == "item/commandExecution/requestApproval":
-        return (isinstance(params.get("command"), str) and bool(params["command"])
-                and isinstance(params.get("cwd"), str) and bool(params["cwd"])
-                and params.get("kind", "command") == "command"
-                and not params.get("environmentId") and not params.get("networkApprovalContext"))
-    if request.get("method") == "item/fileChange/requestApproval" and not params.get("grantRoot"):
-        item = request.get("item") or {}
-        changes = item.get("changes")
-        return bool(item.get("id") == params.get("itemId") and item.get("type") == "fileChange"
-                    and item.get("status") == "inProgress" and isinstance(changes, list) and changes
-                    and all(isinstance(c, dict) and isinstance(c.get("path"), str) and c["path"]
-                            and (c.get("kind") or {}).get("type") in ("add", "update", "delete")
-                            and isinstance(c.get("diff"), str) for c in changes))
-    return False
+def _codex_command(command, gates, root, cwd, forbidden):
+    tokens, effective = _command(command, root, cwd)
+    if path_matches(effective.relative_to(root).as_posix(), forbidden):
+        raise ValueError("本任务禁止的执行目录")
+    # An explicit Gate is not permission to reach outside the Worker or touch
+    # Git control files. Validate literal path arguments before Gate matching.
+    for arg in tokens[1:]:
+        value = arg.split("=", 1)[1] if arg.startswith("-") and "=" in arg else arg
+        if value.startswith("-"):
+            continue
+        if ("/" in value or "\\" in value or value.startswith(".") or path_matches(value, forbidden)
+                or (effective / value).exists()):
+            target, lexical = _target(value, root, effective)
+            if any(path_matches(v, forbidden) for v in (lexical, target.relative_to(root).as_posix())):
+                raise ValueError("本任务禁止的命令路径")
+    head = tokens[0].replace("\\", "/").rsplit("/", 1)[-1].lower()
+    if head in ("git", "git.exe"):
+        # No aliases, executable-path tricks, -c, state writes or remote writes.
+        if tokens[0].lower() != "git":
+            raise ValueError("不支持该 Git 执行形式")
+        if not _read_command(tokens, root, effective):
+            args = tokens[1:]
+            # A small explicit manual inspection form, not arbitrary shell.
+            if args[:1] == ["ls-files"] and args[1:] in ([], ["--stage"], ["-s"]):
+                try:
+                    return True, _command_reason(command, gates, root, cwd)
+                except ValueError:
+                    pass
+                return False, "需要确认读取当前工作树的 Git 文件索引摘要"
+            raise ValueError("本任务禁止 Git 写入/状态切换或不支持的参数")
+    try:
+        return True, _command_reason(command, gates, root, cwd)
+    except ValueError:
+        raise ValueError("命令不在明确授权或受支持的单次确认范围内")
 
 
 def decide_codex_approval(request, *, allowed_paths, forbidden_paths, gate_commands, worktree_root):
-    """Native 0.150.1 facts; reuse the exact path/command policy, not AO DTOs."""
+    """AUTO / REVIEW / prohibited-or-unsupported, from full native facts."""
     identity = request.get("request_id", "")
     try:
         root = _root(worktree_root)
         allowed, forbidden = _patterns(allowed_paths), _patterns(forbidden_paths)
-        # Local detached worktrees use a .git pointer FILE, not a directory.
-        # It is control metadata, never an automatically editable deliverable.
         forbidden += [".git", ".git/**", "**/.git", "**/.git/**"]
         params, method = request["params"], request["method"]
         if method == "item/commandExecution/requestApproval":
             if not isinstance(params.get("cwd"), str) or not params["cwd"]:
                 raise ValueError("缺少真实执行 cwd")
-            if params.get("kind", "command") != "command" or params.get("networkApprovalContext") or params.get("additionalPermissions") or params.get("environmentId"):
-                raise ValueError("特殊执行、网络或额外权限请求需人工处理")
-            reason = _command_reason(params.get("command"), gate_commands, root, _cwd(params.get("cwd"), root))
+            # rust-v0.150.1 exec-server reserves 'local' for EnvironmentManager;
+            # it cannot be configured as a remote environment. None is the
+            # older local form. The backend also correlates thread/turn/item.
+            if params.get("environmentId") not in (None, "local"):
+                raise ValueError("未知或远程执行环境不支持授权")
+            if (params.get("kind", "command") != "command" or params.get("approvalId") is not None
+                    or params.get("networkApprovalContext") is not None or params.get("additionalPermissions") is not None):
+                raise ValueError("特殊执行、网络或额外权限不支持授权")
+            item = request.get("item")
+            if (not isinstance(item, dict) or item.get("id") != params.get("itemId")
+                    or item.get("type") != "commandExecution" or item.get("status") != "inProgress"
+                    # The official item is a display presentation; the request
+                    # retains raw shell argv. Compare only our bounded literal
+                    # forms, and always authorize the original request below.
+                    or _command(item.get("command"), root, _cwd(params["cwd"], root))
+                       != _command(params.get("command"), root, _cwd(params["cwd"], root))
+                    or not isinstance(item.get("cwd"), str) or not item['cwd']
+                    or _cwd(item.get("cwd"), root) != _cwd(params["cwd"], root)
+                    or item.get("environmentId") not in (None, params.get("environmentId"))):
+                raise ValueError("缺少关联的完整命令 item 或环境事实不一致")
+            auto, reason = _codex_command(params.get("command"), gate_commands, root, _cwd(params["cwd"], root), forbidden)
+            return ApprovalDecision(identity, auto, reason, "accept", not auto)
         elif method == "item/fileChange/requestApproval":
-            if params.get("grantRoot"):
+            if params.get("grantRoot") is not None or params.get("additionalPermissions") is not None or params.get('environmentId') not in (None, 'local'):
                 raise ValueError("拒绝扩大目录或会话授权")
             item = request.get("item")
             if not isinstance(item, dict) or item.get("id") != params.get("itemId") or item.get("type") != "fileChange" or item.get("status") != "inProgress":
@@ -88,10 +123,8 @@ def decide_codex_approval(request, *, allowed_paths, forbidden_paths, gate_comma
                 _edit_path(change.get("path"), root, root, allowed, forbidden)
                 if kind.get("move_path") is not None:
                     _edit_path(kind["move_path"], root, root, allowed, forbidden)
-            reason = "全部拟修改路径在工作区和授权范围内"
-        else:
-            raise ValueError("需要人工输入或不支持的引擎请求")
-        return ApprovalDecision(identity, True, reason, "accept")
+            return ApprovalDecision(identity, True, "全部拟修改路径在工作区和授权范围内", "accept")
+        raise ValueError("需要人工输入或不支持的引擎请求")
     except (KeyError, ValueError, TypeError, OSError, RuntimeError) as exc:
         return ApprovalDecision(identity, False, str(exc))
 
