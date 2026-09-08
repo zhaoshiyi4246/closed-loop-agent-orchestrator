@@ -86,7 +86,7 @@ U01 的 PR #39 已通过本轮外部代码与产品整改审计并 rebase 合入
 正常启动只读取真实任务；没有记录时显示空态。旧 `preview` 参数不改变数据来源，
 正式服务不提供样例资源。主层使用少量中文状态，断连单独提示，Gate 读取失败在证据卡
 中保留；原始状态和完整诊断可展开查看。“重新执行”会创建关联的新执行记录，不重跑旧终态。
-U02 首切片已接入本地项目与真实 App Server 生产适配，等待审计；仅做协议替身/离线集成和浏览器验证，真实 Codex 模型任务 NOT_RUN。U02 后续完整旅程、U03 导出、模型扩展与 Q01 安装/发布兼容性未完成。
+U02 首切片已接入本地项目与真实 App Server 生产适配；[PR #40](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/40) 再次外部审计 PASS、已 rebase 合入（首切片 DONE）。U02 整卡与 M3 保持 IN_PROGRESS；唯一下一切片“完整任务旅程与 GUI 数据接线” TODO、尚未开始。已有证据仅为协议替身/离线集成和浏览器验证，真实 Codex 模型任务 NOT_RUN；任意进程重连、U03 独立导出、模型扩展与 Q01 安装/发布兼容性未完成。
 
 视觉参考：[Framework7 分组列表](https://framework7.io/docs/list-view)、
 [Konsta iOS 列表](https://konstaui.com/react/list)；没有引入这些框架。

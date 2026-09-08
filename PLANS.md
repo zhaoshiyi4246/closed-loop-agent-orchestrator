@@ -7,8 +7,9 @@
 ## 当前唯一执行指针
 
 - 当前阶段：**M3 IN_PROGRESS**；M0 / M1 / M2 COMPLETE。
-- 当前唯一执行指针：**V03-U02 — 完整任务GUI与数据接线**，IN_PROGRESS；本轮首个切片“独立项目入口与本地执行” IN_REVIEW，等待外部审计：采用本机 Codex 0.150.1 App Server stdio，复用 Controller / Store / Gate / Verifier。完整任务旅程为后续切片；U03/模型扩展未开始。
-- 最近完成：**V03-U01 — iPhone 风格界面骨架与状态夹具**，DONE；[PR #39](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/39) 本轮代码与产品收敛整改外部审计 PASS、无继续返修问题，2026-09-07 已 rebase merge 到 main `014e9123a842e8ecd1f42f4ca3845b929835ca2b`；已审计 head `01dfd935c7f55d0800edd526a707387744933423`；合入 tree 与该 head 完全相同。
+- 当前唯一执行指针：**V03-U02 — 完整任务旅程与 GUI 数据接线**，下一切片 TODO，尚未开始；U02 整卡 IN_PROGRESS。首切片“独立项目入口与本地执行” DONE；U03/模型扩展/发布任务未推进。
+- 最近完成：**V03-U02 首切片 — 独立项目入口与本地执行**，DONE；[PR #40](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/40) 再次外部审计 PASS，2026-09-08 已 rebase merge 到 main `3d0a33ebd69b6184f9e47dffca87895aba2d960a`；合入 tree 与已审计 head `4dc536cfa493d1b4ea8a8c36b8c78f5c7e9e7b43` 完全相同。
+- U01 保持完成：**V03-U01 — iPhone 风格界面骨架与状态夹具**，DONE；[PR #39](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/39) 本轮代码与产品收敛整改外部审计 PASS、无继续返修问题，2026-09-07 已 rebase merge 到 main `014e9123a842e8ecd1f42f4ca3845b929835ca2b`；已审计 head `01dfd935c7f55d0800edd526a707387744933423`；合入 tree 与该 head 完全相同。
 - R02 保持完成：**V03-R02 — 指令回执、取消恢复、固定基线**，DONE；[PR #38](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/38) 外部审计 PASS、无返修，2026-09-07 已 rebase merge 到 main `2377dd03c172461c63d26835e23abe7171e883a9`；合入 tree 与已审计 head `7d91443cd10b95d8238b5febdee4dfa59026e28e` 完全相同。
 - R01 保持完成：**V03-R01 — 有效配置与阶段诊断**，DONE；[PR #37](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/37) 再次外部审计 PASS、无其他返修；2026-09-07 已 rebase merge 到 main `551f7f49198e033b1331ec341ff0d352553bacb1`，合入 tree 与已审计 head `e88c698a211ee5cd179709701ada1a7aa3079d3a` 完全相同。
 - F01 / F02 / F03 / F04 / F05 保持 DONE；[PR #32](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/32) / [PR #33](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/33) / [PR #34](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/34) / [PR #35](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/35) / [PR #36](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/36) 均已审计 PASS 并合入，历史证据仍有效，详见对应卡。
@@ -19,7 +20,7 @@
 - R01 审计返修：复用正常 Session/详情读取中的公开 `model`，记录独立 spawn-resolved 事实；conversation reroute 单列，缺失不猜测，旧 reroute 不重标为 spawn。Windows R01/AO/Panel 定向 **184 passed / 37.84s**，含 Edge 模型来源/安全渲染/SSE；compileall、diff-check、本地链接通过，未重跑 311 项大集合或 live。
 - R01 剩余边界：历史缺配置快照仅查看；R02 已补齐受支持的恢复检查；无法确认的模型、用量和费用保持 unknown，不伪造历史事实。
 - U02 首切片已接入本地项目/来源确认、Codex App Server stdio 和现有闭环。Windows U02/Panel 合同最终 57 passed（含正式 CLI、Edge 和内容过滤器负例）；生成协议校验与兼容补查见 U02 卡，集合重叠不累计。未运行真实模型、全量、安装、打包或 smoke；U02 整卡尚未完成。
-- [PR #40](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/40) 审计返修：支持固定协议的本地 environmentId 与 raw/display 命令差异；人工确认受任务硬性边界约束；请求关闭与采纳分开记录，回答无公开采纳证据时保持 UNKNOWN；重新执行按目标历史任务确认项目/后端。首切片仍 IN_REVIEW，验证分类见 U02 卡。
+- [PR #40](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/40) 审计返修：支持固定协议的本地 environmentId 与 raw/display 命令差异；人工确认受任务硬性边界约束；请求关闭与采纳分开记录，回答无公开采纳证据时保持 UNKNOWN；重新执行按目标历史任务确认项目/后端。四项返修已再次外部审计 PASS 并合入，首切片 DONE；验证分类见 U02 卡。本次仅文档与差异检查，未重跑既有验证。
 - U01 已合入实现：四入口、浅/深/系统主题、桌面侧栏/窄屏底栏、四步表单；10 种同组件夹具仅在独立开发入口提供，正式产品不提供/加载样例；保留现有写保护、SSE 顺序、Gate/配置/停止事实和高级诊断。
 - U01 首轮历史验证（返修前）：Windows 定向集合 **166 passed / 29.07s**；最终窄屏调整后实际 Edge 浏览器 **184 项断言通过 / 8.68s**；图标子集/许可复查 **1 passed / 1.15s**，集合重叠不累计。19 张实际截图属于 Codex 自查证据；首轮当时待审计，最终收尾事实见 U01 卡。compileall、JS 语法、diff-check、链接和既有 panel 发布前缀检查通过。NOT_RUN：全量、安装、打包、smoke、真实 AO/模型和完整任务旅程验收。
 
@@ -43,7 +44,7 @@
 | M0 基线与目录整理 | COMPLETE（DOC-00 / LAYOUT DONE） | 规划已批准入库；纯路径迁移验证；副本分类整理含保留项；人工审计 PASS |
 | M1 修复冻结 | COMPLETE（F01–F05 DONE，均已审计 PASS 并合入） | F01—F05负例与正常路径通过 |
 | M2 使用契约 | COMPLETE（R01 / R02 DONE，均已审计 PASS 并合入） | 配置、回执、取消恢复、基线可追溯 |
-| M3 GUI与交付体验 | IN_PROGRESS（U01 DONE，U02 首切片 IN_REVIEW，U03 TODO） | 四入口＋任务旅程＋结果导出＋浏览器验收 |
+| M3 GUI与交付体验 | IN_PROGRESS（U01 DONE，U02 IN_PROGRESS（首切片 DONE），U03 TODO） | 四入口＋任务旅程＋结果导出＋浏览器验收 |
 | M4 模型扩展 | TODO | GLM与Kimi语义profile；Worker明确支持/拒绝决策 |
 | M5 发布候选 | TODO | 最终ZIP、Windows、真实模型/GUI/恢复与来源证据 |
 

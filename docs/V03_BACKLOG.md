@@ -1,6 +1,6 @@
 # CLAO v0.3 任务与验收台账
 
-版本：0.3-plan-r1 · 2026-09-06。状态：已批准 / IN EFFECT。DOC-00、F01–F05、R01 / R02 已完成（DONE），M0 / M1 / M2 为 `COMPLETE`；U01 已审计合入（`DONE`），M3 `IN_PROGRESS`；唯一执行任务 U02 `IN_PROGRESS`（首切片 `IN_REVIEW`）；其余功能卡状态见下表，原报告的发现不等于已复现或已修复。
+版本：0.3-plan-r1 · 2026-09-06。状态：已批准 / IN EFFECT。DOC-00、F01–F05、R01 / R02 已完成（DONE），M0 / M1 / M2 为 `COMPLETE`；U01 已审计合入（`DONE`），M3 `IN_PROGRESS`；唯一执行任务 U02 `IN_PROGRESS`（首切片 `DONE`，下一切片“完整任务旅程与 GUI 数据接线” `TODO`、尚未开始）；其余功能卡状态见下表，原报告的发现不等于已复现或已修复。
 
 设计以 [V03_PLAN.md](V03_PLAN.md) 为准。当前唯一任务由根目录 [PLANS.md](../PLANS.md) 指定。本文件保存每张卡的详细状态和证据，PLANS 不重复整张台账。
 
@@ -41,7 +41,7 @@
 | V03-R01 | M2 | 有效配置与阶段诊断 | F01/F04 | DONE（PR #37 再次审计 PASS / merged） |
 | V03-R02 | M2 | 指令回执、取消恢复、固定基线 | F03/F05/R01 | DONE（PR #38 审计 PASS / merged） |
 | V03-U01 | M3 | iPhone风格界面骨架与状态夹具 | G1；R01/R02字段设计 | DONE（PR #39 代码/产品整改审计 PASS / merged） |
-| V03-U02 | M3 | 完整任务GUI与数据接线 | U01/R02/F04 | IN_PROGRESS（首切片 IN_REVIEW） |
+| V03-U02 | M3 | 完整任务GUI与数据接线 | U01/R02/F04 | IN_PROGRESS（首切片 DONE / PR #40 审计 PASS / merged） |
 | V03-U03 | M3 | 结果中心与独立导出 | U02/F03 | TODO |
 | V03-P01 | M4 | 模型配置／凭据与GLM语义后端 | F01/R01/F04 | TODO |
 | V03-P02 | M4 | Kimi语义后端与切换评测 | P01 | TODO |
@@ -255,11 +255,11 @@ G1=F01—F05；G2=R01—R02；G3=U01—U03；G4=P01—P02及P03有记录的支�
 - 最后补齐表单错误的单处展示/关闭后保留：F04/R01/R02 三个浏览器回归通过；U01 最终浏览器 **1 passed / 8.73s**，含原四宽度/浅深主题/200% 缩放、10 状态、键盘草稿、开发 HTTP POST 拒绝、旧 preview URL 真实数据、子任务失败/完成、仅阶段变更的列表更新；这些集合重叠不累计。compileall、JS 语法、diff-check、51 个本地文档路径、开发资源不在发布映射检查通过。
 - 实施阶段 NOT_RUN：全量回归、clean install、打包、smoke、真实 AO Mission/收费模型、完整 U02 任务旅程；截图自查与本次外部代码/产品整改审计分别记录，不将后者等同逐张截图验收。没有 GLM/Kimi 接入、结果导出、Controller/Store 重构、tag 或 Release。
 - 本次收尾沿用以上 Windows/浏览器证据，仅更新既有背景文档并检查链接/路径、diff 与产品 blob 一致性；不重跑测试、构建、smoke、真实 AO/模型。
-- 下一步：唯一指针 U02 TODO，首个切片“独立项目入口与本地执行”，完成后再推进完整任务旅程；尚未开始。M0/M1/M2 COMPLETE，M3 IN_PROGRESS；U03/模型扩展仍 TODO，D10 独立产品目标尚未实现。
+- U01 合入时的下一步（历史）：唯一指针 U02 TODO，首个切片“独立项目入口与本地执行”，完成后再推进完整任务旅程；尚未开始。M0/M1/M2 COMPLETE，M3 IN_PROGRESS；U03/模型扩展仍 TODO，当时 D10 独立产品目标尚未实现；后续实施事实见 U02 卡。
 
 ## V03-U02｜完整任务GUI与数据接线
 
-- 状态：U02 IN_PROGRESS；首个切片“独立项目入口与本地执行” IN_REVIEW，等待外部审计；U02 整卡未完成。采用 Codex 0.150.1 App Server 本地 stdio；本轮只替换 Worker 的 AO 强制依赖，后续再推进完整任务旅程。
+- 状态：U02 IN_PROGRESS；首个切片“独立项目入口与本地执行” DONE；[PR #40](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/40) 四项返修再次外部审计 PASS，2026-09-08 已 rebase merge 到 main `3d0a33ebd69b6184f9e47dffca87895aba2d960a`，tree 与已审计 head `4dc536cfa493d1b4ea8a8c36b8c78f5c7e9e7b43` 相同。采用 Codex 0.150.1 App Server 本地 stdio，新本地任务不依赖 AO 项目/daemon；U02 整卡未完成。
 - 对应：A04/A05/A06/A08。依赖：U01+G2。
 - 顺序（D10，2026-09-08 首切片授权）：先本地项目与 Codex App Server stdio 执行，再完整任务旅程。新本地任务不要求 AO/GitHub/origin；本轮采用本机 0.150.1，不迁移语义角色 CLI，不升级用户环境。
 - 工作：真实就绪卡；显式Project与base确认；目标/范围/Gate/模型摘要；运行阶段、审批、取消、历史与重试；大错误常驻；真实角色调用与证据scope。
@@ -267,7 +267,7 @@ G1=F01—F05；G2=R01—R02；G3=U01—U03；G4=P01—P02及P03有记录的支�
 - 完成：Playwright或等价浏览器测试在开发环境通过；用户实际GUI确认；不把API200当视觉PASS。
 - 不做：未经授权后台创建Mission验证界面；浏览器依赖打入产品。
 - 首切片范围：`codex/v03-u02-local-codex-execution`，base `0feca5de502ef97de33cf025166318ab8f748bfa`。新增薄的本地项目/stdio 边界，原 Controller/Store/Gate/Verifier、审批、UNKNOWN、配置/source 冻结继续使用；未开始后续旅程或 U03。
-- 实现事实与公开协议版本见 [PROJECT](PROJECT.md#u02-首切片本地项目与-codex-worker待审计)，用户流程/来源规则见 [产品说明](../clao/README.md#本地项目与来源确认)。真实模型/发布兼容性尚未验收；原目录不写入，linked worktree 不是独立导出包。
+- 实现事实与公开协议版本见 [PROJECT](PROJECT.md#u02-首切片本地项目与-codex-worker)，用户流程/来源规则见 [产品说明](../clao/README.md#本地项目与来源确认)。真实模型/发布兼容性尚未验收；原目录不写入，linked worktree 不是独立导出包。
 - 首轮主集合（审计返修前）：`pytest tests/test_u02_local_execution.py tests/test_panel_worker_contract.py -q` → **57 passed / 114.89s**（产品 venv CPython 3.12.7，真实 Git/SQLite/HTTP 与 UTF-8 stdio 替身）。覆盖正式 CLI、无远端 Git/普通目录/空目录、原始 dirty 内容与 index 不变、来源漂移/过滤/junction、真实闭环与红 Gate、审批/输入、UNKNOWN/重入/停止/replan、重新确认来源的新 attempt、新旧配置冻结、模型事实，以及实际 Edge 新建至成果流程。此前 54 passed / 100.57s 是追加最后三个用例前的集合，重叠不累计。
 - 兼容复查：`pytest tests/test_u02_local_execution.py tests/test_f04_panel_boundaries.py tests/test_u01_panel.py tests/test_r02_lifecycle.py tests/test_f05_external_operations.py tests/test_approvals.py tests/test_approvals_bridge.py tests/test_approval_block.py tests/test_mission_preflight.py -q` 初次 **431 passed / 3 failed / 1 skipped / 217.13s**。三处为旧浏览器缺新来源确认、开发夹具缺该只读响应、旧 fake adapter 缺显式 backend；修正接线/兼容表达并保留断言。后续 F04/U01 浏览器与 R02 崩溃回执节点均通过；新增 replan 测试的错误导入已修正，包含在上述最终 54 passed 中。唯一 skip 为 Windows 原生 symlink 权限；真实 junction 回归通过。
 - 追加正式 CLI/source 与 F04/U01/R02 浏览器检查 6 passed / 1 failed / 19.70s；失败揭示旧 AO model 标签过度泛化，已恢复明确的 AO spawn-resolved 标签，并与本地 thread/start/model-rerouted 事实分开；随后 `pytest tests/test_u02_local_execution.py::test_native_model_facts_do_not_become_provider_timing tests/test_r01_effective_config.py -q` → **48 passed / 37.24s**（含实际 Edge 配置/SSE/模型来源安全渲染）。集合重叠，不累计成一次全量结果。
@@ -277,7 +277,7 @@ G1=F01—F05；G2=R01—R02；G3=U01—U03；G4=P01—P02及P03有记录的支�
 - 静态检查：Python compileall、产品/开发脚本 JS 语法、diff-check、本地文档链接与 runtime 发布前缀检查通过。
 - NOT_RUN：全量、clean install、打包、smoke、真实 AO/收费模型、独立安装与最终发布兼容性。
 
-PR #40 审计返修（同一分支，等待再次审计）：
+PR #40 审计返修证据（再次外部审计 PASS，已合入）：
 
 - 修复 environmentId、人工硬边界、响应关闭/采纳和历史重试项目关联。固定协议的 `local` 是保留的本地环境 ID，结合绑定的 thread/turn/item/cwd 检查；普通 raw shell argv 与 item 展示字符串可能不同，保留原始输入检查。依据：[固定版本环境实现](https://github.com/openai/codex/blob/rust-v0.150.1/codex-rs/exec-server/src/environment.rs)、[事件/审批适配](https://github.com/openai/codex/blob/rust-v0.150.1/codex-rs/app-server/src/bespoke_event_handling.rs)、[请求关闭实现](https://github.com/openai/codex/blob/rust-v0.150.1/codex-rs/app-server/src/outgoing_message.rs)。没有升级环境、远程环境支持或新控制层。
 - 后端实际 accept 按同一 Task 策略分为 AUTO / REVIEW / PROHIBITED_OR_UNSUPPORTED；正常 Gate/文件仍自动处理，受限查看请求支持人工确认/拒绝，危险 Git 不再作为人工正例。普通按钮不能覆盖 `.git`、禁止路径、越根或额外授权。
@@ -285,7 +285,9 @@ PR #40 审计返修（同一分支，等待再次审计）：
 - Windows U02 定向：`pytest tests/test_u02_local_execution.py -k 'audit or approval or actual_http_question or new_attempt or actual_browser or formal_runtime_real or interrupt_ack or red_real_gate' -q` → **46 passed / 16 deselected / 119.32s**。随后补齐真实 raw/display 命令形态，`-k 'audit_native or audit_hard or audit_response or actual_panel_mission'` → **27 passed / 35 deselected / 42.80s**。含实际 Edge 项目 B 的确认/双击，以及真实 Git/Controller/Gate/HTTP；外部引擎/模型仍为隔离替身。
 - 原审批文件 + F05 claim/未知 spawn/send/停止 + R02 历史/新 attempt 定向节点：117 passed / 1 failed / 1 skipped / 11.29s；失败为旧浏览器只预期 mission_id，补齐并断言新的项目/后端绑定字段后该节点 **1 passed / 8.12s**。skip 为原 Windows symlink 权限限制。新增测试初轮的 Controller 派发顺序、只读历史句柄清理和方法名错误已修正，未删除负例或弱化断言；集合重叠不累计。
 - 最后历史回答回执 + 两个 U02 实际 Edge 流程 + R02 历史只读节点 **4 passed / 27.71s**；正常回答仍到真实 Gate/Verifier 结果，历史 HTTP 中采纳仍为 UNKNOWN。Python compileall、JS 语法、diff-check、本地文档链接检查通过；本轮没有重跑首轮大集合、全量、打包、smoke 或真实模型。
-- 0.150.1 本机生成 schema 复查：7 个客户端请求/通知、12 个服务端消息通过，含 `environmentId=local` 与不同 raw/display 命令。真实模型仍 NOT_RUN，不将替身或 schema 验证写成真实任务验收。U02 首切片 IN_REVIEW，U02/M3 IN_PROGRESS；后续切片未开始。
+- 0.150.1 本机生成 schema 复查：7 个客户端请求/通知、12 个服务端消息通过，含 `environmentId=local` 与不同 raw/display 命令。真实模型仍 NOT_RUN，不将替身或 schema 验证写成真实任务验收。U02 首切片 DONE，U02/M3 IN_PROGRESS。
+- 收尾仅检查文档链接、路径、差异与产品 blob；沿用上述验证，不重跑测试、构建、smoke 或真实模型。仍需已安装 Python/Git/Codex、已有登录及受支持的 Windows 沙箱；任意进程重连、独立导出与安装器未实现。旧 AO 历史只读与显式 AO 兼容后端独立保留，不将协议替身/浏览器验证写成真实模型或发布验收。
+- 唯一下一执行内容：U02“完整任务旅程与 GUI 数据接线”，TODO，尚未开始；U01 DONE，M0/M1/M2 COMPLETE，M3 IN_PROGRESS；U03/模型扩展/发布任务未推进。
 
 
 ## V03-U03｜结果中心与独立导出

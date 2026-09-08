@@ -1,6 +1,6 @@
 # CLAO 当前项目事实
 
-更新：2026-09-08（R02 外部审计 PASS 并合入 main，状态 DONE；F01–F05、R01 DONE；M0 / M1 / M2 COMPLETE；M3 IN_PROGRESS；U01 代码与产品整改外部审计 PASS、PR #39 已合入，DONE；U02 IN_PROGRESS，首切片 IN_REVIEW）。本文件只记录已实现事实与已知限制；v0.3的设计见 [V03_PLAN.md](V03_PLAN.md)，不能把设计直接写成已完成能力。
+更新：2026-09-08（R02 外部审计 PASS 并合入 main，状态 DONE；F01–F05、R01 DONE；M0 / M1 / M2 COMPLETE；M3 IN_PROGRESS；U01 代码与产品整改外部审计 PASS、PR #39 已合入，DONE；U02 IN_PROGRESS，首切片再次外部审计 PASS、PR #40 已合入，DONE）。本文件只记录已实现事实与已知限制；v0.3的设计见 [V03_PLAN.md](V03_PLAN.md)，不能把设计直接写成已完成能力。
 
 ## 1. 版本与基线
 
@@ -9,7 +9,7 @@
 | 产品 | CLAO / Closed-Loop Agent Orchestrator |
 | 已发布版本 | v0.2，Windows本地比赛版 |
 | 已发布源码 | 4d3e8e6b5e70bab868b2eef0d28c7742dea044ba |
-| 开发目标 | v0.3：F01–F05、R01 / R02 已合入 main（DONE）；M0 / M1 / M2 COMPLETE，M3 IN_PROGRESS；U01 工作台骨架与产品整改已审计合入（DONE），U02 首切片本地执行已接线待审计，后续旅程/U03 与模型扩展待实现 |
+| 开发目标 | v0.3：F01–F05、R01 / R02 已合入 main（DONE）；M0 / M1 / M2 COMPLETE，M3 IN_PROGRESS；U01 工作台骨架与产品整改已审计合入（DONE），U02 首切片本地执行已审计合入（DONE），整卡 IN_PROGRESS；下一切片完整任务旅程与 GUI 数据接线尚未开始，U03 与模型扩展待实现 |
 | 主仓库 | zhaoshiyi4246/closed-loop-agent-orchestrator |
 | 产品源码路径 | `clao/`，当前唯一正式产品，内部 Python 包为 `src/loopcore/` |
 | 发布工具 | `packaging/build-release.ps1` 与 `packaging/release-manifest.txt` |
@@ -46,13 +46,15 @@ MissionController是控制编排权威，ClosedLoop负责子任务；StateStore�
 
 语义角色当前使用共享headless Codex CLI；stdin传Prompt，保留ephemeral/read-only、schema输出、non-Git cwd支持。新本地 Worker 使用 Codex 0.150.1 App Server；旧 AO 任务保留 Codex harness 兼容。当前历史验收模型为gpt-5.6-sol，不把这个字符串作为永久模型支持清单。Observer/Gate不用模型。
 
-### U02 首切片：本地项目与 Codex Worker（待审计）
+### U02 首切片：本地项目与 Codex Worker
+
+首切片 DONE；[PR #40](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/40) 再次外部审计 PASS，2026-09-08 已 rebase 合入 main `3d0a33ebd69b6184f9e47dffca87895aba2d960a`，保持已审计产品实现不变。U02 整卡与 M3 继续 IN_PROGRESS，下一切片尚未开始。
 
 - 本地项目登记沿用 runtime 下的原子 JSON 文件；Panel 支持打开/创建/再次选择，CLI 用 `--project-path` / `--confirm-source`。本地 Git 无需 remote，普通目录/空项目无需 Git 初始化；不访问 AO REST/CLI/项目/runfile。
 - 来源预览显示当前磁盘文件清单、hash/revision 和排除项，含未提交内容；确认后私有 source Git 与 detached Worker worktree 固定该内容。Git 项目只读取 tracked 与未忽略文件；拒绝链接/junction、特殊文件和超限输入，跳过凭据名/运行缓存/依赖目录。10 MiB 单文件、100 MiB/10000 文件上限；清单检查不是万能密钥扫描。原目录、index、分支、ignore 与全局配置不变。
 - 私有 Git 禁用 hooks/fsmonitor 及继承的内容过滤器，避免来源 `.gitattributes` 在 checkout 时执行用户全局配置中的处理程序；来源 Git 只读查询也禁用 fsmonitor。存在可覆盖这些设置的 `GIT_CONFIG_COUNT/PARAMETERS` 环境配置时明确拒绝导入，不修改该环境。
 - 采用本机 `codex-cli 0.150.1` 的稳定生成协议；公开源码 tag `rust-v0.150.1` / `0eb410ad0dd161ea323b05452f978de01cd63430`。JSONL UTF-8 stdio，initialize/initialized，thread/start、turn/start/steer/interrupt，item 与 turn 通知；模型初始配置和 model/rerouted 的来源分列。只读 account/read、windowsSandbox/readiness 核对已有 ChatGPT 登录与沙箱，不登录、不读取引擎私库。config/read 只用于在此次线程禁用继承 MCP，不保存原配置；进程级覆盖关闭插件/附加 Agent 等工具，不修改全局文件。
-- Mission 原 StateStore 冻结 execution_backend/config/source/version；Adapter 使用原生 thread/turn/item 事实，不伪造 AO Session DTO。文件/命令审批复用 F02 范围与精确 Gate 策略；完整 fileChange item/started 路径（含 move 来源/目标）才能自动允许一次，额外授权/未知工具保留人工。Panel 的 Host/Origin/nonce/JSON/文本渲染边界继续有效。
+- Mission 原 StateStore 冻结 execution_backend/config/source/version；Adapter 使用原生 thread/turn/item 事实，不伪造 AO Session DTO。文件/命令审批复用 F02 范围与精确 Gate 策略；完整 fileChange item/started 路径（含 move 来源/目标）才能自动允许一次，额外授权/未知工具不支持通过普通人工审批放行。Panel 的 Host/Origin/nonce/JSON/文本渲染边界继续有效。
 - 生产 MissionController/ClosedLoop 继续 gate-first 和终局 Verifier；单次 turn completed 不覆盖执行失败、scope 或 Gate 失败。materialization 必须关联回合已结束且无在途命令/文件 item；新结果仍在 integration，不写回原项目、不自动 push。Planner/Auditor/Verifier 保留现有 Codex CLI，不增加模型轮次。
 - 原 operation intent/claim/ACK/UNKNOWN 用于 spawn/send/kill 与单次审批。ACK 持久后本地中断可复用；无 ACK 不重新创建线程或重发回合/输入。interrupt ACK 不算已停，只有关联 ended 事实可继续。人工审批提交期间与 Controller 对账互斥，进程消失后的不确定结果仍 UNKNOWN。
 - PR #40 审计返修：官方 0.150.1 保留的 `environmentId=local` 与已绑定 thread/turn/item/cwd 共同核对；未知/远程环境不支持授权。item 是展示命令，审批参数保留原始 shell argv，只接受现有解析器确认的等价形式。后端单次 accept 再读 Task 范围；禁止路径、`.git`、越根、危险 Git、额外权限不能经人工按钮绕过。精确 Gate/已有查看操作自动允许，受限 `git ls-files` 摘要可人工确认；不支持任意 shell 授权。
@@ -189,7 +191,7 @@ Worker 初始/replan prompt 包含实际 objective、AC、allowed/forbidden path
 原 user instruction。固定 AO 的 [spawn Prompt 上限](https://github.com/Untrivial-ai/agent-orchestrator/blob/4cbb4b6ced1ad93f79641a2347d2342f1ffd218a/backend/internal/httpd/controllers/sessions.go)
 为 4096 UTF-8 bytes；完整内容超限直接拒绝，不静默裁掉范围。模型/用量/费用 unknown
 和 R01 冻结配置规则不变。Windows 定向 Git/SQLite/fake AO/HTTP 与 Edge 证据见 R02 卡，
-未运行全量、安装、打包、smoke、真实 AO/模型或完整 GUI 视觉验收；R01 / R02 DONE，M2 COMPLETE；U01 已合入实现见下节，U02 首切片实施事实见下节，U03 仍 TODO。
+未运行全量、安装、打包、smoke、真实 AO/模型或完整 GUI 视觉验收；R01 / R02 DONE，M2 COMPLETE；U01 已合入实现见下节，U02 首切片实施事实见前文，U03 仍 TODO。
 
 ### U01 工作台骨架（DONE，已审计合入）
 
@@ -202,7 +204,7 @@ Worker 初始/replan prompt 包含实际 objective、AC、allowed/forbidden path
 表单或默认设置草稿，正在操作的列表区域延后更新且只采用最新事实。
 
 四步新建表单保留项目、目标/验收、路径/Gate、模型/预算确认输入。项目必须明确选择；
-U01 合入时仅提供既有创建接口和项目选择；本分支 U02 首切片新增本地登记与来源确认接线，未新增模型/供应商选项，见下节。
+U01 合入时仅提供既有创建接口和项目选择；已合入的 U02 首切片新增本地登记与来源确认接线，未新增模型/供应商选项，见前文。
 历史摘要加载、恢复、新 attempt、取消、指令、默认设置与有限文件查看入口继续保留，
 停止未知时不提供可用的新 attempt 按钮，实际权限仍由原有后端判定。
 
@@ -217,17 +219,19 @@ U01 合入时仅提供既有创建接口和项目选择；本分支 U02 首切�
 停止事实与历史子任务状态分别保留，取消完成不显示 Worker 正在执行。
 产品静态资源为四个固定路径；原 Host / Origin / JSON / nonce、memory.md/project.md 文件范围与
 CSP 脚本 nonce 要求不变。12 个本地 Lucide 符号及完整 ISC/Feather MIT 许可保留；没有新框架、
-构建服务、CDN 或模型探测请求。当前仍依赖 AO 注册项目及 origin，尚未实现独立项目与执行入口。
+构建服务、CDN 或模型探测请求。U01 合入时依赖 AO 注册项目及 origin；已合入的 U02 首切片提供无需 AO 的本地项目与执行入口，旧 AO 路径显式兼容。
 
 定向 Windows/Edge 证据及截图索引见 [U01 卡](V03_BACKLOG.md#v03-u01iphone风格界面骨架与状态夹具)。
 已有 Windows/浏览器验证与实际截图沿用，截图由 Codex 自查；本次外部代码与产品整改审计通过，不宣称外部逐张截图验收。合并收尾未重新运行测试或模型，仅做文档与差异检查。
-M0/M1/M2 COMPLETE，M3 IN_PROGRESS；唯一执行指针 U02 IN_PROGRESS，首切片待审计；后续完整任务旅程、U03 与模型扩展未开始。
+M0/M1/M2 COMPLETE，M3 IN_PROGRESS；U02 整卡 IN_PROGRESS，首切片 DONE；唯一下一执行内容为 U02“完整任务旅程与 GUI 数据接线”，TODO、尚未开始；U03 与模型扩展未开始。
 
 ## 4. 已验证外部前提
 
 Windows、CPython3.12、Git、AO Desktop0.12.9、Codex CLI0.150.1及ChatGPT登录是v0.2的已验证组合。bootstrap只管理本地Python venv，不安装Python/Git/AO/Codex。
 
-AO executable通过CLAO_AO_BIN或PATH解析；runfile通过CLAO_AO_RUN_FILE或~/.ao/running.json解析。Project需要注册的Git-backed项目、identity、origin及有效remote-backed base；显式branch要求origin/<branch>，auto要求origin/HEAD。origin可以是本地bare repo。不自动修改Git/AO配置。该约束是当前验证过的产品支持范围，不宣称覆盖AO所有潜在能力。
+以下约束仅适用于已发布 v0.2 与显式 AO 兼容后端。AO executable通过CLAO_AO_BIN或PATH解析；runfile通过CLAO_AO_RUN_FILE或~/.ao/running.json解析。Project需要注册的Git-backed项目、identity、origin及有效remote-backed base；显式branch要求origin/<branch>，auto要求origin/HEAD。origin可以是本地bare repo。不自动修改Git/AO配置。该约束不适用于新本地 Codex 任务，也不宣称覆盖 AO 所有潜在能力。
+
+新本地任务无需 AO 项目、daemon 或 origin，仍需已安装 Python/Git/Codex 0.150.1、已有 ChatGPT 登录和受支持且就绪的 Windows 沙箱。当前为离线协议/集成及浏览器证据，真实模型 NOT_RUN；不沿用 v0.2 live 结果宣称新后端已完成真实模型或发布验收。任意进程重连、独立导出和安装器仍未实现。
 
 ## 5. 审计缺口与修复状态
 
@@ -246,8 +250,8 @@ AO executable通过CLAO_AO_BIN或PATH解析；runfile通过CLAO_AO_RUN_FILE或~/
 
 | 主题 | 当前实现 | v0.3设计（待实现） |
 |---|---|---|
-| GUI | U01 已审计合入（DONE）：四入口、分组卡片、主题、响应式渐进表单；开发夹具独立 | U02 独立项目/本地执行后完成任务旅程与 U03 结果中心/导出 |
-| 模型 | Codex CLI与AO Codex | GLM/Kimi语义profile，Worker单独准入 |
+| GUI | U01 DONE；U02 首切片 DONE：四入口、主题/响应式表单、本地项目与执行接线；开发夹具独立 | U02 完整任务旅程与 GUI 数据接线；U03 结果中心/导出 |
+| 模型 | 本地 Worker 为 Codex App Server；语义角色为 Codex CLI；AO 显式兼容 | GLM/Kimi语义profile，Worker单独准入 |
 | 配置 | R01 已合入；R02 恢复先验证冻结材料 | 新 GUI 的配置旅程 |
 | 结果 | integration路径与日志 | 可独立应用的patch导出与证据摘要 |
 | 停止 | F05 已合入；R02 明确取消状态、只读历史/恢复检查、关联新 attempt（DONE，已合入） | 新 GUI 的操作与错误体验 |
