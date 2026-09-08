@@ -1,6 +1,6 @@
 # CLAO v0.3 任务与验收台账
 
-版本：0.3-plan-r1 · 2026-09-06。状态：已批准 / IN EFFECT。DOC-00、F01–F05、R01 / R02 已完成（DONE），M0 / M1 / M2 为 `COMPLETE`；U01 已审计合入（`DONE`），M3 `IN_PROGRESS`；U02 首切片、完整任务旅程切片及整卡均 `DONE`；唯一执行任务 U03 `IN_REVIEW`；其余功能卡状态见下表，原报告的发现不等于已复现或已修复。
+版本：0.3-plan-r1 · 2026-09-06。状态：已批准 / IN EFFECT。DOC-00、F01–F05、R01 / R02 已完成（DONE），M0 / M1 / M2 为 `COMPLETE`；U01 / U02 / U03 均已审计合入（`DONE`），U02 两个切片保持 `DONE`；M3 `COMPLETE` 表示本阶段开发与代码审计完成，完整体验与发布验收尚未完成；M4 `TODO`，唯一下一任务 P01 `TODO`，尚未开始；其余功能卡状态见下表，原报告的发现不等于已复现或已修复。
 
 设计以 [V03_PLAN.md](V03_PLAN.md) 为准。当前唯一任务由根目录 [PLANS.md](../PLANS.md) 指定。本文件保存每张卡的详细状态和证据，PLANS 不重复整张台账。
 
@@ -42,7 +42,7 @@
 | V03-R02 | M2 | 指令回执、取消恢复、固定基线 | F03/F05/R01 | DONE（PR #38 审计 PASS / merged） |
 | V03-U01 | M3 | iPhone风格界面骨架与状态夹具 | G1；R01/R02字段设计 | DONE（PR #39 代码/产品整改审计 PASS / merged） |
 | V03-U02 | M3 | 完整任务GUI与数据接线 | U01/R02/F04 | DONE（首切片 PR #40、完整旅程 PR #41 均再次审计 PASS / merged） |
-| V03-U03 | M3 | 结果中心与独立导出 | U02/F03 | IN_REVIEW（PR #42，待审计） |
+| V03-U03 | M3 | 结果中心与独立导出 | U02/F03 | DONE（PR #42 再次外部审计 PASS / merged） |
 | V03-P01 | M4 | 模型配置／凭据与GLM语义后端 | F01/R01/F04 | TODO |
 | V03-P02 | M4 | Kimi语义后端与切换评测 | P01 | TODO |
 | V03-P03 | M4 | 第二Worker能力准入决策 | P01/P02；AO官方契约 | TODO |
@@ -318,7 +318,7 @@ PR #41 审计返修（2026-09-08，再次外部审计 PASS，已合入）：
 
 ## V03-U03｜结果中心与独立导出
 
-- 状态：IN_REVIEW；[PR #42](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/42) 已提交，实现提交 `13fae1ebefc66d62b165b968119460a17637d444`，等待审计；2026-09-08 授权实施，base `f251535e209e14f6e9c698e290cce67aff8a2c16`，分支 `codex/v03-u03-results-export`。沿用现有结果/StateStore/Git/Panel，不实施闭环运行视图或模型扩展。
+- 状态：DONE；[PR #42](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/42) 再次外部审计 PASS、无继续返修阻塞项，2026-09-08 已 rebase merge 到 main `b755c1abe3c69167ddb62bc3489d513d97ea918d`；已审计 head `6ccaa5673052e30f3a77bf947b6be6812ec8b728`，合入内容一致。原实现提交 `13fae1ebefc66d62b165b968119460a17637d444`；2026-09-08 授权实施，base `f251535e209e14f6e9c698e290cce67aff8a2c16`，分支 `codex/v03-u03-results-export`。沿用现有结果/StateStore/Git/Panel，不实施闭环运行视图或模型扩展。
 - 对应：A12、A03。工作：AC/Gate/Verifier/diff/commit；open/copy/export；完整patch和manifest；无效linked worktree的可读说明。
 - 必测：新增/删除/rename/二进制（支持或明确拒绝）；隔离clone应用；export后临时worktree不可用仍能读取；无密钥/Prompt/.git导出。
 - 完成：用户能在60秒内找到结果并知道main未改（建议体验目标）；补丁应用后内容/验收匹配；动作API不接受任意外部路径。
@@ -336,14 +336,18 @@ PR #41 审计返修（2026-09-08，再次外部审计 PASS，已合入）：
 - NOT_RUN：全量、clean install、CLAO 发行打包、smoke、真实 AO/收费模型、负责人完整体验/发布验收。已做本任务结果包验证；没有自动写回/应用/push、模型扩展、安装器或闭环动态图。真实 Explorer 窗口出现未做自动验收；API 明确只表示 Windows 接收打开请求。
 
 
-PR #42 导出误拦截返修（2026-09-08，IN_REVIEW，待再次审计）：
+PR #42 导出误拦截返修（2026-09-08，再次外部审计 PASS，已合入）：
 
 - 返修 base `18163a5305c8cafa96d6809702ead7ae44b2d7fd`，原分支/PR 不变。移除按敏感变量 RHS 长度与任意 `--prompt` 参数猜测泄密的规则；保留私钥、已知凭据形态、Bearer/Basic 认证头、明确 Prompt 材料标记，具名凭据检查非空引号字面值，精确 `${NAME}` 占位除外。没有整行/函数调用白名单：引用或调用中另含明确凭据仍拒绝。全部旧/新 blob、补丁与白名单摘要仍共用检查，不改写补丁、不改导出架构或类型支持。
 - 新增真实 Git/SQLite/正式结果 API 回归：10 种安全引用/说明分别位于旧版本、新版本、未修改上下文与补丁之外，并出现在 Mission/AC/Gate/Verifier 摘要；实际下载补丁与 Git 原生补丁逐字节一致，在独立基线副本应用后逐文件/hash 与目标一致。12 个负例覆盖私钥、凭据字面值/形态、认证头、完整 Prompt、禁止文件和混入凭据的引用；明确拒绝且错误不带敏感值，同任务已有包仍原样下载，index/原项目不变。
 - Windows 产品 venv / CPython 3.12.7，Scripts 前置 PATH、`src`/产品目录为 PYTHONPATH：`pytest tests/test_u03_results.py -k 'audit_export or restricted_old or http_export_applies or lookalikes_full or probe_failure or result_operations_are_bound' -q --tb=short` → **29 passed / 1 failed / 27 deselected / 77.70s**。唯一失败为新夹具错误假设远处源码不会出现在 Git hunk heading；加入独立段落标题使安全引用确实在补丁之外，保留原“补丁无该行”及逐字节/独立应用断言，不改产品或弱化断言。之后 `pytest tests/test_u03_results.py -k 'outside_hunk or actual_browser' -q --tb=short` → **2 passed / 55 deselected / 13.10s**，含实际 Edge 结果/下载/历史任务归属与既有交互复查。已通过的定向未重复跑大集合。
-- Python compileall、diff-check 与修改文档的本地链接检查通过；本轮未修改 JS、结果页布局或协议，不另生成一套截图。NOT_RUN：全量、clean install、CLAO 发行打包、smoke、真实 AO/模型与负责人完整体验验收；结果包生成/下载/解压/独立应用已做。有限形态/字面值规则不宣称通用秘密扫描；U03 IN_REVIEW、M3 IN_PROGRESS，未开始下一任务。
+- Python compileall、diff-check 与修改文档的本地链接检查通过；本轮未修改 JS、结果页布局或协议，不另生成一套截图。NOT_RUN：全量、clean install、CLAO 发行打包、smoke、真实 AO/模型与负责人完整体验验收；结果包生成/下载/解压/独立应用已做。有限形态/字面值规则不宣称通用秘密扫描；返修提交时 U03 IN_REVIEW、M3 IN_PROGRESS（历史），收尾状态见下文。
+
+收尾（2026-09-08）：按负责人授权完成 rebase merge 与背景同步；U03 DONE，U01/U02 保持 DONE，M0/M1/M2 保持 COMPLETE，M3 COMPLETE 仅表示本阶段开发和代码审计完成。沿用既有 Windows/Git/HTTP/浏览器证据与 Codex 截图自查，不等同负责人完整 GUI 体验或发布验收；本轮只检查文档链接与差异，未重跑测试、构建、smoke、结果包应用或真实模型。文件类型支持不变，结果包不含完整基线/项目依赖，敏感检测为有限规则。真实模型、完整 GUI 体验、全量、安装与发布验收尚未完成；M4 TODO，唯一下一任务 P01 TODO，尚未开始。无额外产品修改、tag 或 Release；闭环运行视图仍仅为候选。
 
 ## V03-P01｜模型配置／凭据与GLM语义后端
+
+- 状态：TODO；U03/M3 收尾后的唯一下一任务，本轮尚未开始实现。
 
 - 对应：A11/A10。工作：profile/角色绑定/credential_ref；一种安全凭据存储；Codex保留；GLM明确服务域、认证、model/effort、JSON协议。语义角色无工具执行。
 - 必测：密钥不进入响应/log/Store/export；跨域发送须授权；非法/截断/拒绝/401/429/timeout；Schema+ID+coherence；运行中不热切；有模型调用与无模型检查分开。

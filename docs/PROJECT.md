@@ -1,6 +1,6 @@
 # CLAO 当前项目事实
 
-更新：2026-09-08（R02 外部审计 PASS 并合入 main，状态 DONE；F01–F05、R01 DONE；M0 / M1 / M2 COMPLETE；M3 IN_PROGRESS；U01 代码与产品整改外部审计 PASS、PR #39 已合入，DONE；U02 两个切片与整卡 DONE，PR #40 / #41 均再次外部审计 PASS 并合入；当前任务 U03 IN_REVIEW）。本文件只记录已实现事实与已知限制；v0.3的设计见 [V03_PLAN.md](V03_PLAN.md)，不能把设计直接写成已完成能力。
+更新：2026-09-08（F01–F05、R01/R02、U01/U02/U03 均 DONE；PR #42 再次外部审计 PASS 并已合入；M0/M1/M2 保持 COMPLETE，M3 COMPLETE 仅表示本阶段开发与代码审计完成；M4 TODO，唯一下一任务 P01 TODO，尚未开始）。本文件只记录已实现事实与已知限制；v0.3 的设计见 [V03_PLAN.md](V03_PLAN.md)。真实模型、完整 GUI 体验、全量、安装与发布验收尚未完成，已发布版本仍为 v0.2。
 
 ## 1. 版本与基线
 
@@ -9,7 +9,7 @@
 | 产品 | CLAO / Closed-Loop Agent Orchestrator |
 | 已发布版本 | v0.2，Windows本地比赛版 |
 | 已发布源码 | 4d3e8e6b5e70bab868b2eef0d28c7742dea044ba |
-| 开发目标 | v0.3：F01–F05、R01 / R02 已合入 main（DONE）；M0 / M1 / M2 COMPLETE，M3 IN_PROGRESS；U01 工作台骨架与产品整改已审计合入（DONE），U02 首切片本地执行已审计合入（DONE），完整任务旅程与整卡已审计合入（DONE）；当前任务 U03 IN_REVIEW，模型扩展待实现 |
+| 开发目标 | v0.3：F01–F05、R01/R02、U01/U02/U03 已审计合入 main（DONE）；M0/M1/M2/M3 COMPLETE，M4 TODO；唯一下一任务 V03-P01 — 模型配置／凭据与 GLM 语义后端，TODO，尚未开始 |
 | 主仓库 | zhaoshiyi4246/closed-loop-agent-orchestrator |
 | 产品源码路径 | `clao/`，当前唯一正式产品，内部 Python 包为 `src/loopcore/` |
 | 发布工具 | `packaging/build-release.ps1` 与 `packaging/release-manifest.txt` |
@@ -48,7 +48,7 @@ MissionController是控制编排权威，ClosedLoop负责子任务；StateStore�
 
 ### U02 首切片：本地项目与 Codex Worker
 
-首切片 DONE；[PR #40](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/40) 再次外部审计 PASS，2026-09-08 已 rebase 合入 main `3d0a33ebd69b6184f9e47dffca87895aba2d960a`。已合入的完整旅程复用这些执行契约，U02 整卡 DONE、M3 IN_PROGRESS。
+首切片 DONE；[PR #40](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/40) 再次外部审计 PASS，2026-09-08 已 rebase 合入 main `3d0a33ebd69b6184f9e47dffca87895aba2d960a`。已合入的完整旅程复用这些执行契约，U02 整卡 DONE；M3 当前收尾状态见下文 U03。
 
 - 本地项目登记沿用 runtime 下的原子 JSON 文件；Panel 支持打开/创建/再次选择，CLI 用 `--project-path` / `--confirm-source`。本地 Git 无需 remote，普通目录/空项目无需 Git 初始化；不访问 AO REST/CLI/项目/runfile。
 - 来源预览显示当前磁盘文件清单、hash/revision 和排除项，含未提交内容；确认后私有 source Git 与 detached Worker worktree 固定该内容。Git 项目只读取 tracked 与未忽略文件；拒绝链接/junction、特殊文件和超限输入，跳过凭据名/运行缓存/依赖目录。10 MiB 单文件、100 MiB/10000 文件上限；清单检查不是万能密钥扫描。原目录、index、分支、ignore 与全局配置不变。
@@ -76,7 +76,9 @@ MissionController是控制编排权威，ClosedLoop负责子任务；StateStore�
 
 验证为 Windows 隔离 Git/SQLite/HTTP、原 Controller/Gate/Verifier 路径与外部协议/Provider 替身，含实际 Edge 浏览器；命令、截图自查和 NOT_RUN 见 [U02 台账](V03_BACKLOG.md#v03-u02完整任务gui与数据接线)。U02 收尾时真实模型、任意进程重连、独立导出、安装/发布兼容性未验收或未实现；后续独立导出事实见下文 U03。未改变协议引擎主体，也未增加并发或写回原项目。已有 Windows/浏览器证据与 Codex 截图自查继续沿用；代码与返修审计 PASS 不等同负责人完整 GUI 体验验收。200% 为等效布局/CSS zoom 检查，未声明原生浏览器缩放验收；全量、安装与发布验证尚未完成，收尾未重跑测试或构建。
 
-### U03 结果中心与独立导出（IN_REVIEW）
+### U03 结果中心与独立导出（DONE）
+
+[PR #42](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/42) 再次外部审计 PASS，2026-09-08 已 rebase 合入 main `b755c1abe3c69167ddb62bc3489d513d97ea918d`；导出误拦截返修已闭环。M3 COMPLETE 表示 U01—U03 开发和代码审计完成，不代表完整 GUI 体验、真实模型或 v0.3 发布验收完成。本次仅文档和差异检查，沿用以下既有验证。
 
 - Panel 新增目标 Mission 的结果只读查询、完整差异和 AC/Gate/Verifier 分项展示；来源/提交 ID 留在详情。StateStore 同一读事务读取已有 Mission、Gate、最终 Verifier 和导出元数据，不从终态补造缺失 AC。
 - `results.py` 只读已记录 source commit/integration head 的 Git 对象，NUL 路径解析；不使用模型 `git_diff_text`，不读当前工作内容代替已验收结果。local source 或 integration 提供对象；旧 AO 历史有明确 source/head 时可查询，无 AO/model 请求。原项目/index/分支不变。
@@ -214,7 +216,7 @@ Worker 初始/replan prompt 包含实际 objective、AC、allowed/forbidden path
 原 user instruction。固定 AO 的 [spawn Prompt 上限](https://github.com/Untrivial-ai/agent-orchestrator/blob/4cbb4b6ced1ad93f79641a2347d2342f1ffd218a/backend/internal/httpd/controllers/sessions.go)
 为 4096 UTF-8 bytes；完整内容超限直接拒绝，不静默裁掉范围。模型/用量/费用 unknown
 和 R01 冻结配置规则不变。Windows 定向 Git/SQLite/fake AO/HTTP 与 Edge 证据见 R02 卡，
-未运行全量、安装、打包、smoke、真实 AO/模型或完整 GUI 视觉验收；R01 / R02 DONE，M2 COMPLETE；U01 已合入实现见下节，U02 首切片实施事实见前文，U03 仍 TODO。
+未运行全量、安装、打包、smoke、真实 AO/模型或完整 GUI 视觉验收；R01 / R02 DONE，M2 COMPLETE；U01 已合入实现见下节，U02 首切片及 U03 的当前实施事实见前文。
 
 ### U01 工作台骨架（DONE，已审计合入）
 
@@ -246,7 +248,7 @@ CSP 脚本 nonce 要求不变。12 个本地 Lucide 符号及完整 ISC/Feather 
 
 定向 Windows/Edge 证据及截图索引见 [U01 卡](V03_BACKLOG.md#v03-u01iphone风格界面骨架与状态夹具)。
 已有 Windows/浏览器验证与实际截图沿用，截图由 Codex 自查；本次外部代码与产品整改审计通过，不宣称外部逐张截图验收。合并收尾未重新运行测试或模型，仅做文档与差异检查。
-M0/M1/M2 COMPLETE，M3 IN_PROGRESS；U02 整卡及两个切片 DONE；当前任务 U03 — 结果中心与独立导出，IN_REVIEW；模型扩展未开始。
+M0/M1/M2/M3 COMPLETE；U01/U02/U03 均 DONE，U02 两个切片保持 DONE；M4 TODO，唯一下一任务 P01 TODO，模型扩展未开始。
 
 ## 4. 已验证外部前提
 
@@ -254,7 +256,7 @@ Windows、CPython3.12、Git、AO Desktop0.12.9、Codex CLI0.150.1及ChatGPT登�
 
 以下约束仅适用于已发布 v0.2 与显式 AO 兼容后端。AO executable通过CLAO_AO_BIN或PATH解析；runfile通过CLAO_AO_RUN_FILE或~/.ao/running.json解析。Project需要注册的Git-backed项目、identity、origin及有效remote-backed base；显式branch要求origin/<branch>，auto要求origin/HEAD。origin可以是本地bare repo。不自动修改Git/AO配置。该约束不适用于新本地 Codex 任务，也不宣称覆盖 AO 所有潜在能力。
 
-新本地任务无需 AO 项目、daemon 或 origin，仍需已安装 Python/Git/Codex 0.150.1、已有 ChatGPT 登录和受支持且就绪的 Windows 沙箱。当前为离线协议/集成及浏览器证据，真实模型 NOT_RUN；不沿用 v0.2 live 结果宣称新后端已完成真实模型或发布验收。任意进程重连与安装器仍未实现；U03 独立补丁包已实现，等待审计。
+新本地任务无需 AO 项目、daemon 或 origin，仍需已安装 Python/Git/Codex 0.150.1、已有 ChatGPT 登录和受支持且就绪的 Windows 沙箱。当前为离线协议/集成及浏览器证据，真实模型 NOT_RUN；不沿用 v0.2 live 结果宣称新后端已完成真实模型或发布验收。任意进程重连与安装器仍未实现；U03 独立补丁包已再次外部审计 PASS 并合入，支持范围与剩余验收边界见前文。
 
 ## 5. 审计缺口与修复状态
 
@@ -263,7 +265,7 @@ Windows、CPython3.12、Git、AO Desktop0.12.9、Codex CLI0.150.1及ChatGPT登�
 - A04/A05：F04 已实现 Gate 表专用只读 DTO 与 command/integrity/scope/overall 记录、历史 unknown/read_error 区分及常驻错误；本地写 API 校验 Host/Origin/JSON/会话 nonce，路径包含性与安全 DOM/pending 去重已补齐。外部审计 PASS、已合入 main（DONE），已发布 v0.2 不变；验证和支持边界见 F04 卡。
 - A07：F05 使用精确持久随机标记对账 spawn；普通 send 无唯一公开回执则保持 UNKNOWN、不重发；kill 需同一 Session 的 isTerminated=true / status=terminated。逻辑终止依赖 AO 公共契约，不承诺 OS 级证明或 exactly-once；再次外部审计 PASS、已合入 main（DONE）。
 - A10：R01 已接通有效配置与阶段诊断，再次外部审计 PASS 并合入（DONE）；A06 / A08 / A09 的 R02 指令、取消恢复与 source/依赖已外部审计 PASS 并合入（DONE）；AO/Git 非原子边界保持，不宣称 exactly-once。
-- A11/A12 其余范围：多模型、后续 Git 取证边界、结果导出和普通用户使用体验；不因 F01 完成宣称所有证据路径或模型真实性已验收。
+- A11/A12：U03 结果中心/独立导出已审计合入；多模型、完整用户体验及发布验收尚未完成，不因 M3 COMPLETE 宣称所有模型或发布路径已验收。
 
 状态与证据等级请查 [V03_BACKLOG.md](V03_BACKLOG.md)。不能因为历史R5 COMPLETE把这些问题写成RESOLVED。
 
@@ -273,10 +275,10 @@ Windows、CPython3.12、Git、AO Desktop0.12.9、Codex CLI0.150.1及ChatGPT登�
 
 | 主题 | 当前实现 | v0.3设计（待实现） |
 |---|---|---|
-| GUI | U01 / U02 DONE：本地执行、环境检查、确认/执行/处理/历史/结果接线；开发夹具独立 | 完整 GUI 体验及原生浏览器 200% 缩放验收；U03 本轮审计 |
+| GUI | U01 / U02 / U03 DONE：四入口、完整旅程、结果中心与独立导出；开发夹具独立 | 完整 GUI 体验及原生浏览器 200% 缩放验收 |
 | 模型 | 本地 Worker 为 Codex App Server；语义角色为 Codex CLI；AO 显式兼容 | GLM/Kimi语义profile，Worker单独准入 |
 | 配置 | R01 已合入；R02 恢复先验证冻结材料 | 新 GUI 的配置旅程 |
-| 结果 | U03 IN_REVIEW：固定版本差异、独立文本补丁包及摘要 | U03 审计；更广文件类型支持不宣称完成 |
+| 结果 | U03 DONE：固定版本差异、独立文本补丁包及摘要、历史下载 | 完整体验/发布验收；更广文件类型支持不宣称完成 |
 | 停止 | F05 已合入；R02 明确取消状态、只读历史/恢复检查、关联新 attempt（DONE，已合入） | 新 GUI 的操作与错误体验 |
 
 ## 7. 文档职责与历史
