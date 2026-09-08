@@ -35,7 +35,7 @@ function syncButtons(){
   document.querySelectorAll("[data-write-key]").forEach(b=>b.disabled=PENDING.has(b.dataset.writeKey) || b.dataset.blocked==="1");
   const activeView=LAST?.mission?.id===LIVE?.mission?.id;
   $("btnStop").disabled=PENDING.has("stop") || !activeView || !LIVE?.running || !!LAST?.mission?.stop_request;
-  $("btnSend").disabled=PENDING.has("directive") || !activeView || !LIVE?.running || !!LAST?.mission?.stop_request || !!LAST?.mission?.inspection_only;
+  $("btnSend").disabled=PENDING.has("directive") || !activeView || !LIVE?.running || !!LAST?.mission?.stop_request || !!LAST?.mission?.inspection_only || !$("d_target").value || !!$("d_target").selectedOptions[0]?.disabled;
   $("btnStart").disabled=!!LIVE?.launch_blocked || PENDING.has("mission") || $("f_project").disabled || !PROJECTS.length || !$("f_project").value || !!(LIVE?.running || LIVE?.preparing);
 }
 async function writeAction(key,path,body,success){
@@ -170,8 +170,35 @@ function renderPhases(){
   renderTiming();
   renderFriendlyPhase();
 }
+function rememberDirective(edited=false){
+  if(!DIRECTIVE_MISSION) return;
+  const draft=DIRECTIVE_DRAFTS.get(DIRECTIVE_MISSION);
+  if(edited || draft.text!==$("d_text").value || draft.target!==$("d_target").value){
+    draft.text=$("d_text").value;draft.target=$("d_target").value;draft.version++;draft.request=null;
+  }
+  return draft;
+}
+function renderDirectiveInput(s,workers){
+  rememberDirective();
+  const mid=s.mission?.id, selector=$("d_target");
+  DIRECTIVE_MISSION=mid;
+  if(mid && !DIRECTIVE_DRAFTS.has(mid)) DIRECTIVE_DRAFTS.set(mid,{text:"",target:"planner",version:0});
+  const draft=DIRECTIVE_DRAFTS.get(mid) || {text:"",target:"planner"};
+  // Install this mission's options before restoring its saved recipient.
+  const options=workers.map((t,i)=>({value:"worker:"+t.worker_session_id,label:`Worker ${i+1}（同步 Planner）`,
+    disabled:["DONE","FAILED","HUMAN","CANCELLED"].includes(t.state) || !!s.mission?.stop_request || TERMINAL.has(s.mission?.state)}));
+  if(draft.target.startsWith("worker:") && !options.some(o=>o.value===draft.target)) options.push({value:draft.target,label:"原 Worker（当前不可接收）",disabled:true});
+  const key=JSON.stringify([mid,options]);
+  if(selector.dataset.workers!==key){
+    selector.dataset.workers=key;selector.querySelectorAll("option[data-w]").forEach(n=>n.remove());
+    for(const item of options){const option=el("option",item.label);option.value=item.value;option.disabled=item.disabled;option.dataset.w="1";selector.append(option);}
+  }
+  selector.value=draft.target;$("d_text").value=draft.text;
+  $("d_hint").textContent=!mid?"（先启动或查看一个任务）":!selector.value || selector.selectedOptions[0]?.disabled?"原接收对象当前不可接收；草稿已保留，请明确选择可用对象。":"";
+}
+$("d_text").addEventListener("input",()=>rememberDirective(true));
+$("d_target").addEventListener("change",()=>{rememberDirective(true);renderDirectiveInput(LAST,(LAST?.subtasks || []).filter(t=>t.worker_session_id));syncButtons();});
 function render(s){
-  if(DIRECTIVE_MISSION!==s.mission?.id){if(DIRECTIVE_MISSION) DIRECTIVE_DRAFTS.set(DIRECTIVE_MISSION,[$("d_text").value,$("d_target").value]);const draft=DIRECTIVE_DRAFTS.get(s.mission?.id) || ["","planner"];$("d_text").value=draft[0];$("d_target").value=draft[1];DIRECTIVE_MISSION=s.mission?.id;}
   LAST=s;
   const m=s.mission, st=m?m.state:"空闲";
   $("missionState").textContent=m?text(m.id)+" · "+text(st):"空闲（新建或查看历史任务）";
@@ -224,17 +251,7 @@ function render(s){
     node.append(svg("circle",{cx:x,cy:y,r:18,fill:"#b54708"}),svg("text",{x,y:y+4,"text-anchor":"middle"},"W"+(i+1)),svg("text",{x,y:y+31,"text-anchor":"middle",class:"sub"},task.state));
     group.append(node);
   });
-  const selector=$("d_target"), selected=selector.value;
-  const workerKeys=JSON.stringify(workers.map(t=>t.worker_session_id));
-  if(selector.dataset.workers!==workerKeys){
-    selector.dataset.workers=workerKeys;
-    selector.querySelectorAll("option[data-w]").forEach(node=>node.remove());
-    workers.forEach((task,i)=>{
-    const id=text(task.worker_session_id), option=el("option",`Worker ${i+1}（同步 Planner）`);
-    option.value="worker:"+id; option.dataset.w="1"; selector.append(option);
-    });
-    selector.value=selected; if(!selector.value) selector.value="planner";
-  }
+  renderDirectiveInput(s,workers);
   document.querySelectorAll(".node").forEach(node=>node.classList.remove("active"));
   const latest=(s.transitions || [])[0];
   if(latest){
@@ -256,7 +273,6 @@ function render(s){
     alerts.append(row);
   }
   if(!alerts.childNodes.length) alerts.append(el("span","无告警"));
-  $("d_hint").textContent=m?"":"（先启动或查看一个任务）";
   renderWorkbench(LIVE || s);
   syncButtons();
 }
@@ -438,8 +454,10 @@ function renderTaskDetail(){
   $("resultLocation").textContent=result?.status==="available"?(result.accepted?"成果目录：":"未通过验收的产物目录：")+text(result.path):result?.status==="missing"?"历史结果位置已失效："+text(result.path):result?.status==="read_error"?"结果位置读取失败："+text(result.reason):"尚无可用成果目录";
   const final=(LAST.verifications || []).find(v=>v.task_id===m.id || v.mission_id===m.id);
   $("verifierSummary").textContent=final?"复核："+text(final.verdict || "unknown")+" · "+text(final.summary || final.reason || "历史未提供摘要"):"最终复核尚未提供记录";
-  region("receiptSummary",[m.id,LAST.directive_receipts],box=>{
-    for(const receipt of (LAST.directive_receipts?.records || []).slice(0,6)) box.append(el("p",text(receipt.target)+" · "+text(receipt.status)+" · "+text(receipt.reason)));
+  const draft=DIRECTIVE_DRAFTS.get(m.id), receipts=LAST.directive_receipts?.records || [];
+  if(draft?.receipt && receipts.some(r=>r.command_id===draft.receipt.command_id)) draft.receipt=null;
+  region("receiptSummary",[m.id,LAST.directive_receipts,draft?.receipt],box=>{
+    for(const receipt of [...(draft?.receipt?[draft.receipt]:[]),...receipts].slice(0,6)) box.append(el("p",text(receipt.target)+" · "+text(receipt.status)+" · "+text(receipt.reason)));
   });
   renderFriendlyPhase();syncButtons();
 }
@@ -462,7 +480,7 @@ function renderWorkbench(s){
     for(const [label,value] of [["当前阶段",phaseLabel(latestPhase(s))]]){const pair=el("div");pair.append(el("span",label),el("p",value));meta.append(pair);}
     const button=el("button","查看任务详情","primary");button.append(icon("arrow-right"));button.onclick=()=>openTask(m.id);box.append(meta,button);
   });
-  region("attention",[m?.state,m?.reason,m?.worker_stop,s.alerts,s.panel_errors,s.read_errors,s.gate_query?.status,s.approvals,CONNECTED],box=>{
+  region("attention",[m?.state,m?.reason,m?.worker_stop,s.launch_blocked,s.alerts,s.panel_errors,s.read_errors,s.gate_query?.status,s.approvals,CONNECTED],box=>{
     const notes=[], seen=new Set([taskReason(m)]);
     if(s.approvals?.length){const button=el("button",s.approvals.some(r=>r.method==="item/tool/requestUserInput")?"有问题等待回答 · 去处理":"有审批等待处理 · 去处理","primary");button.onclick=()=>{openTask(m.id);$("approvalCard").scrollIntoView({block:"center"});};box.append(button);}
     function note(title,values,tone){
@@ -470,6 +488,7 @@ function renderWorkbench(s){
       fresh.forEach(v=>seen.add(v));
       if(fresh.length) notes.push([title,fresh.join("\n"),tone]);
     }
+    if(s.launch_blocked) note("执行限制",[s.launch_blocked],"warning");
     for(const error of s.panel_errors || []) note("运行器错误",[error],"error");
     for(const error of s.read_errors || []) {
       if(/gate/.test(error.source)) continue; // Gate errors belong to the evidence card.
@@ -573,9 +592,9 @@ function renderApprovals(){
       const key="approval:"+request.worker_id+":"+request.request_id;
       const send=(decision,answers)=>{
         if(LAST?.mission?.id!==mid || LIVE?.mission?.id!==mid || !(LAST.approvals || []).some(r=>r.worker_id===request.worker_id && r.request_id===request.request_id)) return;
-        return writeAction(key,"/api/approval",{mission_id:mid,worker_id:request.worker_id,request_id:request.request_id,decision,answers},d=>{
-          $("approvalReceipts").textContent=d.reason || (d.status==="UNKNOWN"?"请求已提交；采纳尚未确认，不会自动重发。":"已记录响应；后续结果见执行记录。");
-        });
+        // Receipts are rendered only from the mission-bound durable projection.
+        // A delayed HTTP ACK must never write into another mission's card.
+        return writeAction(key,"/api/approval",{mission_id:mid,worker_id:request.worker_id,request_id:request.request_id,decision,answers});
       };
       if(request.method==="item/tool/requestUserInput"){
         const fields=[];
@@ -695,12 +714,17 @@ $("btnStart").onclick=()=>{
   });
 };
 $("btnSend").onclick=()=>{
-  const target=$("d_target").value, message=$("d_text").value.trim();if(!message) return;
-  const signature=DETAIL_ID+"\n"+target+"\n"+message;
-  if(!window.directiveDraft || window.directiveDraft.signature!==signature) window.directiveDraft={signature,command_id:"CMD-"+crypto.randomUUID()};
-  writeAction("directive","/api/directive",{mission_id:DETAIL_ID,target,text:message,command_id:window.directiveDraft.command_id},d=>{
-    toast("指令已持久接收："+d.directive.command_id+"；消费结果见回执");window.directiveDraft=null;
-    if($("d_text").value.trim()===message) $("d_text").value="";
+  syncButtons();if($("btnSend").disabled || DETAIL_ID!==DIRECTIVE_MISSION) return;
+  const mid=DETAIL_ID, draft=rememberDirective(), target=draft.target, message=draft.text.trim();if(!message) return;
+  const version=draft.version;
+  if(!draft.request) draft.request={command_id:"CMD-"+crypto.randomUUID()};
+  const sent=draft.request;
+  writeAction("directive","/api/directive",{mission_id:mid,target,text:message,command_id:sent.command_id},d=>{
+    if(DIRECTIVE_MISSION===mid) rememberDirective();
+    if(draft.request===sent) draft.request=null;
+    draft.receipt=d.directive;
+    if(draft.version===version){draft.text="";if(DIRECTIVE_MISSION===mid) $("d_text").value="";}
+    if(DETAIL_ID===mid && LAST?.mission?.id===mid){renderTaskDetail();toast("指令已持久接收；消费结果见回执");}
   });
 };
 $("d_text").addEventListener("keydown",e=>{if(e.key==="Enter") $("btnSend").click();});

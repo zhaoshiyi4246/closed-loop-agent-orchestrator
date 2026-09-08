@@ -4,6 +4,87 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs'),path=require('node:path');
 const [origin,project,scenario,out]=process.argv.slice(2);
 assert(/^http:\/\/127\.0\.0\.1:\d+$/.test(origin));fs.mkdirSync(out,{recursive:true});
+async function auditOwnership(page,aid,kind,writes){
+ const bid='B-DRAFTS';
+ async function open(mid){
+  await page.click('[data-view="tasks"]');
+  if(await page.locator('#backToTasks').isVisible()) await page.click('#backToTasks');
+  await page.locator('[data-mission-id="'+mid+'"] .link-row').click();
+  await page.waitForFunction(mid=>LAST?.mission?.id===mid,mid);
+ }
+ // Forward to the real HTTP handler, holding only delivery of its successful response.
+ async function hold(path){
+  let release,received,failed,result;
+  const ready=new Promise((resolve,reject)=>{received=resolve;failed=reject;});
+  const gate=new Promise(resolve=>{release=resolve;});
+  const handler=async route=>{
+   try{const response=await route.fetch();result=await response.json();assert(response.ok() && result.ok,JSON.stringify(result));received();await gate;await route.fulfill({response});}
+   catch(error){failed(error);throw error;}
+  };
+  await page.route('**'+path,handler);
+  return {ready,result:()=>result,release:async()=>{release();await page.waitForFunction(()=>!PENDING.size);await page.unroute('**'+path,handler);}};
+ }
+ await open(aid);
+ const aWorker=await page.locator('#d_target option[data-w]').first().getAttribute('value');
+ const aText='保留这份中文草稿 <tag> "';
+ const bText=kind==='same'?aText:'B 的独立草稿 & 不得被改写';
+ await page.selectOption('#d_target',aWorker);await page.fill('#d_text',aText);
+ await open(bid);await page.selectOption('#d_target','worker:B-WORKER');await page.fill('#d_text',bText);
+ const bReceipts=await page.locator('#receiptSummary').textContent(), bApproval=await page.locator('#approvalReceipts').textContent();
+ assert(bApproval.includes('B 的审批回执'));
+ await open(aid);
+ assert.equal(await page.locator('#d_text').inputValue(),aText);
+ assert.equal(await page.locator('#d_target').inputValue(),aWorker);
+ const endpoint=kind==='approval'?'/api/approval':'/api/directive', delayed=await hold(endpoint);
+ const key=kind==='approval'?'允许一次':'发送';
+ await page.getByRole('button',{name:key,exact:true}).evaluate(b=>{b.click();b.click();});
+ await delayed.ready;
+ assert.equal(writes.filter(r=>r.path===endpoint).length,1);
+ const submitted=writes.find(r=>r.path===endpoint).body;
+ assert.equal(submitted.mission_id,aid);
+ if(kind!=='approval') assert.equal(submitted.target,aWorker);
+ await open(bid);
+ const toastBefore=await page.locator('#toast').textContent();
+ await delayed.release();
+ assert.equal(await page.locator('#d_text').inputValue(),bText);
+ assert.equal(await page.locator('#d_target').inputValue(),'worker:B-WORKER');
+ assert.equal(await page.locator('#receiptSummary').textContent(),bReceipts);
+ assert.equal(await page.locator('#approvalReceipts').textContent(),bApproval);
+ assert.equal(await page.locator('#toast').textContent(),toastBefore);
+ await open(aid);
+ if(kind==='approval'){
+  const data=await (await page.request.get(origin+'/api/mission?mission_id='+aid)).json();
+  const receipt=data.approval_receipts.find(r=>r.request_id===submitted.request_id);
+  assert(receipt);
+  await page.waitForFunction(reason=>document.getElementById('approvalReceipts').textContent.includes(reason),receipt.reason);
+  assert(!(await page.locator('#approvalReceipts').textContent()).includes('B 的审批回执'));
+  assert.equal(await page.locator('#d_text').inputValue(),aText);
+ }else{
+  assert.equal(await page.locator('#d_text').inputValue(),'');
+  await page.waitForFunction(target=>document.getElementById('receiptSummary').textContent.includes(target),aWorker);
+  const stored=await (await page.request.get(origin+'/api/mission?mission_id='+aid)).json();
+  assert(stored.directive_receipts.records.some(r=>r.command_id===submitted.command_id && r.target===aWorker));
+  // A new edit remains a new draft even when it is edited back to identical text.
+  const original='同任务提交中的新草稿';
+  await page.fill('#d_text',original);const second=await hold('/api/directive');
+  await page.click('#btnSend');await second.ready;
+  await page.fill('#d_text',original+' 编辑');await page.fill('#d_text',original);
+  await second.release();
+  assert.equal(await page.locator('#d_text').inputValue(),original);
+  assert.equal(await page.locator('#d_target').inputValue(),aWorker);
+  assert.notEqual(second.result().directive.command_id,submitted.command_id);
+  await open(bid);assert.equal(await page.locator('#d_text').inputValue(),bText);
+  await open(aid);assert.equal(await page.locator('#d_text').inputValue(),original);
+  // Isolated rendering of a vanished Worker does not silently select Planner.
+  await page.evaluate(()=>{renderDirectiveInput(LAST,[]);syncButtons();});
+  assert.equal(await page.locator('#d_target').inputValue(),aWorker);
+  assert((await page.locator('#d_hint').textContent()).includes('不可接收'));
+  assert(await page.locator('#btnSend').isDisabled());
+  assert.equal(writes.filter(r=>r.path==='/api/directive').length,2);
+ }
+ assert.equal(writes.filter(r=>r.path==='/api/attach').length,0);
+ console.log('U02_AUDIT_OWNERSHIP_PASS '+kind);
+}
 (async()=>{
  const browser=await chromium.launch({channel:'msedge',headless:true});
  try{
@@ -11,6 +92,7 @@ assert(/^http:\/\/127\.0\.0\.1:\d+$/.test(origin));fs.mkdirSync(out,{recursive:t
   const errors=[],writes=[];page.on('pageerror',e=>errors.push(e.message));
   page.on('request',r=>{if(r.method()==='POST')writes.push({path:new URL(r.url()).pathname,body:r.postDataJSON()});});
   await page.goto(origin);await page.waitForFunction(()=>document.getElementById('connectionStatus').textContent==='已连接');
+  if(scenario.startsWith('audit-')){await auditOwnership(page,project,scenario.slice(6),writes);assert.deepEqual(errors,[]);return;}
   assert.equal(await page.locator('#environmentStatus').textContent(),'尚未检查');
   await page.locator('#checkEnvironment').evaluate(b=>{b.click();b.click();});
   await page.waitForFunction(()=>['可运行','需要处理'].includes(document.getElementById('environmentStatus').textContent));
