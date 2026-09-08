@@ -7,7 +7,7 @@
 ## 当前唯一执行指针
 
 - 当前阶段：**M3 IN_PROGRESS**；M0 / M1 / M2 COMPLETE。
-- 当前唯一执行指针：**V03-U02 — 完整任务旅程与 GUI 数据接线**，本切片与 U02 整卡 IN_REVIEW，等待审计；分支 `codex/v03-u02-task-journey`，base `752ef0fbef10c638629bbbf2f1ef3f01e7d4ba72`。首切片“独立项目入口与本地执行” DONE；U03/模型扩展/发布任务未推进。
+- 当前唯一执行指针：**V03-U02 — 完整任务旅程与 GUI 数据接线**，本切片与 U02 整卡 IN_REVIEW，[PR #41](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/41) 等待审计；分支 `codex/v03-u02-task-journey`，base `752ef0fbef10c638629bbbf2f1ef3f01e7d4ba72`，实现 `cdfd8cd654647a2f977b1efa6265d9d2cc4f89c6`。首切片“独立项目入口与本地执行” DONE；U03/模型扩展/发布任务未推进。
 - 本切片接通真实环境检查、四步表单配置确认/冻结、审批差异与拒绝/结构化回答、取消及只读历史/结果导航；查看 B 不替换运行 A，停止未知阻断新任务。复用正式 Controller/Git/Gate/Verifier，未改执行引擎主体。
 - 本轮 Windows 定向：最终 HTTP/配置/历史及兼容浏览器 27 passed，实际页面旅程 4 passed；此前 F04 119 passed、U02 兼容节点 17 passed，集合重叠不累计。截图为实际 Edge + 隔离协议进程的 Codex 自查，审计与真实模型尚未完成；具体命令、修正及 NOT_RUN 见 U02 卡。
 - 最近完成：**V03-U02 首切片 — 独立项目入口与本地执行**，DONE；[PR #40](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/40) 再次外部审计 PASS，2026-09-08 已 rebase merge 到 main `3d0a33ebd69b6184f9e47dffca87895aba2d960a`；合入 tree 与已审计 head `4dc536cfa493d1b4ea8a8c36b8c78f5c7e9e7b43` 完全相同。
