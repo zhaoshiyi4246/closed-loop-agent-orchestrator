@@ -136,6 +136,8 @@ def model_attempt(model, transport="codex_cli"):
     with diag.phase("model_request", task_id=parent.get("task_id"), role=parent.get("role"),
                     attempt=parent["_attempt"], requested_model=model, passed_model=model,
                     transport=transport, reason="waiting for semantic model response") as fact:
+        if transport == "codex_cli":
+            fact["provider"] = "codex"
         yield fact
 
 

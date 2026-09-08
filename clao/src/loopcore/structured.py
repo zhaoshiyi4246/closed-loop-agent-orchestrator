@@ -107,28 +107,46 @@ def correlate(obj, **expected):
             raise ProtocolError("CORRELATION", "%s does not match request" % field)
 
 
-def protocol_call(call, validate):
-    """At most TWO calls. Controllers never retry ProtocolError.
+def protocol_call(call, validate, *, max_attempts=2, retry_categories=None, retry_delay_seconds=0):
+    """A single role-call budget. Controllers never retry ProtocolError.
 
     Transport errors escape immediately to the existing three-tick boundary:
     three pure transport attempts, at most six mixed protocol/transport calls
     in a consecutive failed step episode. Protocol exhaustion halts immediately.
     A valid semantic FAIL returns immediately and is never refreshed into PASS.
+    BigModel supplies a total budget (1..3) including transient HTTP errors;
+    its transport does not retry underneath this boundary.
     """
+    from .execution_control import checkpoint
+    import time
     errors = []
-    for attempt in range(1, 3):
+    categories = {"JSON_PARSE", "SCHEMA", "CORRELATION", "COHERENCE"} if retry_categories is None else retry_categories
+    for attempt in range(1, max_attempts + 1):
+        checkpoint()
         try:
             obj = call()
             validate(obj)
+            checkpoint()
             # Keep earlier invalid attempts visible without retaining raw prompts
             # or repairing any model-authored field. Reserved metadata is ours.
             return dict(obj, _protocol_errors=errors)
         except ProtocolError as exc:
             exc.attempts = attempt
             errors.append(exc.payload())
-            if attempt == 2 or exc.category not in {"JSON_PARSE", "SCHEMA", "CORRELATION", "COHERENCE"}:
+            if attempt == max_attempts or exc.category not in categories:
                 exc.evidence = dict(exc.evidence, prior_errors=errors[:-1])
                 raise
+            from .diagnostics import CURRENT
+            from contextlib import nullcontext
+            current = CURRENT.get()
+            phase = (current[0].phase("retry_wait", role=current[1].get("role"), attempt=attempt + 1,
+                                     reason="bounded semantic retry after " + exc.category)
+                     if current else nullcontext())
+            with phase:
+                until = time.monotonic() + retry_delay_seconds
+                while time.monotonic() < until:
+                    checkpoint()
+                    time.sleep(min(0.05, max(0, until - time.monotonic())))
         except Exception as exc:
             exc.protocol_errors = errors
             raise

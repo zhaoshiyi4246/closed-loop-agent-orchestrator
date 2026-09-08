@@ -1,6 +1,6 @@
 # CLAO 当前项目事实
 
-更新：2026-09-08（F01–F05、R01/R02、U01/U02/U03 均 DONE；PR #42 再次外部审计 PASS 并已合入；M0/M1/M2 保持 COMPLETE，M3 COMPLETE 仅表示本阶段开发与代码审计完成；M4 TODO，唯一下一任务 P01 TODO，尚未开始）。本文件只记录已实现事实与已知限制；v0.3 的设计见 [V03_PLAN.md](V03_PLAN.md)。真实模型、完整 GUI 体验、全量、安装与发布验收尚未完成，已发布版本仍为 v0.2。
+更新：2026-09-08（F01–F05、R01/R02、U01/U02/U03 均 DONE；PR #42 再次外部审计 PASS 并已合入；M0/M1/M2 保持 COMPLETE，M3 COMPLETE 仅表示本阶段开发与代码审计完成；M4 IN_PROGRESS，P01 工程切片 IN_REVIEW，真实 GLM 准入待后续测试）。本文件只记录已实现事实与已知限制；v0.3 的设计见 [V03_PLAN.md](V03_PLAN.md)。真实模型、完整 GUI 体验、全量、安装与发布验收尚未完成，已发布版本仍为 v0.2。
 
 ## 1. 版本与基线
 
@@ -9,7 +9,7 @@
 | 产品 | CLAO / Closed-Loop Agent Orchestrator |
 | 已发布版本 | v0.2，Windows本地比赛版 |
 | 已发布源码 | 4d3e8e6b5e70bab868b2eef0d28c7742dea044ba |
-| 开发目标 | v0.3：F01–F05、R01/R02、U01/U02/U03 已审计合入 main（DONE）；M0/M1/M2/M3 COMPLETE，M4 TODO；唯一下一任务 V03-P01 — 模型配置／凭据与 GLM 语义后端，TODO，尚未开始 |
+| 开发目标 | v0.3：F01–F05、R01/R02、U01/U02/U03 已审计合入 main（DONE）；M0/M1/M2/M3 COMPLETE，M4 IN_PROGRESS；P01 工程切片 IN_REVIEW，真实 GLM 准入待测试，P02 未开始 |
 | 主仓库 | zhaoshiyi4246/closed-loop-agent-orchestrator |
 | 产品源码路径 | `clao/`，当前唯一正式产品，内部 Python 包为 `src/loopcore/` |
 | 发布工具 | `packaging/build-release.ps1` 与 `packaging/release-manifest.txt` |
@@ -44,7 +44,7 @@ StateStore → StoreBusProjector / JSONL / Markdown / GUI
 
 MissionController是控制编排权威，ClosedLoop负责子任务；StateStore保存逻辑状态、动作、计数和证据。新本地任务由 Codex App Server stdio 提供 thread/turn/item/approval 外部事实；旧 AO 后端提供 Session／conversation／activity／workspace 事实。AOAdapter主要读取，也包含approval resolve POST；ActionExecutor执行有限spawn/send/kill。Bus不是控制传输层。
 
-语义角色当前使用共享headless Codex CLI；stdin传Prompt，保留ephemeral/read-only、schema输出、non-Git cwd支持。新本地 Worker 使用 Codex 0.150.1 App Server；旧 AO 任务保留 Codex harness 兼容。当前历史验收模型为gpt-5.6-sol，不把这个字符串作为永久模型支持清单。Observer/Gate不用模型。
+语义角色默认使用共享headless Codex CLI，P01 可按角色选用 BigModel 通用 HTTP 传输（真实准入待验证）；stdin传Prompt，保留ephemeral/read-only、schema输出、non-Git cwd支持。新本地 Worker 使用 Codex 0.150.1 App Server；旧 AO 任务保留 Codex harness 兼容。当前历史验收模型为gpt-5.6-sol，不把这个字符串作为永久模型支持清单。Observer/Gate不用模型。
 
 ### U02 首切片：本地项目与 Codex Worker
 
@@ -128,7 +128,7 @@ CLI / Panel 共用 `loopcore.effective_config`，优先级为内置缺省值 < `
 | `worker.model` | 本地 Codex thread/start/resume；旧 AO spawn `--model`；含初始与 replan，保持默认 gpt-5.6-sol |
 | `worker.spawn_max_attempts` / `spawn_backoff_seconds` | F05 已证明未执行时的有界初始 spawn 重试；次数 / 秒 |
 | `worker.spawn/send/kill_timeout_seconds` | 本地 stdio 对应操作或旧 AO CLI 请求的等待秒数；timeout 不证明外部失败，不绕过 UNKNOWN |
-| `roles.planner/auditor/verifier.model` / `timeout_seconds` | 各 Codex CLI Provider 实际传入模型与每次调用秒数；未新增取样/供应商参数 |
+| `roles.planner/auditor/verifier.model` / `timeout_seconds` | 角色选择 Codex 时实际传入模型与每次调用秒数；GLM 使用连接参数 |
 | `ao.base_url` / `request_timeout_seconds` | 仅旧 AOAdapter 的 loopback REST fallback / 秒；本地任务不消费；有效 AO runfile 端口优先，外部发现事实不伪装成模型确认 |
 | `gate.timeout_seconds` / `output_limit_chars` | Task、baseline、Final 的每条命令秒数 / 每个 stdout、stderr 的证据正文字符上限 |
 | `observer.*_seconds` / `turn_diff_counts_as_progress` | ClosedLoop 的 L0/idle/audit/审批等待；保留小数时间戳；EventNormalizer 的 diff 进展开关 |
@@ -248,7 +248,7 @@ CSP 脚本 nonce 要求不变。12 个本地 Lucide 符号及完整 ISC/Feather 
 
 定向 Windows/Edge 证据及截图索引见 [U01 卡](V03_BACKLOG.md#v03-u01iphone风格界面骨架与状态夹具)。
 已有 Windows/浏览器验证与实际截图沿用，截图由 Codex 自查；本次外部代码与产品整改审计通过，不宣称外部逐张截图验收。合并收尾未重新运行测试或模型，仅做文档与差异检查。
-M0/M1/M2/M3 COMPLETE；U01/U02/U03 均 DONE，U02 两个切片保持 DONE；M4 TODO，唯一下一任务 P01 TODO，模型扩展未开始。
+M0/M1/M2/M3 COMPLETE；U01/U02/U03 均 DONE，U02 两个切片保持 DONE；M4 IN_PROGRESS，P01 工程切片 IN_REVIEW，真实 GLM 准入待测试，P02 未开始。
 
 ## 4. 已验证外部前提
 
@@ -276,7 +276,7 @@ Windows、CPython3.12、Git、AO Desktop0.12.9、Codex CLI0.150.1及ChatGPT登�
 | 主题 | 当前实现 | v0.3设计（待实现） |
 |---|---|---|
 | GUI | U01 / U02 / U03 DONE：四入口、完整旅程、结果中心与独立导出；开发夹具独立 | 完整 GUI 体验及原生浏览器 200% 缩放验收 |
-| 模型 | 本地 Worker 为 Codex App Server；语义角色为 Codex CLI；AO 显式兼容 | GLM/Kimi语义profile，Worker单独准入 |
+| 模型 | 本地 Worker 为 Codex App Server；语义角色默认 Codex CLI，可选 BigModel GLM（工程切片，未实测准入）；AO 显式兼容 | GLM真实准入、Kimi语义profile，Worker单独准入 |
 | 配置 | R01 已合入；R02 恢复先验证冻结材料 | 新 GUI 的配置旅程 |
 | 结果 | U03 DONE：固定版本差异、独立文本补丁包及摘要、历史下载 | 完整体验/发布验收；更广文件类型支持不宣称完成 |
 | 停止 | F05 已合入；R02 明确取消状态、只读历史/恢复检查、关联新 attempt（DONE，已合入） | 新 GUI 的操作与错误体验 |
@@ -292,3 +292,21 @@ AGENTS=规则；PROJECT=事实；PLANS=当前指针；V03_PLAN=目标设计；V0
 - [v0.2Release](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/releases/tag/v0.2)
 
 以后本文件仅按已合入代码或明确标注待审计的分支实现与验收更新，不复制完整PR流水账；旧治理文件的目标性措辞不再凌驾于本文件和v0.3批准设计。
+
+## P01 工程切片：连接、凭据与语义 HTTP
+
+现有角色 Provider 复用同一提示词、输入与完整本地校验；仅新增 BigModel 通用服务传输选择。
+Planner 的分解/异常调用、Auditor 和 Mission Verifier 分别消费冻结的 `roles.<role>.profile`。
+Worker/Observer/Gate 边界不变。连接限定 `open.bigmodel.cn` 通用 Chat Completions 和 `glm-4.7`，
+不共用 Z.AI/Coding 域或凭据，不静默 fallback。详细参数、来源/优先级兼容见
+[现有产品 README](../clao/README.md#glm-语义角色配置p01-工程切片)。
+
+新快照 v2 包含无密钥 `model_profiles` 与绑定；历史 v1 原样校验保留，缺新键仍走 Codex。
+受保护凭据 POST 只使用 Windows Credential Manager 的 CLAO 命名空间；Key 不写配置/Store，
+GET 只返回配置和凭据状态，无系统存储则失败。任务启动前验证冻结的外发确认与所选凭据存在性。
+默认设置、连接检查不调用模型；任务运行中的响应模型/用量与工程准入状态分别展示。
+
+非流式 HTTP 每次超时明确、只接收完整 formal content，思考/工具/截断不制造 PASS。
+HTTP 与结构化错误共用每个角色调用 1–3 次总预算，Controller 不叠加重试 ProtocolError。
+取消接入既有 ExecutionControl，停止等待/重试并丢弃迟到结果；不声称远端计算或计费被取消。
+真实 GLM 准入、完整 GUI 体验、全量/安装/发行包测试仍未运行；P02 未开始。

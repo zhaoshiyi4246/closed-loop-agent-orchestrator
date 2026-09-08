@@ -245,6 +245,10 @@ def test_decompose_retries_invalid_protocol_once_then_succeeds(monkeypatch):
 
 def test_build_runtime_uses_codex_planner_and_config_model(monkeypatch,
                                                           tmp_path):
+    from tests.test_r02_lifecycle import repository
+    from loopcore.recovery import source_identity
+    repo = repository(tmp_path)
+    source = source_identity('demo', repo, {'defaultBranch': 'main'})
     adapter_calls = []
     executor_calls = []
 
@@ -270,6 +274,10 @@ def test_build_runtime_uses_codex_planner_and_config_model(monkeypatch,
             adapter_calls.append(kwargs)
             self.base_url = kwargs["base_url"]
 
+        def get_project(self, project_id):
+            assert project_id == 'demo'
+            return {'id': project_id, 'path': str(repo), 'defaultBranch': 'main'}
+
     def dummy_executor(**kwargs):
         executor_calls.append(kwargs)
         from types import SimpleNamespace
@@ -285,7 +293,7 @@ def test_build_runtime_uses_codex_planner_and_config_model(monkeypatch,
         lambda *_args, **_kwargs: {
             "ao_bin": str(tmp_path / "ao.exe"),
             "ao_run_file": tmp_path / "running.json",
-            "project_path": tmp_path})
+            "project_path": repo, "source": source})
     monkeypatch.setattr(run_mission, "AOAdapter", DummyAdapter)
     monkeypatch.setattr(run_mission, "ActionExecutor", dummy_executor)
     monkeypatch.setattr(run_mission, "MissionController", DummyController)

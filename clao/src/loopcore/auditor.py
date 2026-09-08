@@ -111,8 +111,10 @@ class CodexCliAuditorProvider(AuditorProvider):
 
     def __init__(self, *, codex_bin: str = "codex", timeout: int = 180,
                  model: Optional[str] = None, cwd: Optional[Path] = None,
-                 system_prompt_path: Optional[str] = None):
+                 system_prompt_path: Optional[str] = None, transport=None):
         self.codex_bin = codex_bin
+        self.transport = transport
+        self.retry_options = transport.retry_options if transport else {}
         self.timeout = timeout
         self.model = model or "gpt-5.6-sol"
         self.cwd = Path(cwd) if cwd is not None else PROMPT_DIR.parent
@@ -132,6 +134,8 @@ class CodexCliAuditorProvider(AuditorProvider):
         }, ensure_ascii=False, indent=2)
         prompt = "%s\n\n# EvidenceBundle input\n%s" % (
             self.system_prompt, task_input)
+        if self.transport is not None:
+            return self.transport(prompt=prompt, schema_path=self.schema_path)
         return run_codex_json(
             prompt=prompt,
             schema_path=self.schema_path,
@@ -145,7 +149,7 @@ class CodexCliAuditorProvider(AuditorProvider):
     def audit(self, bundle: EvidenceBundle, audit_id: str) -> AuditResult:
         obj = protocol_call(lambda: self._call(bundle, audit_id),
                             lambda obj: check_role(obj, "audit-result",
-                                audit_id=audit_id, task_id=bundle.task_spec.get("task_id")))
+                                audit_id=audit_id, task_id=bundle.task_spec.get("task_id")), **self.retry_options)
         if obj["decision"] == "PASS":
             bundle.validate_evidence()
         return role_result(AuditResult, obj)

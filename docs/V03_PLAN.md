@@ -233,7 +233,7 @@ Apple 的基础指南强调主要内容无需水平滚动、触控目标、对�
 | 层 | Codex | GLM | Kimi |
 |---|---|---|---|
 | Planner／Auditor／Mission Verifier | 保留现有 CLI 路径并验收配置 | 目标：一个明确 endpoint／model 的 API profile | 目标：一个明确 endpoint／model 的 API profile |
-| Worker | AO Codex 为稳定默认 | AO／harness 兼容性专项；未通过则显示不支持 | AO／harness 兼容性专项；未通过则显示不支持 |
+| Worker | 本地 Codex App Server 为默认；旧 AO 显式兼容 | AO／harness 兼容性专项；未通过则显示不支持 | AO／harness 兼容性专项；未通过则显示不支持 |
 | Observer／Gate | 无模型 | 不适用 | 不适用 |
 
 这是“两个新供应商都在计划内、逐个准入”，不是只做一个空下拉。GLM 与 Kimi 的语义 profile 均应在正式 v0.3 交付前完成验证；若外部权限或协议阻塞，必须由负责人批准缩减并在版本说明里标明，Codex不得自动删掉此目标。
@@ -246,7 +246,7 @@ Apple 的基础指南强调主要内容无需水平滚动、触控目标、对�
 
 Kimi 官方快速开始目前说明 API Key、模型、base_url 与兼容 API 格式，并把 JSON Mode 列为能力。该信息说明存在接入路径，不证明任意 Kimi 模型、所有参数或 AO harness 都与 Codex 相同。[S07]
 
-模型 ID、endpoint 地域、推理参数和版本可能变化。本稿不把当前营销名称写死为 v0.3 支持承诺。各 adapter 任务开始时核实官方文档，在受控 live 中记录**具体已通过**的 model／endpoint／认证方式。BigModel 国内服务与 Z.AI 不能自动视为同一密钥域；Kimi 各服务域同理。
+模型 ID、endpoint 地域、推理参数和版本可能变化。本稿不把当前营销名称写死为 v0.3 支持承诺。各 adapter 任务开始时核实官方文档，在受控 live 中记录**具体已通过**的 model／endpoint／认证方式。P01 本轮按负责人授权先完成工程与离线验证，固定 BigModel 通用 Chat Completions 域 `open.bigmodel.cn`、`glm-4.7`、Bearer Key、JSON object 与 thinking enabled/disabled；不共用 Z.AI 或 Coding 套餐。GLM/Kimi 工程后再按明确次数、时长和费用预算集中真实准入，当前不宣称实测支持或 M4 完成。BigModel 国内服务与 Z.AI 不能自动视为同一密钥域；Kimi 各服务域同理。
 
 ### 7.3 传输与验证结构
 

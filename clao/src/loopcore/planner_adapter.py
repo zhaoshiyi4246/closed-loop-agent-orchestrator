@@ -99,7 +99,7 @@ class CodexCliPlannerProvider(PlannerProvider):
 
     def __init__(self, *, codex_bin: str = "codex", timeout: int = 180,
                  model: Optional[str] = None, cwd: Optional[Path] = None,
-                 **legacy_options):
+                 transport=None, **legacy_options):
         # The alias below keeps older compatibility CLIs importable. Their AO
         # connection arguments never belonged to the headless Planner and are
         # intentionally ignored; no Claude implementation remains here.
@@ -110,6 +110,8 @@ class CodexCliPlannerProvider(PlannerProvider):
             raise TypeError("unexpected Planner options: %s"
                             % ", ".join(sorted(unknown)))
         self.codex_bin = codex_bin
+        self.transport = transport
+        self.retry_options = transport.retry_options if transport else {}
         self.timeout = timeout
         self.model = model or "gpt-5.6-sol"
         self.cwd = Path(cwd) if cwd is not None else PROMPT_DIR.parent
@@ -120,6 +122,8 @@ class CodexCliPlannerProvider(PlannerProvider):
         self.mission_schema_path = SCHEMA_DIR / "mission-plan.schema.json"
 
     def _run(self, prompt: str, schema_path: Path) -> dict:
+        if self.transport is not None:
+            return self.transport(prompt=prompt, schema_path=schema_path)
         return run_codex_json(
             prompt=prompt,
             schema_path=schema_path,
@@ -159,7 +163,7 @@ class CodexCliPlannerProvider(PlannerProvider):
                                remaining_replans=remaining_replans,
                                instruct=instruct, board=board),
             lambda obj: check_planner(obj, action_id, task_spec_dict.get("task_id"),
-                                      target_session_id))
+                                      target_session_id), **self.retry_options)
         return role_result(PlannerAction, obj)
 
     @phase_call("planner", role="planner")
@@ -171,7 +175,7 @@ class CodexCliPlannerProvider(PlannerProvider):
             ok, msg = self._validate_mission_plan(obj, max_sub)
             if not ok:
                 raise ProtocolError("SCHEMA", msg)
-        obj = protocol_call(lambda: self._call_decompose(mission, plan_id, max_sub), validate)
+        obj = protocol_call(lambda: self._call_decompose(mission, plan_id, max_sub), validate, **self.retry_options)
         return role_result(MissionPlan, obj)
 
     @staticmethod

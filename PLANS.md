@@ -6,8 +6,9 @@
 
 ## 当前唯一执行指针
 
-- 当前阶段：**M3 COMPLETE**（本阶段开发与代码审计完成）；M0 / M1 / M2 保持 COMPLETE，M4 TODO。
-- 当前唯一下一任务：**V03-P01 — 模型配置／凭据与 GLM 语义后端**，TODO，尚未开始。U01 / U02 / U03 均 DONE；模型扩展与发布任务未推进。
+- 当前阶段：**M4 IN_PROGRESS**；M0 / M1 / M2 / M3 保持 COMPLETE。
+- 当前唯一任务：**V03-P01 — 模型配置／凭据与 GLM 语义后端**，工程切片 IN_REVIEW，等待外部审计；真实 GLM 准入待后续授权。U01 / U02 / U03 DONE，P02 尚未开始。
+- P01 工程已接通 BigModel 通用 `glm-4.7`、三个语义角色独立绑定、Windows 系统凭据和任务外发确认；复用原角色协议/Controller，有界重试与取消不改变 Worker UNKNOWN。Windows P01/安全引用导出定向 54 passed；Panel/草稿归属与兼容复查 31 passed；其余 R01/Codex 证据与夹具修正见 P01 卡，不累计为全量。真实模型及准入未运行，M4 未完成；P02 本轮未开始。
 - 最近完成：**V03-U03 — 结果中心与独立导出**；[PR #42](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/42) 再次外部审计 PASS、无继续返修阻塞项，2026-09-08 已 rebase merge 到 main `b755c1abe3c69167ddb62bc3489d513d97ea918d`；已审计 head `6ccaa5673052e30f3a77bf947b6be6812ec8b728`，合入内容一致。
 - U03 已实现：任务内固定结果/差异/AC 与分项验收；复制路径/受保护打开目录；完整文本补丁、清单、摘要与说明的独立 ZIP，原 StateStore 保存已完成包。Git/目录失效后已有包仍可下载；不使用当前 HEAD 或模型证据截断生成补丁。
 - 沿用 U03 Windows 定向（本轮不重跑） **39 passed / 84.44s**（真实 Git/SQLite/HTTP、原 Controller/Gate/Verifier + 仅引擎/Provider 替身，含实际 Edge）；U02 四旅程复查 **4 passed / 34 deselected / 35.25s**，此前其余兼容定向 30 passed；另补基线缓存独立应用 1 passed，失败修正及证据分类见 U03 卡。未运行全量、安装、smoke、真实 AO/模型或 CLAO 发行打包；结果包生成/下载/解压/独立应用和内容/Gate 检查已执行。
@@ -56,7 +57,7 @@
 | M1 修复冻结 | COMPLETE（F01–F05 DONE，均已审计 PASS 并合入） | F01—F05负例与正常路径通过 |
 | M2 使用契约 | COMPLETE（R01 / R02 DONE，均已审计 PASS 并合入） | 配置、回执、取消恢复、基线可追溯 |
 | M3 GUI与交付体验 | COMPLETE（U01 / U02 / U03 DONE，开发与代码审计完成） | 四入口＋任务旅程＋结果导出；完整 GUI 体验与发布验收仍待后续 |
-| M4 模型扩展 | TODO | GLM与Kimi语义profile；Worker明确支持/拒绝决策 |
+| M4 模型扩展 | IN_PROGRESS | GLM与Kimi语义profile；Worker明确支持/拒绝决策 |
 | M5 发布候选 | TODO | 最终ZIP、Windows、真实模型/GUI/恢复与来源证据 |
 
 ## 最近已验证基线（历史，不是本轮重跑）
