@@ -1,6 +1,6 @@
 # CLAO 当前项目事实
 
-更新：2026-09-08（F01–F05、R01/R02、U01/U02/U03 均 DONE；PR #42 再次外部审计 PASS 并已合入；M0/M1/M2 保持 COMPLETE，M3 COMPLETE 仅表示本阶段开发与代码审计完成；M4 IN_PROGRESS，P01 工程切片 IN_REVIEW，真实 GLM 准入待后续测试）。本文件只记录已实现事实与已知限制；v0.3 的设计见 [V03_PLAN.md](V03_PLAN.md)。真实模型、完整 GUI 体验、全量、安装与发布验收尚未完成，已发布版本仍为 v0.2。
+更新：2026-09-09（F01–F05、R01/R02、U01/U02/U03 均 DONE；PR #43 再次外部审计 PASS 并已合入，P01 工程切片 DONE、整卡 IN_PROGRESS；M0–M3 保持 COMPLETE，M4 IN_PROGRESS；真实 GLM 准入待两家工程接入后集中验证，唯一下一实施任务 P02 TODO）。本文件只记录已实现事实与已知限制；v0.3 的设计见 [V03_PLAN.md](V03_PLAN.md)。真实模型、完整 GUI 体验、全量、安装与发布验收尚未完成，已发布版本仍为 v0.2。
 
 ## 1. 版本与基线
 
@@ -9,7 +9,7 @@
 | 产品 | CLAO / Closed-Loop Agent Orchestrator |
 | 已发布版本 | v0.2，Windows本地比赛版 |
 | 已发布源码 | 4d3e8e6b5e70bab868b2eef0d28c7742dea044ba |
-| 开发目标 | v0.3：F01–F05、R01/R02、U01/U02/U03 已审计合入 main（DONE）；M0/M1/M2/M3 COMPLETE，M4 IN_PROGRESS；P01 工程切片 IN_REVIEW，真实 GLM 准入待测试，P02 未开始 |
+| 开发目标 | v0.3：F01–F05、R01/R02、U01/U02/U03 已审计合入 main（DONE）；M0/M1/M2/M3 COMPLETE，M4 IN_PROGRESS；P01 工程切片 DONE、整卡 IN_PROGRESS，真实 GLM 准入待集中验证；下一实施任务 P02 TODO，尚未开始 |
 | 主仓库 | zhaoshiyi4246/closed-loop-agent-orchestrator |
 | 产品源码路径 | `clao/`，当前唯一正式产品，内部 Python 包为 `src/loopcore/` |
 | 发布工具 | `packaging/build-release.ps1` 与 `packaging/release-manifest.txt` |
@@ -248,7 +248,7 @@ CSP 脚本 nonce 要求不变。12 个本地 Lucide 符号及完整 ISC/Feather 
 
 定向 Windows/Edge 证据及截图索引见 [U01 卡](V03_BACKLOG.md#v03-u01iphone风格界面骨架与状态夹具)。
 已有 Windows/浏览器验证与实际截图沿用，截图由 Codex 自查；本次外部代码与产品整改审计通过，不宣称外部逐张截图验收。合并收尾未重新运行测试或模型，仅做文档与差异检查。
-M0/M1/M2/M3 COMPLETE；U01/U02/U03 均 DONE，U02 两个切片保持 DONE；M4 IN_PROGRESS，P01 工程切片 IN_REVIEW，真实 GLM 准入待测试，P02 未开始。
+M0/M1/M2/M3 COMPLETE；U01/U02/U03 均 DONE，U02 两个切片保持 DONE；M4 IN_PROGRESS，P01 工程切片 DONE、整卡 IN_PROGRESS，真实 GLM 准入待集中验证；下一实施任务 P02 TODO，尚未开始。
 
 ## 4. 已验证外部前提
 
@@ -295,6 +295,8 @@ AGENTS=规则；PROJECT=事实；PLANS=当前指针；V03_PLAN=目标设计；V0
 
 ## P01 工程切片：连接、凭据与语义 HTTP
 
+工程实现与离线验证切片 DONE；[PR #43](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/43) 再次外部审计 PASS，2026-09-09 已 rebase 合入。整卡 IN_PROGRESS，剩余为真实 GLM 服务与角色准入，无继续代码返修阻塞项。
+
 现有角色 Provider 复用同一提示词、输入与完整本地校验；仅新增 BigModel 通用服务传输选择。
 Planner 的分解/异常调用、Auditor 和 Mission Verifier 分别消费冻结的 `roles.<role>.profile`。
 Worker/Observer/Gate 边界不变。连接限定 `open.bigmodel.cn` 通用 Chat Completions 和 `glm-4.7`，
@@ -309,4 +311,4 @@ GET 只返回配置和凭据状态，无系统存储则失败。任务启动前�
 非流式 HTTP 每次超时明确、只接收完整 formal content，思考/工具/截断不制造 PASS。
 HTTP 与结构化错误共用每个角色调用 1–3 次总预算，Controller 不叠加重试 ProtocolError。
 取消接入既有 ExecutionControl，停止等待/重试并丢弃迟到结果；不声称远端计算或计费被取消。
-真实 GLM 准入、完整 GUI 体验、全量/安装/发行包测试仍未运行；P02 未开始。
+配置已保存、离线验证及代码审计通过均不等于真实 GLM 请求或全部角色准入通过。真实 API 测试保留，待 GLM/Kimi 两家工程接入完成后按明确费用与材料授权集中验证；当前 Kimi 尚未实现，P02 作为下一实施任务保持 TODO。完整 GUI 体验、全量/安装/发行包测试仍未运行。

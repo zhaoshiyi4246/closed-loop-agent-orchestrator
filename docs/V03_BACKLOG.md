@@ -1,6 +1,6 @@
 # CLAO v0.3 任务与验收台账
 
-版本：0.3-plan-r1 · 2026-09-06。状态：已批准 / IN EFFECT。DOC-00、F01–F05、R01 / R02 已完成（DONE），M0 / M1 / M2 为 `COMPLETE`；U01 / U02 / U03 均已审计合入（`DONE`），U02 两个切片保持 `DONE`；M3 `COMPLETE` 表示本阶段开发与代码审计完成，完整体验与发布验收尚未完成；M4 `IN_PROGRESS`，当前 P01 工程切片 `IN_REVIEW`，真实 GLM 准入待后续授权；其余功能卡状态见下表，原报告的发现不等于已复现或已修复。
+版本：0.3-plan-r1 · 2026-09-06。状态：已批准 / IN EFFECT。DOC-00、F01–F05、R01 / R02 已完成（DONE），M0 / M1 / M2 为 `COMPLETE`；U01 / U02 / U03 均已审计合入（`DONE`），U02 两个切片保持 `DONE`；M3 `COMPLETE` 表示本阶段开发与代码审计完成，完整体验与发布验收尚未完成；M4 `IN_PROGRESS`，P01 工程切片已审计合入（`DONE`），整卡 `IN_PROGRESS`，真实 GLM 准入待两家工程接入后集中验证；唯一下一实施任务 P02 `TODO`，尚未开始；其余功能卡状态见下表，原报告的发现不等于已复现或已修复。
 
 设计以 [V03_PLAN.md](V03_PLAN.md) 为准。当前唯一任务由根目录 [PLANS.md](../PLANS.md) 指定。本文件保存每张卡的详细状态和证据，PLANS 不重复整张台账。
 
@@ -43,7 +43,7 @@
 | V03-U01 | M3 | iPhone风格界面骨架与状态夹具 | G1；R01/R02字段设计 | DONE（PR #39 代码/产品整改审计 PASS / merged） |
 | V03-U02 | M3 | 完整任务GUI与数据接线 | U01/R02/F04 | DONE（首切片 PR #40、完整旅程 PR #41 均再次审计 PASS / merged） |
 | V03-U03 | M3 | 结果中心与独立导出 | U02/F03 | DONE（PR #42 再次外部审计 PASS / merged） |
-| V03-P01 | M4 | 模型配置／凭据与GLM语义后端 | F01/R01/F04 | IN_REVIEW（工程切片；真实准入待验证） |
+| V03-P01 | M4 | 模型配置／凭据与GLM语义后端 | F01/R01/F04 | IN_PROGRESS（工程切片 DONE；真实准入待集中验证） |
 | V03-P02 | M4 | Kimi语义后端与切换评测 | P01 | TODO |
 | V03-P03 | M4 | 第二Worker能力准入决策 | P01/P02；AO官方契约 | TODO |
 | V03-Q01 | M5 | 新Windows产品验收与发布候选 | G1—G4 | TODO |
@@ -347,7 +347,7 @@ PR #42 导出误拦截返修（2026-09-08，再次外部审计 PASS，已合入�
 
 ## V03-P01｜模型配置／凭据与GLM语义后端
 
-- 状态：IN_REVIEW（工程与离线验证切片，待外部审计）。base `ecbd9d6639d24633bb9347c4ddc62a86a3ae525f`，分支 `codex/v03-p01-bigmodel-semantic`；真实 GLM 准入等待后续明确授权，不获取或使用用户真实 Key。
+- 状态：整卡 **IN_PROGRESS**；工程实现与离线验证切片 **DONE**。[PR #43](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/43) 再次外部审计 PASS，外发确认归属问题已解决、无继续返修阻塞项；2026-09-09 已 rebase 合入 main `d1738b5337aecdfbc063fd284fb1e7bfa6fe7fcc`，合入 tree 与已审计 head `c629890d6fa3e740ffaa48a3117961f59dbe4988` 一致。剩余为真实 GLM 服务与角色准入，非本次代码返修；待两家工程接入后按明确授权集中验证，不取消测试要求。
 
 - 对应：A11/A10。工作：profile/角色绑定/credential_ref；一种安全凭据存储；Codex保留；GLM明确服务域、认证、model/effort、JSON协议。语义角色无工具执行。
 - 必测：密钥不进入响应/log/Store/export；跨域发送须授权；非法/截断/拒绝/401/429/timeout；Schema+ID+coherence；运行中不热切；有模型调用与无模型检查分开。
@@ -368,13 +368,16 @@ Windows / CPython 3.12.7 / 产品 venv（Scripts 前置 PATH，`src` 与产品�
 - 最后确认页补充冻结 GLM 参数详情后，P01 实际浏览器单项 **1 passed / 14.85s**；截图已更新、自查。compileall、产品/开发 JS 语法、diff-check、6 个文档的 76 个本地链接/16 个锚点及既有发布映射前缀检查通过；没有发行构建。
 - PR #43 外发确认归属返修：新建草稿的确认绑定项目及所选外发角色/连接（服务、endpoint、模型、credential_ref）；提交前再与确认配置核对，成功提交及下一草稿初始化清除。切换项目/外发角色/连接须重新确认；同一未提交草稿关闭重开、切页、SSE 和普通目标/预算编辑保留确认与输入。新默认值不热改草稿或已冻结任务；纯 Codex 无需外发确认，历史重新执行仍独立确认。未修改 Provider、凭据库、Controller 或 HTTP 重试。
 - 返修定向：`pytest tests/test_p01_panel.py::test_audit_browser_consent_scope_and_new_missions tests/test_u02_local_execution.py::test_audit_history_retry_b_while_a_loaded -q --tb=short` → **5 passed / 50.13s**。实际 Edge/正式 Panel 与 Controller/Git/Gate，外部引擎、HTTP 模型及凭据读取使用隔离替身；新增浏览器用例完成 A/B、纯 Codex、历史重新执行共 4 个隔离 Mission，核对确认页/提交/持久配置值与 revision、跨草稿范围和在途去重、原项目不写回。历史 4 例覆盖不同/相同内容及新旧后端；替身补齐现有 `config_snapshot` 参数，并新增配置断言。正式 HTTP `test_actual_controller_git_gate_http_verifier_and_result_export` 的 PASS/FAIL **2 例通过**，无确认请求仍在 Worker 前拒绝。
-- 返修首轮上述 7 项中 5 failed / 2 passed：新浏览器断言误要求 runtime 合并后的全部预算来源标注不变，旧历史替身未接收 P01 已有快照参数；修正测试契约后 5 项全部通过，保留配置值/revision/外发来源及原历史断言，未放宽产品规则。产品/开发 JS 语法、相关 Python compileall 与 diff-check 通过。仅本次定向验证，未重跑此前 54/31 项集合；工程切片继续 IN_REVIEW，真实 GLM 准入仍待验证，P02 未开始。
-- **真实服务准入：NOT_RUN / 待授权**。真实验证前需负责人确认 BigModel 通用服务类型、可用模型权限、参与角色及次数/单次与总时长/费用上限、允许外发的测试材料；本轮不索取真实 Key。Key 由用户在本机凭据页保存，不发到聊天。工程离线通过不等于 P01 全部准入或 M4 完成。
+- 返修首轮上述 7 项中 5 failed / 2 passed：新浏览器断言误要求 runtime 合并后的全部预算来源标注不变，旧历史替身未接收 P01 已有快照参数；修正测试契约后 5 项全部通过，保留配置值/revision/外发来源及原历史断言，未放宽产品规则。产品/开发 JS 语法、相关 Python compileall 与 diff-check 通过。仅返修定向验证，未重跑此前 54/31 项集合；返修提交时工程切片为 IN_REVIEW，之后已再次审计 PASS 并合入，真实 GLM 准入仍待验证，P02 未开始。
+- **真实服务准入：NOT_RUN / 待两家工程接入后集中验证**。真实验证前仍需负责人确认 BigModel 通用服务类型、可用模型权限、参与角色及次数/单次与总时长/费用上限、允许外发的测试材料；本轮不读取或使用用户真实 Key。Key 由用户在本机凭据页保存，不发到聊天。配置保存、工程离线验证、代码审计通过均不等于真实请求或全部角色准入通过，P01 整卡及 M4 不标 DONE。
 - NOT_RUN：真实 GLM/Codex/AO 模型、全量、干净安装、CLAO 发行打包、smoke、负责人完整 GUI 体验与发布验收。P02/Kimi、P03 Worker 扩展、安装器/闭环视图未实施；M0–M3 COMPLETE，M4 IN_PROGRESS。
 
 
+工程收尾（2026-09-09）：仅完成 PR #43 rebase merge、背景文档与本地 main 同步，保持已审计产品实现不变。沿用既有 Windows/浏览器/离线证据，本轮只检查文档链接与差异；未重跑测试、构建、smoke 或真实模型，未读取真实 Key、未创建 tag/Release。M0–M3 COMPLETE，M4 IN_PROGRESS；下一实施任务 P02 TODO，本轮停止，不开始 Kimi。
+
 ## V03-P02｜Kimi语义后端与切换评测
 
+- 状态：**TODO**，唯一下一实施任务，尚未开始。先完成工程接入与离线验证；两家真实 API 与角色准入后置集中进行，测试要求与费用/外发授权不变。本轮仅收尾 P01 工程切片，不实施 Kimi。
 - 对应：A11。依赖：P01的薄transport/本地校验契约。
 - 工作：核对官方Kimi当前API和具体model；实现供应商参数差异，不复制整套角色/Controller；设置页明确数据发送、凭据和支持角色。
 - 必测：与P01相同的协议/错误/安全矩阵；固定任务profile切换；Codex/GLM/Kimi回归；不支持参数保存前拒绝；requested/confirmed模型区分。
