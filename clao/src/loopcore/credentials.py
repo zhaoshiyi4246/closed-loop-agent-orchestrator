@@ -2,7 +2,7 @@
 import ctypes
 from ctypes import wintypes as w
 import os
-from .model_profiles import REFERENCE
+from .model_profiles import REFERENCE, SERVICE, KIMI_SERVICE
 
 
 class CredentialError(ValueError):
@@ -66,7 +66,7 @@ class WindowsCredentials:
         target=self._target(ref);self._validate(value);api=self._api()
         data=value.encode('utf-8');buf=(ctypes.c_ubyte*len(data)).from_buffer_copy(data)
         record=_Credential(Type=1,TargetName=target,CredentialBlobSize=len(data),CredentialBlob=buf,
-                           Persist=2,UserName='CLAO BigModel')
+                           Persist=2,UserName='CLAO model API')
         try:
             if not api.CredWriteW(ctypes.byref(record),0):
                 raise CredentialError('Windows 凭据保存失败；未写入明文备用文件')
@@ -78,5 +78,9 @@ class WindowsCredentials:
             raise CredentialError('Windows 凭据删除失败')
 
 
-def credentials():
-    return WindowsCredentials()
+def credentials(service=SERVICE):
+    # Keep P01's exact target for GLM; no migration/enumeration/fallback across services.
+    namespaces={SERVICE:'CLAO/BigModel', KIMI_SERVICE:'CLAO/MoonshotCN'}
+    if not isinstance(service,str) or service not in namespaces:
+        raise CredentialError('不支持的凭据服务')
+    return WindowsCredentials(namespaces[service])

@@ -73,7 +73,7 @@ def glm_http(monkeypatch):
         assert host == 'open.bigmodel.cn'
         return http.client.HTTPConnection('127.0.0.1', httpd.server_port, timeout=timeout)
     monkeypatch.setattr(http.client, 'HTTPSConnection', connection)
-    monkeypatch.setattr(credentials, 'credentials', lambda: SimpleNamespace(read=lambda ref: FAKE_KEY, configured=lambda ref: True))
+    monkeypatch.setattr(credentials, 'credentials', lambda service=SERVICE: SimpleNamespace(read=lambda ref: FAKE_KEY, configured=lambda ref: True))
     yield state
     state.release.set(); httpd.shutdown(); httpd.server_close(); thread.join(3)
 
@@ -236,6 +236,6 @@ def test_old_config_and_snapshot_frozen_defaults_compatible():
 def test_consent_and_missing_credentials_stop_before_provider(glm_http, monkeypatch):
     with pytest.raises(ValueError, match='BigModel'): check_start(configuration(), {})
     check_start(configuration(), {'external_service_consent':SERVICE})
-    monkeypatch.setattr(credentials, 'credentials', lambda: SimpleNamespace(configured=lambda ref:False))
+    monkeypatch.setattr(credentials, 'credentials', lambda service=SERVICE: SimpleNamespace(configured=lambda ref:False))
     with pytest.raises(ValueError, match='凭据'): check_start(configuration(), {'external_service_consent':SERVICE})
     assert not glm_http.calls

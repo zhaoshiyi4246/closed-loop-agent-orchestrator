@@ -613,17 +613,34 @@ function renderWorkbench(s){
 
 /* ---------------- navigation, dialogs and progressive form ---------------- */
 const SEMANTIC_ROLES=["planner","auditor","verifier"];
-const BIGMODEL_ENDPOINT="https://open.bigmodel.cn/api/paas/v4/chat/completions";
-const PROFILE_FIELDS=["id","credential_ref","model","thinking","timeout_seconds","max_attempts","retry_delay_seconds","max_tokens","temperature"];
-const PROFILE_NUMBERS=new Set(["timeout_seconds","max_attempts","retry_delay_seconds","max_tokens","temperature"]);
+const MODEL_SERVICES={
+  bigmodel_general:{label:"BigModel",endpoint:"https://open.bigmodel.cn/api/paas/v4/chat/completions",model:"glm-4.7",fields:["thinking","max_tokens","temperature"],note:"GLM thinking 开关及 Temperature 按下列设置发送；Codex effort 不适用。"},
+  moonshot_cn:{label:"Kimi 国内通用服务",endpoint:"https://api.moonshot.cn/v1/chat/completions",model:"kimi-k3",fields:["reasoning_effort","max_completion_tokens"],note:"K3 始终思考；生成上限含思考。temperature=1、top_p=0.95 等采样值由服务固定，不发送 GLM thinking/temperature/max_tokens。"}
+};
+const serviceLabel=service=>MODEL_SERVICES[service]?.label || "未知服务";
+const profileFields=service=>["id","credential_ref","model","timeout_seconds","max_attempts","retry_delay_seconds",...MODEL_SERVICES[service].fields];
+const PROFILE_NUMBERS=new Set(["timeout_seconds","max_attempts","retry_delay_seconds","max_tokens","temperature","max_completion_tokens"]);
+function showProfileService(){
+  const service=$("profile_service").value, info=MODEL_SERVICES[service];
+  const option=el("option",info.model+" · 真实准入待验证");option.value=info.model;$("profile_model").replaceChildren(option);
+  document.querySelectorAll("[data-profile-service]").forEach(n=>{n.hidden=n.dataset.profileService!==service;for(const control of n.querySelectorAll("input,select"))control.disabled=n.hidden;});
+  $("profileServiceNote").textContent=info.endpoint+"；"+info.note+" 国际/中转/Coding 服务不适用。保存只做本地校验，不发模型请求。";
+}
+$("profile_service").onchange=showProfileService;showProfileService();
 function roleLabel(values,role){
   if(!values) return "unknown";
   const id=values.roles?.[role]?.profile || "codex";
   const profile=values.model_profiles?.find(p=>p.id===id);
   return id==="codex"?"Codex · "+text(values.roles?.[role]?.model || "unknown"):
-    profile?"BigModel · "+profile.model+" · "+id+" · "+profile.timeout_seconds+"秒 / 最多"+profile.max_attempts+"次":"连接缺失";
+    profile?serviceLabel(profile.service)+" · "+profile.model+" · "+id+" · "+profile.timeout_seconds+"秒 / 最多"+profile.max_attempts+"次":"连接缺失";
 }
 function hasExternal(values){return SEMANTIC_ROLES.some(r=>values?.roles?.[r]?.profile && values.roles[r].profile!=="codex");}
+function externalBindings(values){return SEMANTIC_ROLES.flatMap(role=>{const p=values?.model_profiles?.find(p=>p.id===values.roles?.[role]?.profile);return p?[[role,p]]:[];});}
+function externalConsentValue(values){
+  const services=[...new Set(externalBindings(values).map(([,p])=>p.service))].sort();
+  return services.length===1 && services[0]==="bigmodel_general"?"bigmodel_general":services.length?services:null;
+}
+function consentText(values){return "同意本次 "+externalBindings(values).map(([r,p])=>({planner:"规划 Planner",auditor:"审计 Auditor",verifier:"复核 Verifier"})[r]+" → "+serviceLabel(p.service)).join("；")+" 发送任务目标、规划上下文、代码差异及验收证据，可能计费。取消本地等待不保证服务端停止计算或计费；真实角色准入尚未验证。";}
 function externalConsentScope(values){
   if(!$("f_project").value || !hasExternal(values)) return null;
   // Bind only the sending scope, not unrelated draft text or polling/config revisions.
@@ -646,7 +663,7 @@ $("externalConsent").onchange=()=>{
 function renderBindings(id,values,prefix,change){
   const box=$(id);box.replaceChildren();
   for(const role of SEMANTIC_ROLES){const label=el("label",({planner:"规划 · Planner",auditor:"审计 · Auditor",verifier:"最终复核 · Verifier"})[role]),select=el("select");select.id=prefix+role;
-    for(const [value,name] of [["codex","Codex · 现有 CLI"],...(values.model_profiles || []).map(p=>[p.id,p.id+" · BigModel / "+p.model])]){const option=el("option",name);option.value=value;select.append(option);}
+    for(const [value,name] of [["codex","Codex · 现有 CLI"],...(values.model_profiles || []).map(p=>[p.id,p.id+" · "+serviceLabel(p.service)+" / "+p.model])]){const option=el("option",name);option.value=value;select.append(option);}
     select.value=values.roles?.[role]?.profile || "codex";if(change)select.onchange=change;label.append(select);box.append(label);
   }
 }
@@ -656,14 +673,17 @@ async function loadConnections(){
     const [a,b]=await Promise.all([fetch("/api/model-connections"),fetch("/api/state")]);
     const status=await a.json(),state=await b.json();if(!a.ok || !status.ok || !b.ok || !state.default_config) throw new Error(status.error || state.error || "配置读取失败");
     // Only explicit settings reads refresh these controls; SSE never erases a draft.
-    loadConnections.values=state.default_config.values;
+    // Reuse the ordered snapshot already read above so an immediately opened
+    // new draft sees saved connections without waiting for the next SSE tick.
+    // Existing FORM_BASE/consent remains frozen for an unsubmitted draft.
+    acceptSnapshot(state);loadConnections.values=LIVE.default_config.values;
     const box=$("connectionList");box.replaceChildren();
     for(const row of status.connections){const item=el("div",null,"list-row"),body=el("div",null,"grow");
-      body.append(el("h3",row.id+" · "+row.model),el("p","配置已保存 · 本地参数校验通过 · 凭据"+({configured:"已保存",missing:"未配置",unavailable:"存储不可用"}[row.credential_status] || "未知")),el("p","配置检查未发送模型请求；Planner / Auditor / Verifier 真实角色准入待验证","subtle"));
-      const edit=el("button","编辑");edit.onclick=()=>{const p=loadConnections.values.model_profiles.find(p=>p.id===row.id);for(const key of PROFILE_FIELDS)$("profile_"+key).value=p[key];$("connectionEditor").open=true;$("profile_id").focus();};
+      body.append(el("h3",row.id+" · "+serviceLabel(row.service)+" · "+row.model),el("p","配置已保存 · 本地参数校验通过 · 凭据"+({configured:"已保存",missing:"未配置",unavailable:"存储不可用"}[row.credential_status] || "未知")),el("p","配置检查未发送模型请求；Planner / Auditor / Verifier 真实角色准入待验证","subtle"));
+      const edit=el("button","编辑");edit.onclick=()=>{const p=loadConnections.values.model_profiles.find(p=>p.id===row.id);$("profile_service").value=p.service;showProfileService();for(const key of profileFields(p.service))$("profile_"+key).value=p[key];$("connectionEditor").open=true;$("profile_id").focus();};
       const remove=actionButton("删除连接","model-config",()=>saveModelConfig({model_profiles:loadConnections.values.model_profiles.filter(p=>p.id!==row.id)}));item.append(body,edit,remove);box.append(item);
     }
-    if(!status.connections.length) box.append(el("p","尚未配置 BigModel 连接。当前默认仍为 Codex。","subtle"));
+    if(!status.connections.length) box.append(el("p","尚未配置外部语义连接。当前默认仍为 Codex。","subtle"));
     renderBindings("roleBindings",loadConnections.values,"default_profile_");
     uiError("model-config",null);
   }catch(error){uiError("model-config",error.message);}finally{loadConnections.pending=false;}
@@ -677,7 +697,7 @@ $("refreshConnections").onclick=loadConnections;
 $("saveProfile").dataset.writeKey="model-config";$("saveBindings").dataset.writeKey="model-config";
 $("saveProfile").onclick=()=>{
   if(!loadConnections.values){uiError("model-config","请先读取配置。" );return;}
-  const profile={service:"bigmodel_general",endpoint:BIGMODEL_ENDPOINT};for(const key of PROFILE_FIELDS){const value=$("profile_"+key).value;profile[key]=PROFILE_NUMBERS.has(key)?(value.trim()?Number(value):null):value;}
+  const service=$("profile_service").value,profile={service,endpoint:MODEL_SERVICES[service].endpoint};for(const key of profileFields(service)){const value=$("profile_"+key).value;profile[key]=PROFILE_NUMBERS.has(key)?(value.trim()?Number(value):null):value;}
   const profiles=structuredClone(loadConnections.values.model_profiles || []),index=profiles.findIndex(p=>p.id===profile.id);if(index>=0) profiles[index]=profile;else profiles.push(profile);
   saveModelConfig({model_profiles:profiles});
 };
@@ -687,9 +707,9 @@ $("saveBindings").onclick=()=>{
 for(const [id,action] of [["saveCredential","save"],["deleteCredential","delete"]]){
   $(id).dataset.writeKey="credential";$(id).onclick=async()=>{
     if(PENDING.has("credential")) return;
-    const body={action,ref:$("credentialRef").value};if(action==="save") body.value=$("credentialValue").value;
+    const body={action,service:$("credentialService").value,ref:$("credentialRef").value};if(action==="save") body.value=$("credentialValue").value;
     $("credentialValue").value="";$("credentialStatus").textContent="";
-    await writeAction("credential","/api/credentials",body,async()=>{$("credentialStatus").textContent=action==="save"?"已保存到 Windows 系统凭据存储；尚未验证真实服务。":"凭据已删除。";await loadConnections();});
+    await writeAction("credential","/api/credentials",body,async()=>{$("credentialStatus").textContent=serviceLabel(body.service)+" · "+body.ref+"："+(action==="save"?"已保存到 Windows 系统凭据存储；尚未验证真实服务。":"凭据已删除。");await loadConnections();});
     delete body.value;
   };
 }
@@ -806,6 +826,7 @@ function configSet(values,path,value){const parts=path.split(".");let node=value
 function initializeParameters(){
   if(FORM_BASE || !LIVE?.default_config) return;
   clearExternalConsent();
+  $("formSubmitStatus").textContent="";
   FORM_BASE=structuredClone(LIVE.default_config);
   const box=$("missionParameters");
   for(const [path,label,kind] of MISSION_FIELDS){const l=el("label",label),input=el("input");input.id="param_"+path.replaceAll(".","_");input.dataset.configPath=path;input.type=kind==="model"?"text":"number";input.value=configValue(FORM_BASE.values,path);if(kind!=="model")input.step=kind==="seconds"?"any":"1";input.oninput=()=>{FORM_CONFIG=null;CONFIG_VERSION++;$("configConfirmStatus").textContent="配置已修改，正在核对…";confirmConfig();};l.append(input);box.append(l);}
@@ -858,8 +879,9 @@ function renderReview(){
   if(LIVE?.running || LIVE?.preparing) box.append(el("p","当前已有任务运行，不能同时启动另一任务。表单输入会保留。","notice warning"));
   box.append(el("p","Worker："+text(values?.worker?.model || "unknown")+"；"+SEMANTIC_ROLES.map(r=>r+"："+roleLabel(values,r)).join("；"),"notice"));
   $("externalConsentLabel").hidden=!hasExternal(values);
+  $("externalConsentText").textContent=hasExternal(values)?consentText(values):"";
   if(hasExternal(values)){
-    const detail=el("details");detail.append(el("summary","本次 GLM 连接参数（已确认值）"));
+    const detail=el("details");detail.append(el("summary","本次外部服务连接参数（已确认值）"));
     const bindings=Object.fromEntries(SEMANTIC_ROLES.filter(r=>values.roles[r].profile!=="codex").map(r=>[r,values.model_profiles.find(p=>p.id===values.roles[r].profile)]));
     detail.append(el("pre",JSON.stringify(bindings,null,2),"diagnostic"));box.append(detail);
   }
@@ -896,10 +918,10 @@ $("btnStart").onclick=()=>{
   if(!SOURCE || SOURCE.project_id!==$("f_project").value || !$("sourceConfirmed").checked){$("sourceConfirmError").textContent="请先读取并确认本次来源摘要。";return;}
   $("sourceConfirmError").textContent="";
   if(!FORM_CONFIG){$("missionParametersError").textContent="请等待配置核对完成，或修正参数后重试。";confirmConfig();return;}
-  if(hasExternal(FORM_CONFIG.values) && !hasCurrentExternalConsent(FORM_CONFIG.values)){clearExternalConsent();$("externalConsentError").textContent="请明确确认本次向 BigModel 发送所选角色材料。";$("externalConsent").focus();return;}
+  if(hasExternal(FORM_CONFIG.values) && !hasCurrentExternalConsent(FORM_CONFIG.values)){clearExternalConsent();$("externalConsentError").textContent="请明确确认向本次列出的各服务发送所选角色材料。";$("externalConsent").focus();return;}
   $("externalConsentError").textContent="";
   $("formSubmitStatus").textContent="正在准备任务与隔离工作区…";
-  writeAction("mission","/api/mission",{external_service_consent:hasExternal(FORM_CONFIG.values)?"bigmodel_general":null,config_snapshot:FORM_CONFIG,forbidden_paths:$("f_forbidden").value,source_revision:SOURCE.revision,project_id:$("f_project").value,objective:$("f_obj").value,acceptance_criteria:$("f_ac").value,allowed_paths:$("f_paths").value,gate_commands:$("f_gate").value,max_subtasks:Number($("f_sub").value),user_instruction:$("f_instr").value},d=>{
+  writeAction("mission","/api/mission",{external_service_consent:externalConsentValue(FORM_CONFIG.values),config_snapshot:FORM_CONFIG,forbidden_paths:$("f_forbidden").value,source_revision:SOURCE.revision,project_id:$("f_project").value,objective:$("f_obj").value,acceptance_criteria:$("f_ac").value,allowed_paths:$("f_paths").value,gate_commands:$("f_gate").value,max_subtasks:Number($("f_sub").value),user_instruction:$("f_instr").value},d=>{
     clearExternalConsent();toast("任务已启动");closeDialog("newMission");FORM_BASE=null;FORM_CONFIG=null;CONFIG_VERSION++;$("missionParameters").replaceChildren();delete $("f_sub").dataset.dirty;SOURCE=null;$("sourceConfirmed").checked=false;openTask(d.mission_id);
   });
 };
@@ -923,6 +945,7 @@ let RETRY_TARGET=null;
 function newAttempt(mid){
   const target={mission_id:mid,config_snapshot:structuredClone(LIVE.default_config)};RETRY_TARGET=target;
   $("retryConsent").checked=false;$("retryConsentLabel").hidden=!hasExternal(target.config_snapshot.values);
+  $("retryConsentText").textContent=hasExternal(target.config_snapshot.values)?consentText(target.config_snapshot.values):"";
   $("retryModels").textContent=SEMANTIC_ROLES.map(r=>r+"："+roleLabel(target.config_snapshot.values,r)).join("；");
   showDialog("retryMission");$("retrySource").textContent="正在读取目标任务的项目…";$("confirmRetry").dataset.blocked="1";$("confirmRetry").disabled=true;
   $("retryError").textContent="";$("confirmRetry").onclick=null;
@@ -933,8 +956,8 @@ function newAttempt(mid){
     Object.assign(target,{project_id:d.project_id,execution_backend:d.execution_backend,source_revision:source?.revision});
     $("retrySource").textContent="任务："+mid+"\n项目："+d.project_id+"\n位置："+(d.project_path || "历史未提供")+"\n后端："+d.execution_backend+(source?"\n"+source.file_count+" 个文件\n\n纳入：\n"+source.files.map(f=>f.path).join("\n")+"\n\n排除：\n"+source.excluded.map(f=>f.path+" · "+f.reason).join("\n"):"\n使用旧 AO 执行路径，启动时仍需核对其前置条件。");
     $("confirmRetry").dataset.blocked="0";$("confirmRetry").disabled=false;$("confirmRetry").onclick=()=>{
-      if(hasExternal(target.config_snapshot.values) && !$("retryConsent").checked){$("retryError").textContent="请确认本次向 BigModel 发送所选角色材料。";return;}
-      target.external_service_consent=hasExternal(target.config_snapshot.values)?"bigmodel_general":null;submitAttempt(target);
+      if(hasExternal(target.config_snapshot.values) && !$("retryConsent").checked){$("retryError").textContent="请确认向本次列出的各服务发送所选角色材料。";return;}
+      target.external_service_consent=externalConsentValue(target.config_snapshot.values);submitAttempt(target);
     };
   });
 }

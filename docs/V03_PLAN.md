@@ -250,6 +250,8 @@ Kimi 官方快速开始目前说明 API Key、模型、base_url 与兼容 API �
 
 ### 7.3 传输与验证结构
 
+P02 本轮授权工程范围（2026-09-09）：Moonshot 国内通用 `https://api.moonshot.cn/v1/chat/completions`、`kimi-k3`，非流式 JSON object + 原本地 Schema/业务校验；`reasoning_effort=low/high/max`、`max_completion_tokens` 含思考，省略服务固定采样参数，不照搬 GLM thinking/temperature/max_tokens。仅语义角色，不接 Kimi Worker、国际/Coding/中转服务。GLM 既有目标与 Codex 默认不变；同名凭据引用按服务隔离、GLM 旧存储不迁移；任务冻结连接，外发确认覆盖实际服务集合，旧 BigModel 许可不授权 Kimi。工程/离线与真实服务/质量/延迟准入分开，后者仍需集中授权验证。参数依据见 [产品说明](../clao/README.md#glm-语义角色配置p01-工程切片)。
+
 ```text
 角色输入（既有 TaskSpec／EvidenceBundle／VerifierInput）
 → 无密钥的 EffectiveModelProfile

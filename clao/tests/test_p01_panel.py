@@ -27,7 +27,7 @@ from tests.test_p01_bigmodel import (glm_http, configuration, profile, envelope,
 def native_vault(monkeypatch):
     assert os.name == 'nt', 'P01 credential acceptance must run on Windows'
     vault = credentials.WindowsCredentials('CLAO-P01-Isolated-Test/' + uuid.uuid4().hex)
-    monkeypatch.setattr(credentials, 'credentials', lambda: vault)
+    monkeypatch.setattr(credentials, 'credentials', lambda service=SERVICE: vault)
     yield vault
     # Never enumerate or access user entries; every touched reference is named here.
     for ref in ('test-key','browser-key'):

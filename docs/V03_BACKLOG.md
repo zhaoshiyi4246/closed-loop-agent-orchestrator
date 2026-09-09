@@ -1,6 +1,6 @@
 # CLAO v0.3 任务与验收台账
 
-版本：0.3-plan-r1 · 2026-09-06。状态：已批准 / IN EFFECT。DOC-00、F01–F05、R01 / R02 已完成（DONE），M0 / M1 / M2 为 `COMPLETE`；U01 / U02 / U03 均已审计合入（`DONE`），U02 两个切片保持 `DONE`；M3 `COMPLETE` 表示本阶段开发与代码审计完成，完整体验与发布验收尚未完成；M4 `IN_PROGRESS`，P01 工程切片已审计合入（`DONE`），整卡 `IN_PROGRESS`，真实 GLM 准入待两家工程接入后集中验证；唯一下一实施任务 P02 `TODO`，尚未开始；其余功能卡状态见下表，原报告的发现不等于已复现或已修复。
+版本：0.3-plan-r1 · 2026-09-06。状态：已批准 / IN EFFECT。DOC-00、F01–F05、R01 / R02 已完成（DONE），M0 / M1 / M2 为 `COMPLETE`；U01 / U02 / U03 均已审计合入（`DONE`），U02 两个切片保持 `DONE`；M3 `COMPLETE` 表示本阶段开发与代码审计完成，完整体验与发布验收尚未完成；M4 `IN_PROGRESS`，P01 工程切片已审计合入（`DONE`），整卡 `IN_PROGRESS`，真实 GLM 准入待两家工程接入后集中验证；当前唯一实施任务 P02 工程切片 `IN_REVIEW`，整卡 `IN_PROGRESS`，真实准入与切换评测待集中验证；其余功能卡状态见下表，原报告的发现不等于已复现或已修复。
 
 设计以 [V03_PLAN.md](V03_PLAN.md) 为准。当前唯一任务由根目录 [PLANS.md](../PLANS.md) 指定。本文件保存每张卡的详细状态和证据，PLANS 不重复整张台账。
 
@@ -44,7 +44,7 @@
 | V03-U02 | M3 | 完整任务GUI与数据接线 | U01/R02/F04 | DONE（首切片 PR #40、完整旅程 PR #41 均再次审计 PASS / merged） |
 | V03-U03 | M3 | 结果中心与独立导出 | U02/F03 | DONE（PR #42 再次外部审计 PASS / merged） |
 | V03-P01 | M4 | 模型配置／凭据与GLM语义后端 | F01/R01/F04 | IN_PROGRESS（工程切片 DONE；真实准入待集中验证） |
-| V03-P02 | M4 | Kimi语义后端与切换评测 | P01 | TODO |
+| V03-P02 | M4 | Kimi语义后端与切换评测 | P01 | IN_PROGRESS（工程切片 IN_REVIEW；真实准入/评测待验证） |
 | V03-P03 | M4 | 第二Worker能力准入决策 | P01/P02；AO官方契约 | TODO |
 | V03-Q01 | M5 | 新Windows产品验收与发布候选 | G1—G4 | TODO |
 
@@ -377,11 +377,21 @@ Windows / CPython 3.12.7 / 产品 venv（Scripts 前置 PATH，`src` 与产品�
 
 ## V03-P02｜Kimi语义后端与切换评测
 
-- 状态：**TODO**，唯一下一实施任务，尚未开始。先完成工程接入与离线验证；两家真实 API 与角色准入后置集中进行，测试要求与费用/外发授权不变。本轮仅收尾 P01 工程切片，不实施 Kimi。
+- 状态：整卡 **IN_PROGRESS**，工程与离线验证切片 **IN_REVIEW**。base `6aefa5f5d2c0aeebcc99b115cf282a181efb73b5`，分支 `codex/v03-p02-kimi-semantic`。本轮国内通用服务工程接入、GLM/Codex 兼容及离线验证；两家真实 API、角色准入与切换质量/延迟评测待集中验证，测试要求与费用/外发授权不变。
 - 对应：A11。依赖：P01的薄transport/本地校验契约。
 - 工作：核对官方Kimi当前API和具体model；实现供应商参数差异，不复制整套角色/Controller；设置页明确数据发送、凭据和支持角色。
 - 必测：与P01相同的协议/错误/安全矩阵；固定任务profile切换；Codex/GLM/Kimi回归；不支持参数保存前拒绝；requested/confirmed模型区分。
 - 完成：一个已验证Kimi profile；与GLM均不是只列在UI；完成批准预算下的质量/延迟评测，已知负例假PASS=0。
+- 本轮工程目标：`moonshot_cn`、固定 `https://api.moonshot.cn/v1/chat/completions`、`kimi-k3`；2026-09-09 核对官方 [模型](https://platform.kimi.com/docs/models)、[K3 参数](https://platform.kimi.com/docs/guide/kimi-k3-quickstart)、[JSON Mode](https://platform.kimi.com/docs/guide/response_format)。Bearer、非流式 JSON object + 原完整本地校验；reasoning_effort low/high/max，max_completion_tokens 含思考；不传 GLM thinking/temperature/max_tokens，不开放国际/Coding/中转。具体范围与参数见 [产品说明](../clao/README.md#glm-语义角色配置p01-工程切片)，不视为账户已获权限。
+- 共用原 BigModelTransport 的完整回复、超时、取消及单层预算，不复制角色/Controller；Planner 两类调用、Auditor、Mission Verifier 可独立混用 Codex/GLM/Kimi，Worker 仍 Codex。旧配置/v1/v2 快照、glm-4.7 与 Codex 默认保持兼容；连接在当前 Mission 固定，默认删除/修改不热切换；缺凭据明确失败。
+- 凭据按原 GLM `CLAO/BigModel` 与新 Kimi `CLAO/MoonshotCN` 隔离，同名引用可分别读写/替换/删除，不枚举或迁移用户凭据。正式 HTTP 使用 service，缺字段的旧请求仍仅 GLM。实际 Windows CredWrite/Read/Delete 在随机测试命名空间验证，两家假 Key，finally 清理并核对不存在；不读用户真实 Key。
+- 外发许可列出实际服务组合，旧 BigModel 单项许可不能授权 Kimi；前后端在 Worker/外发前检查。模型页共用服务/参数/凭据/角色编辑，确认生命周期沿用 P01；保存连接后复用已有有序 HTTP 快照更新默认值，避免首个 SSE 前新草稿仍读旧连接，不改变已有草稿。新草稿清除上一任务准备提示。
+- 最终 Windows 定向：`pytest tests/test_p02_kimi.py tests/test_p01_panel.py::test_browser_profiles_credentials_consent_and_real_pipeline tests/test_p01_panel.py::test_audit_browser_consent_scope_and_new_missions tests/test_f04_panel_boundaries.py::test_real_browser_text_rendering_nonce_and_pending_writes -q --tb=short`：**65 passed / 133.90s**。两个独立本地 HTTP 替身验证地址/Key/模型/参数/材料归属；实际语义 Provider 与 Controller/Git/SQLite/HTTP 路径，替身仅在外部边界；覆盖混合/纯服务、正式 CLI、冻结/历史、合法 FAIL、错误 ID/AC/JSON、拒绝/截断、401/429/超时/取消、缺确认无外发、包下载无 Key/原目录不写回。浏览器四任务旅程覆盖同草稿、跨项目/角色/服务、新默认、Codex、历史重新执行、诊断及写保护，配置与持久快照核对一致。
+- Codex/停止兼容：`pytest tests/test_codex_planner.py tests/test_codex_auditor.py tests/test_codex_verifier.py tests/test_u02_local_execution.py::test_failed_or_unknown_worker_cannot_become_mission_success tests/test_u02_local_execution.py::test_interrupt_ack_is_not_stop_fact tests/test_u02_local_execution.py::test_green_worker_with_red_real_gate_is_not_done -q --tb=short`：**41 passed / 24.17s**。P01 原 HTTP/凭据/Panel 文件在本轮首轮与复查中通过，集合重叠不累计为全量。
+- 首轮 P02/P01 集合 95 passed / 9 failed：新 HTTP 夹具重复 model 参数、AC 类别断言及 300ms 测试进程启动时限已修正（语义路由测试明确使用 3s 启动/1s send/kill）；浏览器暴露保存连接到新草稿的快照接线问题已修复。其后 68 passed / 1 failed 为新浏览器角色大小写/文案断言，确认文案统一角色名称并通过上述最终集合。保留失败用例及边界断言，未用重试掩盖 Worker UNKNOWN。
+- 实际 Edge 截图（Codex 自查，非负责人体验验收）：[连接与凭据](assets/p02-models/p02-models-light.png)、[混合服务确认](assets/p02-models/p02-mixed-confirmation.png)、[任务模型诊断](assets/p02-models/p02-model-diagnostics.png)。正常查看：`clao/启动CLAO.bat` → 模型/新建任务；离线复现配置既有 U01_NODE / NODE_PATH 后 `pytest tests/test_p02_kimi.py -k browser -q -s`，可用 P02_SCREENSHOTS 指定截图位置。开发脚本复用 `dev/panel/p01-consent.cjs`，不成为产品预览或运行资源。
+- 静态检查：产品与相关测试 compileall、产品/开发 JS 语法、diff-check 通过；6 个现有文档的 81 个本地链接与 18 个锚点有效。现有 manifest 的 panel/src/tests 前缀覆盖本轮修改，未新增 runtime 依赖或执行发行构建。
+- NOT_RUN：真实 GLM/Kimi/Codex/AO 请求、实际角色准入与质量/延迟/费用评测、全量、干净安装、发行打包、smoke、负责人完整 GUI 体验及发布验收。真实验证待两家工程审计合入后确认服务/型号权限、材料与费用/次数/时长预算；不索取或使用真实 Key。P01 工程 DONE、整卡 IN_PROGRESS；M4 IN_PROGRESS，M0–M3 COMPLETE；P03/闭环视图/安装器未开始，提交 PR 后停止待审计。
 - 不做：猜测ChatGPT订阅覆盖API；以一次OK响应宣称全角色可用。
 - 证据：待填。
 

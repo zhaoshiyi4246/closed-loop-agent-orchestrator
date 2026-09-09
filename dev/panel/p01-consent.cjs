@@ -1,7 +1,9 @@
 /* Production Panel/Controller; only isolated external engine/model boundaries. */
 const {chromium}=require('playwright');
 const assert=require('node:assert/strict');
-const [origin,projectA,projectB]=process.argv.slice(2);
+const fs=require('node:fs'),path=require('node:path');
+const [origin,projectA,projectB,mode,out]=process.argv.slice(2);
+const kimi=mode==='kimi',secondary=kimi?'kimi-review':'glm-other';
 (async()=>{
  const browser=await chromium.launch({channel:'msedge',headless:true});
  try{
@@ -43,7 +45,7 @@ const [origin,projectA,projectB]=process.argv.slice(2);
    const res=await response,data=await res.json();assert.equal(res.status(),200,JSON.stringify(data));
    assert.equal(writes.length,before+1);const sent=writes.at(-1);
    assert.equal(sent.project_id,expectedProject);assert.deepEqual(sent.config_snapshot,snapshot);
-   assert.equal(sent.external_service_consent,external?'bigmodel_general':null);
+   assert.deepEqual(sent.external_service_consent,Array.isArray(external)?external:external?'bigmodel_general':null);
    await page.waitForFunction(()=>!document.getElementById('newMission').open);
    assert.equal(await consent(),false);
    await completed(data.mission_id);
@@ -54,6 +56,25 @@ const [origin,projectA,projectB]=process.argv.slice(2);
    return data.mission_id;
   }
   await page.goto(origin);await page.waitForFunction(()=>LIVE?.default_config && PROJECTS.length===2);
+  if(kimi){
+   // Manage both services through the same production page. Test credentials
+   // reach only isolated Windows targets supplied by the Python fixture.
+   await navigate('models');await page.waitForFunction(()=>loadConnections.values && !loadConnections.pending);
+   await page.locator('#connectionEditor summary').click();await page.selectOption('#profile_service','moonshot_cn');
+   assert.equal(await page.inputValue('#profile_model'),'kimi-k3');
+   assert(await page.locator('#profile_thinking').isDisabled());assert(await page.locator('#profile_temperature').isHidden());
+   await page.fill('#profile_id','kimi-review');await page.fill('#profile_credential_ref','test-key');
+   await page.fill('#profile_timeout_seconds','3.125');await page.fill('#profile_retry_delay_seconds','0');
+   await page.selectOption('#profile_reasoning_effort','low');await page.fill('#profile_max_completion_tokens','8192');
+   await page.click('#saveProfile');await page.waitForFunction(()=>!PENDING.has('model-config') && loadConnections.values.model_profiles.some(p=>p.id==='kimi-review'));
+   await page.selectOption('#credentialService','moonshot_cn');await page.fill('#credentialRef','test-key');
+   await page.fill('#credentialValue','p02-fake-kimi-not-a-real-key');await page.click('#saveCredential');
+   await page.waitForFunction(()=>!PENDING.has('credential') && document.getElementById('credentialStatus').textContent.includes('已保存'));
+   assert.equal(await page.inputValue('#credentialValue'),'');
+   assert.match(await page.locator('#credentialStatus').textContent(),/Kimi/);
+   fs.mkdirSync(out,{recursive:true});await page.screenshot({path:path.join(out,'p02-models-light.png'),fullPage:true});
+   await navigate('overview');
+  }
   await page.click('#btnNew');await page.selectOption('#f_project',projectA);
   await page.waitForFunction(()=>SOURCE && !PENDING.has('source'));
   await page.click('#stepNext');await page.fill('#f_obj','外发草稿 中文 <tag> "');await page.fill('#f_ac','x equals 2');
@@ -72,7 +93,7 @@ const [origin,projectA,projectB]=process.argv.slice(2);
   // Project identity, role set and connection identity each retire consent.
   await changeProject(projectB);assert.equal(await consent(),false);await page.check('#externalConsent');
   await changeProject(projectA);assert.equal(await consent(),false);await page.check('#externalConsent');
-  await bind('verifier','glm-other');assert.equal(await consent(),false);await page.check('#externalConsent');
+  await bind('verifier',secondary);assert.equal(await consent(),false);await page.check('#externalConsent');
   await bind('auditor','glm-review');assert.equal(await consent(),false);await page.check('#externalConsent');
   await bind('auditor','codex');assert.equal(await consent(),false);
   await bind('verifier','codex');assert(await page.locator('#externalConsentLabel').isHidden());
@@ -80,15 +101,28 @@ const [origin,projectA,projectB]=process.argv.slice(2);
   const a=await start(projectA,true);
 
   // A completed submission cannot authorize B, even on the same project.
-  await defaults('glm-other','glm-other');await openDraft();
+  await defaults(kimi?'glm-review':secondary,secondary);await openDraft();
+  assert.equal(await page.locator('#formSubmitStatus').textContent(),'');
   assert.equal(await consent(),false);assert.equal(await page.inputValue('#f_project'),projectA);
-  assert.equal(await page.inputValue('#mission_profile_auditor'),'glm-other');await blockedStart();
+  assert.equal(await page.inputValue('#mission_profile_auditor'),kimi?'glm-review':secondary);await blockedStart();
   await changeProject(projectB);assert.equal(await consent(),false);await blockedStart();await page.check('#externalConsent');
   const bSnapshot=await page.evaluate(()=>FORM_CONFIG);
+  if(kimi){
+   const text=await page.locator('#externalConsentText').textContent();assert.match(text,/Auditor → BigModel/);assert.match(text,/Verifier → Kimi/);
+   assert.equal(bSnapshot.values.model_profiles.find(p=>p.id===secondary).reasoning_effort,'low');
+   await page.screenshot({path:path.join(out,'p02-mixed-confirmation.png'),fullPage:true});
+  }
   // New defaults affect C; B's already confirmed draft still submits its frozen selection.
   await page.click('#closeMission');await defaults('codex','codex');await openDraft();
   assert.equal(await consent(),true);assert.deepEqual(await page.evaluate(()=>FORM_CONFIG),bSnapshot);
-  const b=await start(projectB,true);assert.notEqual(a,b);
+  const b=await start(projectB,kimi?['bigmodel_general','moonshot_cn']:true);assert.notEqual(a,b);
+  if(kimi){
+   const fact=await page.evaluate(()=>LIVE.phases.roles.verifier);
+   assert.equal(fact.provider,'moonshot_cn');assert.equal(fact.requested_model,'kimi-k3');assert.equal(fact.confirmed_model,'returned-moonshot_cn');assert.equal(fact.cost,null);
+   await navigate('models');await page.locator('details').filter({has:page.locator('#modelStatus')}).locator('summary').click();
+   const text=await page.locator('#modelStatus').textContent();assert.match(text,/verifier：请求=kimi-k3/);assert.match(text,/外部确认=returned-moonshot_cn/);assert.match(text,/cost=unknown/);
+   await page.locator('#modelStatus').screenshot({path:path.join(out,'p02-model-diagnostics.png')});
+  }
 
   // Pure Codex has no external consent and still runs the real closed loop.
   await openDraft();assert(await page.locator('#externalConsentLabel').isHidden());assert.equal(await consent(),false);
@@ -110,6 +144,6 @@ const [origin,projectA,projectB]=process.argv.slice(2);
   assert.equal(writes.at(-1).external_service_consent,'bigmodel_general');assert.deepEqual(writes.at(-1).config_snapshot,retrySnapshot);
   await completed(data.mission_id);assert.equal(await page.evaluate(()=>LIVE.mission.previous_attempt),a);
   assert.deepEqual(errors,[]);assert.equal(writes.length,4);
-  console.log('P01 consent browser PASS: draft/project/role/connection scope, A/B/default freeze, Codex and historical rerun; 4 actual isolated missions');
+  console.log((kimi?'P02 mixed-service':'P01')+' consent browser PASS: draft/project/role/connection scope, A/B/default freeze, Codex and historical rerun; 4 actual isolated missions');
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});
