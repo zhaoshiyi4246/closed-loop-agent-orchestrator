@@ -614,37 +614,138 @@ function renderWorkbench(s){
 /* ---------------- navigation, dialogs and progressive form ---------------- */
 const SEMANTIC_ROLES=["planner","auditor","verifier"];
 const MODEL_SERVICES={
-  bigmodel_general:{label:"BigModel",endpoint:"https://open.bigmodel.cn/api/paas/v4/chat/completions",model:"glm-4.7",fields:["thinking","max_tokens","temperature"],note:"GLM thinking 开关及 Temperature 按下列设置发送；Codex effort 不适用。"},
-  moonshot_cn:{label:"Kimi 国内通用服务",endpoint:"https://api.moonshot.cn/v1/chat/completions",model:"kimi-k3",fields:["reasoning_effort","max_completion_tokens"],note:"K3 始终思考；生成上限含思考。temperature=1、top_p=0.95 等采样值由服务固定，不发送 GLM thinking/temperature/max_tokens。"}
+  codex_account:{label:"Codex · ChatGPT 账号",model:"gpt-5.6-sol",native:true},
+  codex_api:{label:"Codex · API",model:"gpt-5.6-sol",native:true},
+  claude_account:{label:"Claude Code · 账号",native:true},
+  claude_api:{label:"Claude Code · API",native:true},
+  bigmodel_general:{label:"BigModel · GLM API",model:"glm-5.3"},
+  bigmodel_coding:{label:"GLM · Coding Plan",model:"glm-5.3",native:true},
+  moonshot_cn:{label:"Kimi · 国内 API",model:"kimi-k3"}
 };
 const serviceLabel=service=>MODEL_SERVICES[service]?.label || "未知服务";
-const profileFields=service=>["id","credential_ref","model","timeout_seconds","max_attempts","retry_delay_seconds",...MODEL_SERVICES[service].fields];
-const PROFILE_NUMBERS=new Set(["timeout_seconds","max_attempts","retry_delay_seconds","max_tokens","temperature","max_completion_tokens"]);
-function showProfileService(){
-  const service=$("profile_service").value, info=MODEL_SERVICES[service];
-  const option=el("option",info.model+" · 真实准入待验证");option.value=info.model;$("profile_model").replaceChildren(option);
-  document.querySelectorAll("[data-profile-service]").forEach(n=>{n.hidden=n.dataset.profileService!==service;for(const control of n.querySelectorAll("input,select"))control.disabled=n.hidden;});
-  $("profileServiceNote").textContent=info.endpoint+"；"+info.note+" 国际/中转/Coding 服务不适用。保存只做本地校验，不发模型请求。";
+let EXECUTOR_INFO={}, TERMINAL_SOURCE=null, TERMINAL_OPERATION=null, TERMINAL_SOURCE_VERSION=0;
+let EDIT_PROFILE=null, MODEL_PARAMETER_VERSION=0, MODEL_CATALOG_VERSION=0, MODEL_CATALOG=null;
+const CONNECTION_METHODS={codex:[["codex_account","ChatGPT 账号"],["codex_api","API Key · 按量"]],claude:[["claude_account","原生账号"],["claude_api","API Key · 按量"]],glm:[["bigmodel_general","标准 API · 按量"],["bigmodel_coding","Coding Plan · Claude Code"]],kimi:[["moonshot_cn","国内 API · 按量"]]};
+const NATIVE_DEFAULT_SERVICES=["codex_account","codex_api","claude_account","claude_api"];
+const PROVIDER_NAMES={codex:"Codex",claude:"Claude Code",glm:"GLM",kimi:"Kimi API"};
+function selectConnectionMethods(service){
+  const provider=Object.keys(CONNECTION_METHODS).find(k=>CONNECTION_METHODS[k].some(([v])=>v===service)) || $("profile_provider").value;
+  if(service)$("profile_kind").value=["glm","kimi"].includes(provider)?"service":"executor";
+  const kind=$("profile_kind").value,choices=Object.keys(CONNECTION_METHODS).filter(k=>(["glm","kimi"].includes(k)?"service":"executor")===kind);
+  $("profile_provider").replaceChildren(...choices.map(k=>{const o=el("option",PROVIDER_NAMES[k] || k);o.value=k;return o;}));
+  if(choices.includes(provider))$("profile_provider").value=provider;
+  const actual=$("profile_provider").value;
+  $("profile_auth").replaceChildren(...CONNECTION_METHODS[actual].map(([v,label])=>{const o=el("option",label);o.value=v;return o;}));
+  if(service)$("profile_auth").value=service;$("profile_service").value=$("profile_auth").value;
 }
-$("profile_service").onchange=showProfileService;showProfileService();
+$("profile_kind").onchange=()=>{selectConnectionMethods();showProfileService();};
+$("profile_provider").onchange=()=>{selectConnectionMethods();showProfileService();};
+$("profile_auth").onchange=()=>{$("profile_service").value=$("profile_auth").value;showProfileService();};
+function updateModelSelection(){
+  const model=$("profile_model").value;
+  $("openModelPicker").textContent=model || (NATIVE_DEFAULT_SERVICES.includes($("profile_service").value)?"执行器自动选择（不覆盖）":"选择模型");
+  $("customModelId").value=model;
+}
+function chooseModel(value){$("profile_model").value=value;updateModelSelection();closeModelPicker();refreshParameters();}
+function closeModelPicker(restoreFocus=true){ $("modelPicker").hidden=true;$("openModelPicker").setAttribute("aria-expanded","false");if(restoreFocus)$("openModelPicker").focus(); }
+function renderModelOptions(){
+  const term=$("modelSearch").value.trim().toLowerCase(), current=$("profile_model").value;
+  const matches=(MODEL_CATALOG?.models || []).filter(m=>[m.id,m.label,m.description,m.provider].filter(Boolean).join(" ").toLowerCase().includes(term));
+  $("modelOptions").replaceChildren(...matches.map(m=>{
+    const button=el("button",null);button.type="button";button.setAttribute("role","option");button.setAttribute("aria-selected",String(m.id===current));button.dataset.modelId=m.id;
+    button.append(el("span",m.label || m.id));const meta=[m.id!==m.label?m.id:null,m.provider,m.is_default?"执行器报告的默认型号":null,m.id===current?"当前选择":null].filter(Boolean);
+    if(meta.length)button.append(el("small",meta.join(" · ")));if(m.description)button.append(el("small",m.description));button.onclick=()=>chooseModel(m.id);return button;
+  }));$("modelEmpty").hidden=matches.length>0;
+}
+$("openModelPicker").onclick=async()=>{
+  const trigger=$("openModelPicker"),box=trigger.getBoundingClientRect(),width=Math.min(box.width,innerWidth-32),height=Math.min(430,innerHeight*.65);
+  $("modelPicker").style.width=width+"px";$("modelPicker").style.left=Math.max(16,Math.min(box.left,innerWidth-width-16))+"px";
+  $("modelPicker").style.top=Math.max(16,Math.min(box.bottom+6,innerHeight-height-90))+"px";
+  $("modelPicker").hidden=false;$("openModelPicker").setAttribute("aria-expanded","true");$("modelSearch").value="";renderModelOptions();$("modelSearch").focus();
+  if(!MODEL_CATALOG || MODEL_CATALOG.status==="not_checked")await showModelCatalog(true);
+};
+document.addEventListener("pointerdown",event=>{if(!$("modelPicker").hidden && !$("modelPicker").contains(event.target) && !$("openModelPicker").contains(event.target))closeModelPicker(false);});
+window.addEventListener("resize",()=>{if(!$("modelPicker").hidden)closeModelPicker(false);});
+$("closeModelPicker").onclick=closeModelPicker;$("modelSearch").oninput=renderModelOptions;
+$("modelPicker").onkeydown=e=>{if(e.key==="Escape"){e.preventDefault();closeModelPicker();}else if(["ArrowDown","ArrowUp"].includes(e.key)){
+  const buttons=[...$("modelOptions").querySelectorAll("button")];if(!buttons.length)return;e.preventDefault();const index=buttons.indexOf(document.activeElement);buttons[(index+(e.key==="ArrowDown"?1:-1)+buttons.length)%buttons.length].focus();
+}};
+$("applyCustomModel").onclick=()=>chooseModel($("customModelId").value.trim());
+async function post(path,body){
+  const response=await fetch(path,{method:"POST",headers:{"Content-Type":"application/json","X-Panel-Nonce":PANEL_NONCE},body:JSON.stringify(body)});
+  const data=await response.json();if(!response.ok || !data.ok)throw new Error(data.error || "请求失败");return data;
+}
+const parameterLabel={thinking:"思考模式",reasoning_effort:"推理强度",temperature:"Temperature",max_tokens:"最大输出 token",max_completion_tokens:"总生成 token（含思考）"};
+function displayParameters(params){
+  const box=$("profileParameters");box.replaceChildren();
+  for(const [name,value] of Object.entries(params)){
+    const label=el("label",parameterLabel[name] || name),input=el(typeof value==="number"?"input":"select");input.id="profile_"+name;input.dataset.parameter=name;
+    if(typeof value==="number"){input.type="number";input.step=name==="temperature"?"0.01":"1";input.value=value;}
+    else{const options=name==="thinking"?($("profile_model").value==="glm-5.3"?["enabled"]:["enabled","disabled"]):["low","high","max"];for(const v of options){const o=el("option",v);o.value=v;input.append(o);}input.value=value;}
+    label.append(input);box.append(label);
+  }
+  $("profileServiceNote").textContent=Object.keys(params).length?"参数按当前型号发送。":"使用服务或执行器默认参数，仍校验完整结构化结果。";
+}
+async function refreshParameters(){
+  const version=++MODEL_PARAMETER_VERSION;$("saveProfile").dataset.blocked="1";$("saveProfile").disabled=true;
+  try{const d=await post("/api/model-parameters",{service:$("profile_service").value,model:$("profile_model").value});if(version!==MODEL_PARAMETER_VERSION)return;displayParameters(d.parameters);$("saveProfile").dataset.blocked="0";uiError("model-config",null);}
+  catch(error){if(version===MODEL_PARAMETER_VERSION)uiError("model-config",error.message);}
+  finally{if(version===MODEL_PARAMETER_VERSION)syncButtons();}
+}
+function showProfileService(resetModel=true){
+  MODEL_PARAMETER_VERSION++;MODEL_CATALOG_VERSION++;MODEL_CATALOG=null;$("modelPicker").hidden=true;$("openModelPicker").setAttribute("aria-expanded","false");
+  const service=$("profile_service").value, info=MODEL_SERVICES[service];
+  $("profileAdvanced").hidden=!!info.terminal;
+  selectConnectionMethods(service);
+  const account=["codex_account","claude_account"].includes(service) || !!info.terminal;
+  $("profile_key_label").hidden=account;$("nativeLogin").hidden=!account;$("codingSetup").hidden=service!=="bigmodel_coding";
+  $("nativeLoginDocs").href=service==="claude_account"?"https://code.claude.com/docs/en/authentication":"https://developers.openai.com/codex/auth/";$("nativeLoginStatus").textContent="";
+  const executor=info.executor || (service==="codex_account"?"codex":"claude-code"),native=EXECUTOR_INFO[executor];
+  if(account && native){$("nativeLoginDocs").href=native.documentation;$("startNativeLogin").disabled=!native.login_supported;$("nativeLoginStatus").textContent=native.installed?"登录状态尚未检查":"未找到原生工具，请使用安装入口。";}
+  $("modelFieldLabel").textContent=executor==="amp"?"运行模式":"模型";
+  $("profile_key").value="";
+  if(resetModel){$("profile_model").value="";$("profile_max_attempts").value=info.native?1:2;$("profile_retry_delay_seconds").value=info.native?0:1;displayParameters({});$("saveProfile").dataset.blocked="0";syncButtons();}
+  $("profile_max_attempts").disabled=!!info.native;$("profile_retry_delay_seconds").disabled=!!info.native;
+  $("refreshModelCatalog").disabled=false;$("defaultProfileModel").hidden=!NATIVE_DEFAULT_SERVICES.includes(service);
+  $("catalogStatus").textContent="";updateModelSelection();
+}
+$("profile_service").onchange=()=>showProfileService();
+$("profile_model").onchange=()=>{updateModelSelection();refreshParameters();};
+$("defaultProfileModel").onclick=()=>chooseModel("");
+function newProfile(){EDIT_PROFILE=null;$("profile_label").value="";$("profile_timeout_seconds").value=180;showProfileService();}
+$("newProfile").onclick=newProfile;
+async function nativeLoginAction(action){
+  const service=$("profile_service").value, version=MODEL_PARAMETER_VERSION;
+  if(!["codex_account","claude_account"].includes(service) && !MODEL_SERVICES[service]?.terminal || PENDING.has("native-login"))return;
+  PENDING.add("native-login");$("startNativeLogin").disabled=true;$("checkNativeLogin").disabled=true;
+  try{const d=await post("/api/native-auth",{executor:MODEL_SERVICES[service]?.executor || (service==="codex_account"?"codex":"claude-code"),action});
+    if(service!==$("profile_service").value || version!==MODEL_PARAMETER_VERSION)return;
+    const a=d.authentication,expected={codex_account:"chatgpt",claude_account:"claude.ai"}[service];
+    const accountConfirmed=a.auth==="connected" && (!expected || a.method===expected);
+    $("nativeLoginStatus").textContent=action==="login"?"请在原生窗口完成连接"+(a.instruction?"，输入 "+a.instruction:"")+"，然后检查状态。":a.installed===false?"PATH 中未找到工具，请检查安装位置。":accountConfirmed?"已登录":a.auth==="connected" && expected?"当前认证未确认为所选账号方式，请检查原生登录或改选 API 连接。":a.auth==="login_required"?"需要登录":a.error || "登录状态尚不能确认";
+    if(action==="status" && accountConfirmed)await showModelCatalog(true);
+  }catch(e){if(service===$("profile_service").value)$("nativeLoginStatus").textContent=e.message;}
+  finally{PENDING.delete("native-login");$("startNativeLogin").disabled=EXECUTOR_INFO[MODEL_SERVICES[$("profile_service").value]?.executor]?.login_supported===false;$("checkNativeLogin").disabled=false;}
+}
+$("startNativeLogin").onclick=()=>nativeLoginAction("login");$("checkNativeLogin").onclick=()=>nativeLoginAction("status");
 function roleLabel(values,role){
   if(!values) return "unknown";
-  const id=values.roles?.[role]?.profile || "codex";
+  const id=(role==="worker"?values.worker:values.roles?.[role])?.profile || "codex";
   const profile=values.model_profiles?.find(p=>p.id===id);
-  return id==="codex"?"Codex · "+text(values.roles?.[role]?.model || "unknown"):
-    profile?serviceLabel(profile.service)+" · "+profile.model+" · "+id+" · "+profile.timeout_seconds+"秒 / 最多"+profile.max_attempts+"次":"连接缺失";
+  return id==="codex"?"Codex · "+text((role==="worker"?values.worker:values.roles?.[role])?.model || "unknown"):
+    profile?serviceLabel(profile.service)+" · "+(profile.model || "执行器自动选择")+" · "+(profile.label || id):"连接缺失";
 }
-function hasExternal(values){return SEMANTIC_ROLES.some(r=>values?.roles?.[r]?.profile && values.roles[r].profile!=="codex");}
-function externalBindings(values){return SEMANTIC_ROLES.flatMap(role=>{const p=values?.model_profiles?.find(p=>p.id===values.roles?.[role]?.profile);return p?[[role,p]]:[];});}
+function hasExternal(values){return externalBindings(values).length>0;}
+function externalBindings(values){return SEMANTIC_ROLES.flatMap(role=>{const p=values?.model_profiles?.find(p=>p.id===values.roles?.[role]?.profile);return p && !["codex_api","codex_account"].includes(p.service)?[[role,p]]:[];});}
 function externalConsentValue(values){
   const services=[...new Set(externalBindings(values).map(([,p])=>p.service))].sort();
   return services.length===1 && services[0]==="bigmodel_general"?"bigmodel_general":services.length?services:null;
 }
-function consentText(values){return "同意本次 "+externalBindings(values).map(([r,p])=>({planner:"规划 Planner",auditor:"审计 Auditor",verifier:"复核 Verifier"})[r]+" → "+serviceLabel(p.service)).join("；")+" 发送任务目标、规划上下文、代码差异及验收证据，可能计费。取消本地等待不保证服务端停止计算或计费；真实角色准入尚未验证。";}
+function consentText(values){return "同意本次 "+externalBindings(values).map(([r,p])=>({planner:"规划 Planner",auditor:"审计 Auditor",verifier:"复核 Verifier"})[r]+" → "+serviceLabel(p.service)).join("；")+" 发送任务目标、规划上下文、代码差异及验收证据，可能计费。";}
 function externalConsentScope(values){
   if(!$("f_project").value || !hasExternal(values)) return null;
   // Bind only the sending scope, not unrelated draft text or polling/config revisions.
-  const roles=SEMANTIC_ROLES.filter(r=>values.roles[r].profile!=="codex").map(role=>{
+  const roles=externalBindings(values).map(([role])=>{
     const profile=values.model_profiles.find(p=>p.id===values.roles[role].profile);
     return [role,...["id","service","endpoint","model","credential_ref"].map(k=>profile?.[k])];
   });
@@ -662,57 +763,118 @@ $("externalConsent").onchange=()=>{
 };
 function renderBindings(id,values,prefix,change){
   const box=$(id);box.replaceChildren();
-  for(const role of SEMANTIC_ROLES){const label=el("label",({planner:"规划 · Planner",auditor:"审计 · Auditor",verifier:"最终复核 · Verifier"})[role]),select=el("select");select.id=prefix+role;
-    for(const [value,name] of [["codex","Codex · 现有 CLI"],...(values.model_profiles || []).map(p=>[p.id,p.id+" · "+serviceLabel(p.service)+" / "+p.model])]){const option=el("option",name);option.value=value;select.append(option);}
-    select.value=values.roles?.[role]?.profile || "codex";if(change)select.onchange=change;label.append(select);box.append(label);
+  for(const role of ["worker",...SEMANTIC_ROLES]){const label=el("label",({worker:"执行 · Worker",planner:"规划 · Planner",auditor:"审计 · Auditor",verifier:"最终复核 · Verifier"})[role]),select=el("select");select.id=prefix+role;
+    for(const [value,name] of [["codex","Codex · 当前账号 / "+(role==="worker"?values.worker.model:values.roles[role].model)],...(values.model_profiles || []).filter(p=>!MODEL_SERVICES[p.service]?.terminal && (role!=="worker" || ["codex_account","codex_api"].includes(p.service))).map(p=>[p.id,(p.label || p.id)+" · "+serviceLabel(p.service)+" / "+(p.model || "执行器自动选择")])]){const option=el("option",name);option.value=value;select.append(option);}
+    select.value=(role==="worker"?values.worker:values.roles?.[role])?.profile || "codex";if(change)select.onchange=change;label.append(select);box.append(label);
   }
 }
 async function loadConnections(){
   if(loadConnections.pending) return;loadConnections.pending=true;
   try{
     const [a,b]=await Promise.all([fetch("/api/model-connections"),fetch("/api/state")]);
-    const status=await a.json(),state=await b.json();if(!a.ok || !status.ok || !b.ok || !state.default_config) throw new Error(status.error || state.error || "配置读取失败");
-    // Only explicit settings reads refresh these controls; SSE never erases a draft.
-    // Reuse the ordered snapshot already read above so an immediately opened
-    // new draft sees saved connections without waiting for the next SSE tick.
-    // Existing FORM_BASE/consent remains frozen for an unsubmitted draft.
-    acceptSnapshot(state);loadConnections.values=LIVE.default_config.values;
+    const status=await a.json(),state=await b.json();if(!a.ok || !status.ok || !b.ok || !state.default_config)throw new Error(status.error || "配置读取失败");
+    for(const e of status.executors || [])EXECUTOR_INFO[e.id]=e;
+    for(const info of status.services || [])if(info.terminal && !MODEL_SERVICES[info.id]){
+      MODEL_SERVICES[info.id]={...info,native:true};CONNECTION_METHODS["tool_"+info.executor]=[[info.id,"原生工具认证"]];NATIVE_DEFAULT_SERVICES.push(info.id);
+      PROVIDER_NAMES["tool_"+info.executor]=info.label;
+      const service=el("option",info.label);service.value=info.id;$("profile_service").append(service);
+    }
+    acceptSnapshot(state);loadConnections.values=LIVE.default_config.values;loadConnections.revision=LIVE.default_config.revision;
     const box=$("connectionList");box.replaceChildren();
     for(const row of status.connections){const item=el("div",null,"list-row"),body=el("div",null,"grow");
-      body.append(el("h3",row.id+" · "+serviceLabel(row.service)+" · "+row.model),el("p","配置已保存 · 本地参数校验通过 · 凭据"+({configured:"已保存",missing:"未配置",unavailable:"存储不可用"}[row.credential_status] || "未知")),el("p","配置检查未发送模型请求；Planner / Auditor / Verifier 真实角色准入待验证","subtle"));
-      const edit=el("button","编辑");edit.onclick=()=>{const p=loadConnections.values.model_profiles.find(p=>p.id===row.id);$("profile_service").value=p.service;showProfileService();for(const key of profileFields(p.service))$("profile_"+key).value=p[key];$("connectionEditor").open=true;$("profile_id").focus();};
-      const remove=actionButton("删除连接","model-config",()=>saveModelConfig({model_profiles:loadConnections.values.model_profiles.filter(p=>p.id!==row.id)}));item.append(body,edit,remove);box.append(item);
+      const statusText=el("span",connectionState(row.catalog_status,row.credential_status));statusText.dataset.connectionStatus=row.id;
+      const description=el("p",serviceLabel(row.service)+" · "+(row.model || "执行器自动选择")+" · ");description.append(statusText);
+      body.append(el("h3",row.label || row.id),description);
+      const edit=el("button","编辑");edit.onclick=()=>{
+        MODEL_PARAMETER_VERSION++;$("saveProfile").dataset.blocked="0";syncButtons();
+        EDIT_PROFILE=structuredClone(loadConnections.values.model_profiles.find(p=>p.id===row.id));const p=EDIT_PROFILE;$("profile_service").value=p.service;showProfileService(false);
+        $("profile_label").value=p.label || p.id;$("profile_model").value=p.model;updateModelSelection();
+        for(const key of ["timeout_seconds","max_attempts","retry_delay_seconds"])$("profile_"+key).value=p[key];
+        const params=p.parameters || Object.fromEntries(Object.keys(parameterLabel).filter(k=>k in p).map(k=>[k,p[k]]));displayParameters(params);
+        $("connectionEditor").open=true;$("profile_label").focus();showModelCatalog(false);
+      };
+      const remove=actionButton("移除","model-config",()=>writeAction("model-config","/api/model-connections",{action:"delete",id:row.id,revision:loadConnections.revision},loadConnections));item.append(body,edit,remove);box.append(item);
     }
-    if(!status.connections.length) box.append(el("p","尚未配置外部语义连接。当前默认仍为 Codex。","subtle"));
-    renderBindings("roleBindings",loadConnections.values,"default_profile_");
-    uiError("model-config",null);
+    if(!status.connections.length)box.append(el("p","使用当前 Codex 账号。添加连接以选择其他账号方式或服务。","subtle"));
+    renderBindings("roleBindings",loadConnections.values,"default_profile_");await loadTerminalChoices();uiError("model-config",null);
   }catch(error){uiError("model-config",error.message);}finally{loadConnections.pending=false;}
 }
-async function saveModelConfig(updates){
-  return writeAction("model-config","/api/config",updates,async()=>{
-    $("modelConfigStatus").textContent="默认设置已保存；本次未发送模型请求。";await loadConnections();
-  });
-}
+async function saveModelConfig(updates){return writeAction("model-config","/api/config",updates,async()=>{$("modelConfigStatus").textContent="新任务默认设置已保存。";await loadConnections();});}
 $("refreshConnections").onclick=loadConnections;
 $("saveProfile").dataset.writeKey="model-config";$("saveBindings").dataset.writeKey="model-config";
-$("saveProfile").onclick=()=>{
-  if(!loadConnections.values){uiError("model-config","请先读取配置。" );return;}
-  const service=$("profile_service").value,profile={service,endpoint:MODEL_SERVICES[service].endpoint};for(const key of profileFields(service)){const value=$("profile_"+key).value;profile[key]=PROFILE_NUMBERS.has(key)?(value.trim()?Number(value):null):value;}
-  const profiles=structuredClone(loadConnections.values.model_profiles || []),index=profiles.findIndex(p=>p.id===profile.id);if(index>=0) profiles[index]=profile;else profiles.push(profile);
-  saveModelConfig({model_profiles:profiles});
+$("saveProfile").onclick=async()=>{
+  if(PENDING.has("model-config") || !loadConnections.values)return;
+  const editorVersion=MODEL_PARAMETER_VERSION;
+  const parameters={};for(const input of $("profileParameters").querySelectorAll("[data-parameter]"))parameters[input.dataset.parameter]=input.type==="number"?(input.value.trim()?Number(input.value):null):input.value;
+  const body={action:"save",revision:loadConnections.revision,id:EDIT_PROFILE?.id,label:$("profile_label").value,service:$("profile_service").value,model:$("profile_model").value,parameters};
+  for(const k of ["timeout_seconds","max_attempts","retry_delay_seconds"])body[k]=$("profile_"+k).value.trim()?Number($("profile_"+k).value):null;
+  if($("profile_key").value)body.key=$("profile_key").value;$("profile_key").value="";
+  await writeAction("model-config","/api/model-connections",body,async d=>{
+    if(editorVersion===MODEL_PARAMETER_VERSION){
+      const saved=d.config.values.model_profiles;EDIT_PROFILE=structuredClone(saved.find(p=>p.id===body.id) || saved.at(-1));
+      $("refreshModelCatalog").disabled=false;
+    }
+    $("modelConfigStatus").textContent="连接已配置。";await loadConnections();
+  });delete body.key;
 };
 $("saveBindings").onclick=()=>{
-  const roles={};for(const role of SEMANTIC_ROLES){if(!$("default_profile_"+role)){uiError("model-config","请先读取配置。");return;}roles[role]={profile:$("default_profile_"+role).value};}saveModelConfig({roles});
+  const roles={};for(const role of SEMANTIC_ROLES){if(!$("default_profile_"+role))return;roles[role]={profile:$("default_profile_"+role).value};}
+  saveModelConfig({roles,worker:{profile:$("default_profile_worker").value}});
 };
-for(const [id,action] of [["saveCredential","save"],["deleteCredential","delete"]]){
-  $(id).dataset.writeKey="credential";$(id).onclick=async()=>{
-    if(PENDING.has("credential")) return;
-    const body={action,service:$("credentialService").value,ref:$("credentialRef").value};if(action==="save") body.value=$("credentialValue").value;
-    $("credentialValue").value="";$("credentialStatus").textContent="";
-    await writeAction("credential","/api/credentials",body,async()=>{$("credentialStatus").textContent=serviceLabel(body.service)+" · "+body.ref+"："+(action==="save"?"已保存到 Windows 系统凭据存储；尚未验证真实服务。":"凭据已删除。");await loadConnections();});
-    delete body.value;
-  };
+async function showModelCatalog(refresh){
+  const id=EDIT_PROFILE?.id,service=$("profile_service").value,ref=EDIT_PROFILE?.credential_ref;
+  const version=++MODEL_CATALOG_VERSION;
+  const current=()=>version===MODEL_CATALOG_VERSION && EDIT_PROFILE?.id===id && EDIT_PROFILE?.credential_ref===ref && $("profile_service").value===service;
+  $("refreshModelCatalog").disabled=true;$("catalogStatus").textContent="正在读取目录…";
+  const saved=id && EDIT_PROFILE.service===service && !$("profile_key").value;
+  const body=saved?{id,refresh}:{service};if(!saved && $("profile_key").value)body.key=$("profile_key").value;
+  try{const d=await post("/api/model-catalog",body);delete body.key;if(!current())return;
+    const c=d.catalog;MODEL_CATALOG=c;renderModelOptions();$("customModel").hidden=!c.custom_model;$("customModel").querySelector("summary").textContent=c.custom_requires_configuration?"使用已在原生工具配置的自定义型号":"输入自定义模型 ID";
+    for(const node of $("connectionList").querySelectorAll("[data-connection-status]"))if(node.dataset.connectionStatus===id)node.textContent=connectionState(c.connection_status);
+    $("catalogStatus").textContent=c.error || (c.status==="empty"?"没有可用模型":(c.connection_status==="connected"?"已连接 · ":"")+c.models.length+" 个型号"+(c.stale?" · 缓存已过期":""));
+  }catch(error){if(current())$("catalogStatus").textContent=error.message;}finally{delete body.key;if(current())$("refreshModelCatalog").disabled=false;}
 }
+$("refreshModelCatalog").onclick=()=>showModelCatalog(true);
+function connectionState(catalog,credential="configured"){
+  return ({connected:"已连接",failed:"连接失败",login_required:"需要登录",unavailable:"需要安装"}[catalog]) || ({configured:"已配置",native:"已配置 · 当前账号",missing:"未配置",unavailable:"凭据不可用"}[credential]) || "未知";
+}
+async function loadTerminalChoices(){
+  const previous=$("terminalProfile").value,project=$("terminalProject").value;
+  const profiles=(loadConnections.values?.model_profiles || []).filter(p=>MODEL_SERVICES[p.service]?.terminal || ["codex_account","claude_account"].includes(p.service));
+  $("terminalProfile").replaceChildren(...profiles.map(p=>{const o=el("option",(p.label || p.id)+" · "+(p.model || "执行器自动选择"));o.value=p.id;return o;}));
+  if(profiles.some(p=>p.id===previous))$("terminalProfile").value=previous;
+  const r=await fetch("/api/projects"),d=await r.json();if(!r.ok || !d.ok)throw new Error(d.error || "项目读取失败");
+  $("terminalProject").replaceChildren(...d.projects.map(p=>{const o=el("option",p.name+" · "+p.path);o.value=p.id;return o;}));
+  if(d.projects.some(p=>p.id===project))$("terminalProject").value=project;
+  const selected=profiles.find(p=>p.id===$("terminalProfile").value);
+  if(TERMINAL_SOURCE && (TERMINAL_SOURCE.project_id!==$("terminalProject").value || TERMINAL_SOURCE.profile!==JSON.stringify(selected)))resetTerminalConfirmation();
+}
+function resetTerminalConfirmation(){TERMINAL_SOURCE_VERSION++;TERMINAL_SOURCE=null;TERMINAL_OPERATION=null;$("terminalConsent").checked=false;$("terminalLaunch").disabled=true;$("terminalSourceSummary").textContent="";$("terminalStatus").textContent="";$("terminalRefresh").hidden=true;}
+$("terminalProject").onchange=resetTerminalConfirmation;$("terminalProfile").onchange=resetTerminalConfirmation;
+$("terminalConsent").onchange=()=>{$("terminalLaunch").disabled=!TERMINAL_SOURCE || !$("terminalConsent").checked;};
+$("terminalSource").onclick=async()=>{
+  const project=$("terminalProject").value,profile=loadConnections.values?.model_profiles?.find(p=>p.id===$("terminalProfile").value);resetTerminalConfirmation();
+  const version=TERMINAL_SOURCE_VERSION,revision=loadConnections.revision;
+  if(!profile || !project){$("terminalError").textContent="请选择连接和本地项目。";return;}
+  try{const d=await post("/api/projects/source",{project_id:project});if(version!==TERMINAL_SOURCE_VERSION || project!==$("terminalProject").value || profile.id!==$("terminalProfile").value)return;
+    if(revision!==loadConnections.revision){$("terminalError").textContent="连接配置已变化，请重新确认来源。";return;}
+    TERMINAL_SOURCE={...d.source,profile:JSON.stringify(profile),config_revision:revision};$("terminalSourceSummary").textContent=d.source.path+" · "+d.source.file_count+" 个文件 · "+(profile.model || "执行器自动选择");$("terminalError").textContent="";
+  }catch(e){if(version===TERMINAL_SOURCE_VERSION)$("terminalError").textContent=e.message;}
+};
+function renderTerminal(value){
+  $("terminalStatus").textContent=value.status==="SUCCEEDED"?"原生窗口已创建 · "+({open:"窗口打开",closed:"窗口已关闭",unknown:"窗口状态未知"}[value.window])+" · "+value.result.workspace:value.result?.reason || "启动结果未知；不会自动重发。";
+  $("terminalRefresh").hidden=false;
+}
+$("terminalLaunch").onclick=async()=>{
+  if(PENDING.has("native-terminal") || !TERMINAL_SOURCE || !$("terminalConsent").checked)return;
+  const source=TERMINAL_SOURCE,profile=JSON.parse(source.profile),id=TERMINAL_OPERATION || crypto.randomUUID().replaceAll("-","");TERMINAL_OPERATION=id;
+  PENDING.add("native-terminal");$("terminalLaunch").disabled=true;$("terminalError").textContent="";
+  try{const d=await post("/api/native-terminal",{operation_id:id,profile_id:profile.id,project_id:source.project_id,source_revision:source.revision,config_revision:source.config_revision,confirmed:true});if(TERMINAL_OPERATION===id)renderTerminal(d.terminal);}
+  catch(e){if(TERMINAL_OPERATION===id){$("terminalError").textContent=e.message;$("terminalRefresh").hidden=false;}}
+  finally{PENDING.delete("native-terminal");}
+};
+$("terminalRefresh").onclick=async()=>{const id=TERMINAL_OPERATION;if(!id)return;try{const r=await fetch("/api/native-terminal?operation_id="+encodeURIComponent(id)),d=await r.json();if(!r.ok || !d.ok)throw new Error(d.error || "记录读取失败");if(TERMINAL_OPERATION===id)renderTerminal(d.terminal);}catch(e){if(TERMINAL_OPERATION===id)$("terminalError").textContent=e.message;}};
+showProfileService();
 $("detailActions").append(el("span",null,"button-row"));$("detailActions").lastChild.id="detailExtraActions";
 document.querySelectorAll("[data-view],[data-go]").forEach(b=>b.onclick=()=>navigate(b.dataset.view || b.dataset.go,true));
 $("backToTasks").onclick=()=>{DETAIL_ID=null;HISTORY=null;navigate("tasks");renderSelected();renderTaskDetail();$("tasksHeading").focus();};
@@ -840,6 +1002,7 @@ async function confirmConfig(){
   const version=CONFIG_VERSION, overrides={budgets:{max_subtasks:Number($("f_sub").value)}};
   for(const [path,,kind] of MISSION_FIELDS){const input=$("param_"+path.replaceAll(".","_"));configSet(overrides,path,kind==="model"?input.value:input.value.trim()?Number(input.value):null);}
   for(const role of SEMANTIC_ROLES){const profile=$("mission_profile_"+role).value;configSet(overrides,"roles."+role+".profile",profile);$("param_roles_"+role+"_model").disabled=profile!=="codex";}
+  configSet(overrides,"worker.profile",$("mission_profile_worker").value);$("param_worker_model").disabled=$("mission_profile_worker").value!=="codex";
   FORM_CONFIG=null;
   await writeAction("config-preview","/api/mission-config",{base:FORM_BASE,overrides},d=>{
     if(version!==CONFIG_VERSION) return;
@@ -877,7 +1040,7 @@ function renderReview(){
   if(values && EXTERNAL_CONSENT && !hasCurrentExternalConsent(values)) clearExternalConsent();
   if(LIVE?.launch_blocked) box.append(el("p",LIVE.launch_blocked,"notice warning"));
   if(LIVE?.running || LIVE?.preparing) box.append(el("p","当前已有任务运行，不能同时启动另一任务。表单输入会保留。","notice warning"));
-  box.append(el("p","Worker："+text(values?.worker?.model || "unknown")+"；"+SEMANTIC_ROLES.map(r=>r+"："+roleLabel(values,r)).join("；"),"notice"));
+  box.append(el("p","Worker："+roleLabel(values,"worker")+"；"+SEMANTIC_ROLES.map(r=>r+"："+roleLabel(values,r)).join("；"),"notice"));
   $("externalConsentLabel").hidden=!hasExternal(values);
   $("externalConsentText").textContent=hasExternal(values)?consentText(values):"";
   if(hasExternal(values)){

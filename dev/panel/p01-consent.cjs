@@ -57,25 +57,12 @@ const kimi=mode==='kimi',secondary=kimi?'kimi-review':'glm-other';
   }
   await page.goto(origin);await page.waitForFunction(()=>LIVE?.default_config && PROJECTS.length===2);
   if(kimi){
-   // Manage both services through the same production page. Test credentials
-   // reach only isolated Windows targets supplied by the Python fixture.
+   // Existing P02 connections are seeded through the production configuration
+   // fixture. M4's browser suite covers the replacement unified editor.
    await navigate('models');await page.waitForFunction(()=>loadConnections.values && !loadConnections.pending);
-   await page.locator('#connectionEditor summary').click();await page.selectOption('#profile_service','moonshot_cn');
-   assert.equal(await page.inputValue('#profile_model'),'kimi-k3');
-   assert(await page.locator('#profile_thinking').isDisabled());assert(await page.locator('#profile_temperature').isHidden());
-   await page.fill('#profile_id','kimi-review');await page.fill('#profile_credential_ref','test-key');
-   await page.fill('#profile_timeout_seconds','3.125');await page.fill('#profile_retry_delay_seconds','0');
-   await page.selectOption('#profile_reasoning_effort','low');await page.fill('#profile_max_completion_tokens','8192');
-   await page.click('#saveProfile');await page.waitForFunction(()=>!PENDING.has('model-config') && loadConnections.values.model_profiles.some(p=>p.id==='kimi-review'));
-   await page.selectOption('#credentialService','moonshot_cn');await page.fill('#credentialRef','test-key');
-   await page.fill('#credentialValue','p02-fake-kimi-not-a-real-key');await page.click('#saveCredential');
-   await page.waitForFunction(()=>!PENDING.has('credential') && document.getElementById('credentialStatus').textContent.includes('已保存'));
-   assert.equal(await page.inputValue('#credentialValue'),'');
-   assert.match(await page.locator('#credentialStatus').textContent(),/Kimi/);
-   fs.mkdirSync(out,{recursive:true});await page.screenshot({path:path.join(out,'p02-models-light.png'),fullPage:true});
-   await navigate('overview');
+   assert((await page.locator('#connectionList').textContent()).includes('kimi-k3'));
   }
-  await page.click('#btnNew');await page.selectOption('#f_project',projectA);
+  await navigate('overview');await page.click('#btnNew');await page.selectOption('#f_project',projectA);
   await page.waitForFunction(()=>SOURCE && !PENDING.has('source'));
   await page.click('#stepNext');await page.fill('#f_obj','外发草稿 中文 <tag> "');await page.fill('#f_ac','x equals 2');
   await page.click('#stepNext');await page.fill('#f_paths','app.py');await page.fill('#f_gate',"python -c \"import runpy; assert runpy.run_path('app.py')['x'] == 2\"");

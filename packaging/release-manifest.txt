@@ -2,6 +2,7 @@
 # A trailing slash on both sides creates a prefix mapping.
 
 clao/README.md => README.md
+clao/AO-LICENSE.txt => AO-LICENSE.txt
 clao/requirements.txt => requirements.txt
 clao/bootstrap.ps1 => bootstrap.ps1
 clao/启动CLAO.bat => 启动CLAO.bat

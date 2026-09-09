@@ -87,27 +87,32 @@
   </section>
   <section id="view-models" class="view" aria-labelledby="modelsHeading" hidden>
     <div class="page-heading"><div><h1 id="modelsHeading" tabindex="-1">模型</h1></div></div>
-    <section class="card"><div class="section-heading"><h2>执行与语义角色</h2></div><p>Worker 使用本地 Codex；规划、审计和最终复核可分别选择 Codex、BigModel GLM 或 Kimi 国内通用服务。</p><p class="subtle">Observer / Gate 是确定性程序。服务端返回的模型与用量见任务诊断；没有事实时保持未知。</p></section>
-    <section class="card"><div class="section-heading"><h2>语义模型连接</h2><button id="refreshConnections">读取配置与凭据状态</button></div><div id="connectionList" class="group-list"></div><p id="modelConfigError" class="field-error" role="alert"></p><p id="modelConfigStatus" role="status"></p>
-      <details id="connectionEditor"><summary>添加或编辑连接</summary><div class="settings-fields">
-        <label>服务<select id="profile_service"><option value="bigmodel_general">BigModel 通用服务</option><option value="moonshot_cn">Kimi 国内通用服务</option></select></label>
-        <label>连接名称<input id="profile_id" placeholder="glm-review" autocomplete="off"></label>
-        <label>凭据引用名称<input id="profile_credential_ref" placeholder="bigmodel-main" autocomplete="off"></label>
-        <label>模型<select id="profile_model"><option value="glm-4.7">glm-4.7 · 真实准入待验证</option></select></label>
-        <label data-profile-service="bigmodel_general">思考模式<select id="profile_thinking"><option value="disabled">关闭</option><option value="enabled">开启</option></select></label>
-        <label>每次请求超时（秒）<input id="profile_timeout_seconds" type="number" step="any" min="0" max="600" value="180"></label>
-        <label>总尝试次数（含首次）<input id="profile_max_attempts" type="number" min="1" max="3" step="1" value="2"></label>
+    <section class="card"><div class="section-heading"><h2>连接与账号</h2><button id="refreshConnections">刷新状态</button></div>
+      <div id="connectionList" class="group-list"></div><p id="modelConfigError" class="field-error" role="alert"></p><p id="modelConfigStatus" role="status"></p>
+      <details id="connectionEditor"><summary>添加连接</summary><div class="settings-fields">
+        <label>连接类型<select id="profile_kind"><option value="executor">原生执行器</option><option value="service">模型服务</option></select></label>
+        <label>服务 / 执行器<select id="profile_provider"><option value="codex">Codex</option><option value="claude">Claude Code</option></select></label>
+        <label>连接方式<select id="profile_auth"></select></label>
+        <select id="profile_service" hidden aria-hidden="true" tabindex="-1"><option value="codex_account">Codex · ChatGPT 账号</option><option value="codex_api">Codex · 按量 API</option><option value="claude_account">Claude Code · 账号</option><option value="claude_api">Claude Code · API</option><option value="bigmodel_general">GLM · 按量 API</option><option value="bigmodel_coding">GLM · Coding Plan</option><option value="moonshot_cn">Kimi · 国内 API</option></select>
+        <label>名称<input id="profile_label" placeholder="例如：工作账号" autocomplete="off" maxlength="80"></label>
+        <label id="profile_key_label">API Key<input id="profile_key" type="password" autocomplete="new-password" spellcheck="false" placeholder="编辑时留空保留已保存的 Key"></label>
+        <div id="nativeLogin" hidden><div class="button-row"><button id="startNativeLogin" type="button">打开登录窗口</button><button id="checkNativeLogin" type="button">检查登录状态</button></div><p id="nativeLoginStatus" role="status"></p><a id="nativeLoginDocs" href="https://developers.openai.com/codex/auth/" target="_blank" rel="noopener noreferrer">安装与登录说明</a></div>
+        <div id="codingSetup" hidden><p>通过 Claude Code 使用套餐额度。</p><a href="https://docs.bigmodel.cn/cn/coding-plan/tool/claude" target="_blank" rel="noopener noreferrer">安装 Claude Code / 获取套餐 Key</a><p class="subtle">需要 2.1.205 或更高的 2.1.x，支持规划、审计与复核。</p></div>
+        <div class="model-field"><span id="modelFieldLabel">模型</span><input id="profile_model" type="hidden"><button id="openModelPicker" type="button" aria-labelledby="modelFieldLabel openModelPicker" aria-expanded="false" aria-controls="modelPicker">选择模型</button>
+          <div id="modelPicker" class="model-picker" hidden><label>搜索模型<input id="modelSearch" type="search" autocomplete="off" aria-controls="modelOptions"></label><div id="modelOptions" role="listbox" aria-label="可选模型"></div><p id="modelEmpty" class="subtle" hidden>没有匹配的模型</p><button id="closeModelPicker" type="button">取消</button></div>
+          <details id="customModel"><summary>输入自定义模型 ID</summary><label>模型 ID<input id="customModelId" autocomplete="off"></label><button id="applyCustomModel" type="button">使用此型号</button></details>
+        </div>
+      </div><div class="button-row"><button id="refreshModelCatalog" type="button">刷新模型目录</button><button id="defaultProfileModel" type="button">执行器自动选择</button></div><p id="catalogStatus" class="subtle" role="status"></p>
+      <details id="profileAdvanced" class="advanced"><summary>高级设置</summary><div class="settings-fields">
+        <label>请求超时（秒）<input id="profile_timeout_seconds" type="number" step="any" min="0" max="600" value="180"></label>
+        <label>总尝试次数<input id="profile_max_attempts" type="number" min="1" max="3" step="1" value="2"></label>
         <label>重试等待（秒）<input id="profile_retry_delay_seconds" type="number" min="0" max="30" step="any" value="1"></label>
-        <label data-profile-service="bigmodel_general">最大输出 token<input id="profile_max_tokens" type="number" min="1" max="131072" step="1" value="8192"></label>
-        <label data-profile-service="bigmodel_general">Temperature<input id="profile_temperature" type="number" min="0" max="1" step="0.01" value="0.2"></label>
-        <label data-profile-service="moonshot_cn" hidden>推理强度<select id="profile_reasoning_effort"><option value="max">max</option><option value="high">high</option><option value="low">low</option></select></label>
-        <label data-profile-service="moonshot_cn" hidden>总生成 token 上限（含思考）<input id="profile_max_completion_tokens" type="number" min="1" max="1048576" step="1" value="8192"></label>
-      </div><p id="profileServiceNote" class="subtle"></p><button id="saveProfile" class="primary">保存连接</button></details>
+      </div><div id="profileParameters" class="settings-fields"></div><p id="profileServiceNote" class="subtle"></p></details>
+      <div class="button-row"><button id="saveProfile" class="primary">保存连接</button><button id="newProfile" type="button">新建另一连接</button></div></details>
     </section>
-    <section class="card"><h2>凭据</h2><p class="subtle">仅保存到当前 Windows 用户的系统凭据存储，不回显 Key；同名引用按服务隔离。删除后使用该服务/引用的新调用会明确失败。</p><div class="settings-fields"><label>凭据服务<select id="credentialService"><option value="bigmodel_general">BigModel 通用服务</option><option value="moonshot_cn">Kimi 国内通用服务</option></select></label><label>凭据引用名称<input id="credentialRef" autocomplete="off"></label><label>API Key<input id="credentialValue" type="password" autocomplete="new-password" spellcheck="false"></label></div><div class="button-row"><button id="saveCredential" class="primary">保存或替换凭据</button><button id="deleteCredential">删除凭据</button></div><p id="credentialStatus" role="status"></p><p id="credentialError" class="field-error" role="alert"></p></section>
-    <section class="card"><h2>新任务角色绑定</h2><div id="roleBindings" class="settings-fields"></div><button id="saveBindings" class="primary">保存角色选择</button><p class="subtle">保存后只影响新任务；运行中的任务使用已冻结的连接参数。</p></section>
-    <section class="card"><div class="section-heading"><h2>默认模型</h2><span class="subtle">新任务默认值</span></div><div id="roleCards" class="group-list"></div></section>
-    <details class="card advanced"><summary>模型事实与来源<span>请求值、传入值、外部确认与 reroute</span></summary><div class="advanced-body"><pre id="modelStatus" class="diagnostic"></pre></div></details>
+    <section class="card"><h2>任务角色</h2><div id="roleBindings" class="settings-fields"></div><button id="saveBindings" class="primary">保存角色选择</button></section>
+    <section class="card"><h2>原生终端</h2><p class="subtle">在隔离目录中手动使用原生工具；审批在终端处理，不执行 CLAO 自动验收。</p><div class="settings-fields"><label>连接<select id="terminalProfile"></select></label><label>本地项目<select id="terminalProject"></select></label></div><div class="button-row"><button id="terminalSource">确认来源</button><button id="terminalLaunch" class="primary" disabled>打开原生终端</button></div><p id="terminalSourceSummary"></p><label class="source-confirm"><input id="terminalConsent" type="checkbox">确认此项目与连接；原生工具可能向所选服务发送材料并计费</label><p id="terminalError" class="field-error" role="alert"></p><p id="terminalStatus" role="status"></p><button id="terminalRefresh" hidden>读取窗口状态</button></section>
+    <details class="card advanced"><summary>模型事实与来源<span>请求值、传入值、外部确认与 reroute</span></summary><div class="advanced-body"><div id="roleCards" class="group-list"></div><pre id="modelStatus" class="diagnostic"></pre></div></details>
   </section>
   <section id="view-settings" class="view" aria-labelledby="settingsHeading" hidden>
     <div class="page-heading"><div><h1 id="settingsHeading" tabindex="-1">设置</h1></div></div>

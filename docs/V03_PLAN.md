@@ -230,9 +230,11 @@ Apple 的基础指南强调主要内容无需水平滚动、触控目标、对�
 
 ### 7.1 v0.3 目标支持矩阵
 
+**D11（2026-09-09，负责人授权）覆盖原单型号目标。** M4 改为以 AO v0.12.12 的执行器、模型目录与认证能力为迁移基准：服务/执行器 → 账号、API 或官方套餐 → 模型 → 角色。原 P01/P02 工程合入历史保留，联合真实测试暂缓；不将两个固定 profile 的完成视为新目标完成。完整入口及后续分组见 7.6；不复制 AO daemon、云端、移动端、SCM 或调度器。
+
 | 层 | Codex | GLM | Kimi |
 |---|---|---|---|
-| Planner／Auditor／Mission Verifier | 保留现有 CLI 路径并验收配置 | 目标：一个明确 endpoint／model 的 API profile | 目标：一个明确 endpoint／model 的 API profile |
+| Planner／Auditor／Mission Verifier | 原 CLI；首批接入原生 ChatGPT 账号及 API 连接 | 标准 API（含 GLM-5.3）；官方 Claude Code Coding Plan | 保留国内 API；目录与自定义型号，不借用其它型号参数 |
 | Worker | 本地 Codex App Server 为默认；旧 AO 显式兼容 | AO／harness 兼容性专项；未通过则显示不支持 | AO／harness 兼容性专项；未通过则显示不支持 |
 | Observer／Gate | 无模型 | 不适用 | 不适用 |
 
@@ -246,16 +248,16 @@ Apple 的基础指南强调主要内容无需水平滚动、触控目标、对�
 
 Kimi 官方快速开始目前说明 API Key、模型、base_url 与兼容 API 格式，并把 JSON Mode 列为能力。该信息说明存在接入路径，不证明任意 Kimi 模型、所有参数或 AO harness 都与 Codex 相同。[S07]
 
-模型 ID、endpoint 地域、推理参数和版本可能变化。本稿不把当前营销名称写死为 v0.3 支持承诺。各 adapter 任务开始时核实官方文档，在受控 live 中记录**具体已通过**的 model／endpoint／认证方式。P01 本轮按负责人授权先完成工程与离线验证，固定 BigModel 通用 Chat Completions 域 `open.bigmodel.cn`、`glm-4.7`、Bearer Key、JSON object 与 thinking enabled/disabled；不共用 Z.AI 或 Coding 套餐。GLM/Kimi 工程后再按明确次数、时长和费用预算集中真实准入，当前不宣称实测支持或 M4 完成。BigModel 国内服务与 Z.AI 不能自动视为同一密钥域；Kimi 各服务域同理。
+模型 ID、地域、参数与版本需核对官方契约。P01 的 `glm-4.7`、P02 的 `kimi-k3` 是已合入的历史参数配置，不再是产品单型号白名单。首批标准 GLM-5.3 使用官方 Chat Completions、JSON object、thinking enabled（不可关闭）、reasoning_effort low/high/max；原 GLM-4.7 不改写。未定义参数能力的自定义型号只发送最小 JSON 协议，缺能力明确失败，不降级业务校验。真实请求须记录具体型号/认证方式，不能用目录可选或离线通过代表准入；国际、中转服务仍未接入。
 
 ### 7.3 传输与验证结构
 
-P02 本轮授权工程范围（2026-09-09）：Moonshot 国内通用 `https://api.moonshot.cn/v1/chat/completions`、`kimi-k3`，非流式 JSON object + 原本地 Schema/业务校验；`reasoning_effort=low/high/max`、`max_completion_tokens` 含思考，省略服务固定采样参数，不照搬 GLM thinking/temperature/max_tokens。仅语义角色，不接 Kimi Worker、国际/Coding/中转服务。GLM 既有目标与 Codex 默认不变；同名凭据引用按服务隔离、GLM 旧存储不迁移；任务冻结连接，外发确认覆盖实际服务集合，旧 BigModel 许可不授权 Kimi。工程/离线与真实服务/质量/延迟准入分开，后者仍需集中授权验证。参数依据见 [产品说明](../clao/README.md#glm-语义角色配置p01-工程切片)。
+P02 历史工程范围：Moonshot 国内通用 Chat Completions、kimi-k3，非流式 JSON object + 原本地校验；reasoning_effort 与含思考的 max_completion_tokens 不与 GLM 参数混用。D11 首批保留这些连接和系统凭据，增加公开目录/自定义型号；Kimi 原生工具现有独立原生终端入口；不等同 Kimi 自动 Worker。GLM Coding Plan 单列服务，采用官方指定 Claude Code 和 Anthropic 兼容域，不向套餐端点发送 CLAO 自建 Chat Completions。套餐首批仅承载禁用工具的语义角色，不作为 Worker。参见[当前连接与参数说明](../clao/README.md#模型连接与角色)。
 
 ```text
 角色输入（既有 TaskSpec／EvidenceBundle／VerifierInput）
 → 无密钥的 EffectiveModelProfile
-→ Codex CLI adapter 或供应商 HTTP adapter
+→ Codex CLI / 供应商 HTTP / 官方 Claude Code 套餐适配
 → 严格解析／Schema／ID／AC覆盖／语义一致性
 → 既有角色结果 → Controller
 ```
@@ -268,7 +270,7 @@ Structured transport 必须区分 JSON_PARSE、SCHEMA、CORRELATION、COHERENCE�
 
 浏览器不得直接调用供应商 API。新增凭据通过受保护的本地写接口提交，只存 OS 安全凭据存储或本次内存；配置和 StateStore 只保留 secret reference。开发可使用环境变量引用。不能把 Key 放 localStorage、JSON 配置、日志、Prompt、导出包或 Git。
 
-设置页允许新增／替换／删除凭据，但保存后的 API 不回传明文；只显示 configured/missing。Windows 首期使用一个经过检查的系统凭据 wrapper，不自制加密算法或新密钥服务。多供应商 Key 不传给 AO／Codex 子进程。
+连接表单一次保存连接与认证，内部引用自动生成；旧引用兼容、不枚举或迁移真实凭据。Windows 系统存储无明文 fallback。Key 仅供对应服务或明确选择的原生执行器：Codex App Server 使用 ephemeral account/login/start；Codex API 语义调用仅本次官方 exec 环境；GLM 套餐 Key 仅官方 Claude Code 进程，禁用工具/MCP及用户扩展配置，不传 Gate 或其它服务。新表单替换 Key 分配新引用，历史冻结仍保留旧引用；删除连接不擅自清理历史凭据。
 
 第一次选择供应商时说明将发送的代码／证据范围。默认保留 Codex ChatGPT 路径；新 API 服务不假定共用 ChatGPT 额度，价格未知显示 unknown，不编造费用。连接测试分为“不发模型的配置检查”和“用户明确触发的低成本真实请求”，展示发送对象与开销边界。
 
@@ -277,6 +279,56 @@ Structured transport 必须区分 JSON_PARSE、SCHEMA、CORRELATION、COHERENCE�
 一个 profile 明确记录 provider、endpoint identity、model、effort（可选）、timeout、重试、credential_ref、能力与验证时间。按角色选择 profile，Worker 配置单独展示。运行中的 Mission 固定配置摘要；编辑默认配置只对新 Mission 生效。
 
 运行中改后端必须先结束或创建新 attempt，并重新确认数据发送；本版不做无提示热切换。回执显示 requested/effective/confirmed model；无法从服务端确认的值标 unknown，不伪装验证。
+
+### 7.6 AO v0.12.12 入口与迁移分组
+
+可复核基准：[registry.go](https://github.com/Untrivial-ai/agent-orchestrator/blob/84fb37ce5aa947ceb9b19b0c2435b242ac92ce26/backend/internal/adapters/agent/registry/registry.go)、[modelcatalog/catalog.go](https://github.com/Untrivial-ai/agent-orchestrator/blob/84fb37ce5aa947ceb9b19b0c2435b242ac92ce26/backend/internal/adapters/agent/modelcatalog/catalog.go)、[config.go](https://github.com/Untrivial-ai/agent-orchestrator/blob/84fb37ce5aa947ceb9b19b0c2435b242ac92ce26/backend/internal/adapters/agent/modelcatalog/config.go)、[AgentModelPicker](https://github.com/Untrivial-ai/agent-orchestrator/blob/84fb37ce5aa947ceb9b19b0c2435b242ac92ce26/frontend/src/renderer/components/AgentModelPicker.tsx)、[AgentModelCombobox](https://github.com/Untrivial-ai/agent-orchestrator/blob/84fb37ce5aa947ceb9b19b0c2435b242ac92ce26/frontend/src/renderer/components/settings/AgentModelCombobox.tsx)。下表按注册顺序列全 27 个入口；认证/原生配置是该版本实现识别的能力，**账户/额度仍需真实验证；CLAO 已实现层次按最后一列区分**。各入口的安装解析、启动与 auth 源码均在同一提交的 [agent 目录](https://github.com/Untrivial-ai/agent-orchestrator/tree/84fb37ce5aa947ceb9b19b0c2435b242ac92ce26/backend/internal/adapters/agent)。
+
+“直接”允许原生自定义 ID；“配置”须先有原生 provider/model 配置；“无”不制造自由输入。型号列是该执行器真实发现方式，不能用 AO 定价表全量型号代替。原生账号与 Key 取决于所选 provider；仅在厂商允许时提供套餐。
+
+| AO 执行器 ID | 服务 / 原生认证、配置入口 | 型号发现 / 自定义 | CLAO 本次实际接线（自动 Worker 不由终端能力推定） |
+|---|---|---|---|
+| claude-code | Anthropic 原生账号/API；原生 CLAUDE_CONFIG_DIR、授权的供应商兼容域 | 内置 Claude 别名；不覆盖时由原生配置选择 / 直接 | 原生账号/API/GLM 套餐的四种语义调用 + 原生终端；自动 Worker 尚未实现 |
+| codex | OpenAI ChatGPT 账号/API；CODEX_HOME、官方登录 | App Server model/list / 直接 | 自动 Worker + 四种语义调用 + 原生终端；App Server 0.150.1 |
+| opencode | OpenCode/原生各 provider Key 与认证配置 | --pure models / 直接 | 原生终端：原生 --model；自动闭环尚未实现 |
+| grok | xAI Key、GROK_HOME | models / 直接 | 原生终端：原生 --model；自动闭环尚未实现 |
+| cursor | Cursor 原生登录/API Key | models / 直接 | 原生终端：原生 --model；自动闭环尚未实现 |
+| qwen | Qwen/Bailian 等原生账号/Key、QWEN_HOME/settings | modelProviders 配置目录 / 直接 | 原生终端：原生 --model；自动闭环尚未实现 |
+| copilot | GitHub Copilot 原生账号/token | help config / 无 | 原生终端：原生 --model；自动闭环尚未实现 |
+| kimi | Kimi 原生账号/Code Key、Moonshot/provider Key；KIMI_CODE_HOME | provider list --json / 直接 | 原生终端：原生 --model；自动闭环尚未实现 |
+| muse | Meta API Key、XDG 原生配置 | 内置 muse-spark/1.1/1.2 / 直接 | 原生终端：原生 --model；自动闭环尚未实现 |
+| droid | Factory 登录/Key | exec --help / 无 | 原生终端：进程级 --settings model；自动闭环尚未实现 |
+| amp | Amp 登录/Key、原生 secrets/settings；usage auth 探测 | low/medium/high/ultra 模式 / 无 | 原生终端：--mode（四种模式）；自动闭环尚未实现 |
+| agy | 原生浏览器登录/OS keyring | models / 无 | 原生终端：原生 --model；自动闭环尚未实现 |
+| crush | 原生多 provider（含 OpenAI/Anthropic/Gemini/ZAI/Moonshot 等）与配置/Key | models / 无 | 原生终端：隔离 .crush.json provider/model；自动闭环尚未实现 |
+| aider | Aider/LiteLLM provider Key、原生配置 | --list-models . / 直接 | 原生终端：原生 --model；自动闭环尚未实现 |
+| goose | 原生 provider/Key、goose config.yaml | 当前活动 provider 配置 / 直接 | 原生终端：run --interactive / --model；自动闭环尚未实现 |
+| auggie | Augment 原生登录、session auth | models list --json / 无 | 原生终端：原生 --model；自动闭环尚未实现 |
+| continue | Continue 原生账号/provider 配置 | config.yaml models / 配置 | 原生终端：原生 --model；自动闭环尚未实现 |
+| devin | Devin 原生 API Key | models list --format json / 无 | 原生终端：原生 --model；自动闭环尚未实现 |
+| omp | 原生认证存储；无安全的 auth status 命令 | models --json / 无 | 原生终端：原生 --model；自动闭环尚未实现 |
+| cline | Cline/原生 provider 账号与 Key | providers.json；可用时 ACP options / 配置 | 原生终端：原生 --model；自动闭环尚未实现 |
+| kiro | Kiro 原生账号/API Key | chat --list-models --format json / 无 | 原生终端：隔离目录 Kiro agent.model；自动闭环尚未实现 |
+| kilocode | Kilo 与原生 provider 登录/Key、原生配置 | models / 配置 | 原生终端：KILO_CONFIG_CONTENT agent.model；自动闭环尚未实现 |
+| vibe | Mistral/Vibe Key、VIBE_HOME/config.toml | 原生模型别名配置 / 配置 | 原生终端：私有 Vibe agent.active_model；自动闭环尚未实现 |
+| pi | 原生多 provider Key/账号配置 | --list-models / 配置 | 原生终端：原生 --model；自动闭环尚未实现 |
+| kimchi | Kimchi Key 与原生配置 | --list-models / 配置 | 原生终端：原生 --model；自动闭环尚未实现 |
+| prime-agent | Prime/多 provider Key、原生 OAuth/云凭据 | model list / 配置 | 原生终端：原生 --model；自动闭环尚未实现 |
+| autohand | Autohand 登录/Key、原生 provider/config.json | 配置默认 provider/model / 直接 | 原生终端：原生 --model；自动闭环尚未实现 |
+本轮负责人已授权明确分层的手动原生终端。27 个入口都有固定工具检测、对应认证入口、模型目录与隔离终端启动接线；无原生登录命令的 Aider 使用官方认证说明，不造登录。当前自动闭环 Worker 仍只有 Codex；Claude 原生账号/API 与 GLM 套餐可承担原契约语义角色。**这不是 27 个自动 Worker 迁移完成**；非 Codex 的结构化执行桥属于明确剩余工程，不伪装成“工具没安装”。原生终端仅确认窗口创建，进程退出不表示任务完成、停止事实或 Gate/Verifier 通过；审批由用户在原生工具处理，不继承 CLAO 自动批准。
+
+认证、目录与模型的具体能力差异：
+
+- Codex 使用公开 account/read/model/list；Claude 使用 auth status，并由用户在 auth login 窗口完成认证。Cursor status、Devin auth status、Kiro whoami 的公开结果可确定时更新状态；其余入口不移植私有凭据/数据库探测，显示认证状态无法确认，原生连接窗口仍可操作。仅有文件、配置或目录不能显示“已登录”。
+- 新建连接可先读公开目录；需要 Key 的服务填写后只向该服务读目录，无需先保存/猜型号。列表保留原生 label/provider/default；当前选择单列。原生“不覆盖”保存空 model 并省略模型参数，Amp 保存模式；API 需明确型号，不把产品推荐当账号默认。配置型自定义 ID 须先进入原生目录；目录刷新不改已选/冻结值。
+- Aider 原生层没有沙箱/结构化审批事实；AO Pi ACP 0.17.1 自身声明 approvals=false，因此不能作为满足 CLAO 硬性权限规则的 Worker。OMP/Kilo 认证的私有 DB 探测不移植。这些是契约限制；OpenCode/Kimi/Cursor 等已存在 ACP 的执行桥**尚未移植，是剩余实现**，不能混同为上游没有接口。自动闭环仍需逐桥验证完整路径/命令、请求回执、补充输入和停止事实。
+- 终端运行不采集输入/对话、不给它传 CLAO 托管 Key，不写回用户目录；来源仍用现有过滤与私有 Git 快照，模型配置冻结在同一 StateStore 的操作记录。创建窗口 ACK 未确认时保持 UNKNOWN，同一操作不重发，无自动 materialization 或恢复。
+
+本 PR 的可审计交付为目录/认证/选择与 27 个原生终端入口，以及 Codex/Claude 的自动语义路径。完整迁移目标不变：后续结构化执行接线按 Claude/通用 ACP、OpenCode 原生服务协议、其余 hooks/回执能力分组评估与实现，逐一验证后才可计为闭环；不能把本 PR 终端层或上述清单算作这些桥已完成。客观接口限制需负责人取舍，已存在接口的未接线项则继续属于工程剩余范围。
+
+Python 原生目录解析、认证计划与启动模型映射适配自 AO v0.12.12，已在相关模块标注来源与修改，并保留完整 [Apache-2.0 许可](../clao/AO-LICENSE.txt)。未复制其云端、前端框架、daemon 或调度器；原生工具仍需用户自行安装/登录。工具检测使用 PATH，未找到不等于存在卸载证据。逐入口定向验证为 native_entries 的公开目录/配置/启动映射、真实 Git/StateStore/HTTP 与实际浏览器；没有真实原生模型/额度证据。
+
+首批模型依据：[GLM-5.3](https://docs.bigmodel.cn/cn/guide/models/text/glm-5.3)、[Coding Plan FAQ](https://docs.bigmodel.cn/cn/coding-plan/faq)、[官方 Claude Code 套餐路径](https://docs.bigmodel.cn/cn/coding-plan/tool/claude)、[Claude Code CLI](https://code.claude.com/docs/en/cli-reference)、[Codex 认证](https://developers.openai.com/codex/auth/)。目录缓存与连接配置分离，刷新不改 Mission；保存只表示已配置，公开目录不证明付费服务连通。真实登录/套餐计费与模型效果仍待负责人授权验证。
 
 ## 8. 实施里程碑与任务顺序
 
@@ -380,6 +432,7 @@ V03-DOC-00 已核对 main `3a9ea27468915eb9571611bcca10962e7a732fb0` 的 7 项�
 | D08 | 独立双任务有界；未验证依赖计划拒绝 | A09待验证风险；避免阻塞UX主线 |
 | D09 | 2026-09-06：批准规划生效；M0 增补目录迁移与本机副本整理 | 负责人明确任务；仅结构与路径适配，完整离线测试／builder 验收，不实施 F01 |
 | D10 | 2026-09-07：U01 收敛为日常工作台，开发夹具退出产品；U02 先独立项目/本地执行，再完整旅程；Q01 独立安装与有限对照/角色消融 | 负责人 PR #39 返修授权；2026-09-08 U02 首切片进一步授权采用本机 Codex 0.150.1 App Server stdio 执行 Worker，历史 AO 显式兼容；不要求普通本地项目具有 GitHub/origin；历史 M0/M1/M2 完成状态不变；首切片及完整旅程均已再次外部审计 PASS 并合入，U02 整卡 DONE；真实模型运行仍 NOT_RUN，不等于完整 GUI 体验、独立安装或发布验收完成 |
+| D11 | 2026-09-09：M4 改为 AO v0.12.12 基准的账号/API/官方套餐、公开目录及角色选择 | 负责人授权首个可运行实现，完整范围及分组见 7.6；原 P01/P02 工程历史不变，联合实测暂缓；首批之外仍未迁移，不宣称新 M4 目标完成 |
 
 批准后改变以上决策时，追加日期、原因、影响、验收变化和负责人确认；不要静默删目标或把“规划”改成“已完成”。本稿签署状态由用户入库/批准决定，生成文件本身不构成批准记录。
 

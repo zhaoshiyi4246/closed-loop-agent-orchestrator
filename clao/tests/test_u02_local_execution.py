@@ -43,6 +43,10 @@ def engine(tmp_path, monkeypatch):
     def popen(argv, *args, **kwargs):
         if isinstance(argv, list) and argv[0] == executable:
             argv = [sys.executable, str(fake)] + argv[1:]
+            # Only the external process substitute receives fixture controls;
+            # production native children use a restricted infrastructure env.
+            kwargs['env'] = dict(kwargs.get('env', os.environ), **{
+                k: v for k, v in os.environ.items() if k.startswith('CLAO_TEST_CODEX_')})
         return original(argv, *args, **kwargs)
     monkeypatch.setattr(subprocess, 'Popen', popen)
     original_which = run_mission.shutil.which
