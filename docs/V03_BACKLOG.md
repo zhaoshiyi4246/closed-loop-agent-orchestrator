@@ -1,6 +1,6 @@
 # CLAO v0.3 任务与验收台账
 
-版本：0.3-plan-r1 · 2026-09-06。状态：已批准 / IN EFFECT。DOC-00、F01–F05、R01 / R02 已完成（DONE），M0 / M1 / M2 为 `COMPLETE`；U01 / U02 / U03 均已审计合入（`DONE`），U02 两个切片保持 `DONE`；M3 `COMPLETE` 表示本阶段开发与代码审计完成，完整体验与发布验收尚未完成；M4 `IN_PROGRESS`，P01 工程切片已审计合入（`DONE`），整卡 `IN_PROGRESS`，真实 GLM 准入待两家工程接入后集中验证；当前唯一实施任务 P02 工程切片 `IN_REVIEW`，整卡 `IN_PROGRESS`，真实准入与切换评测待集中验证；其余功能卡状态见下表，原报告的发现不等于已复现或已修复。
+版本：0.3-plan-r1 · 2026-09-06。状态：已批准 / IN EFFECT。DOC-00、F01–F05、R01 / R02 已完成（DONE），M0 / M1 / M2 为 `COMPLETE`；U01 / U02 / U03 均已审计合入（`DONE`），U02 两个切片保持 `DONE`；M3 `COMPLETE` 表示本阶段开发与代码审计完成，完整体验与发布验收尚未完成；M4 `IN_PROGRESS`，P01/P02 工程切片均已审计合入（`DONE`），两张整卡保持 `IN_PROGRESS`；唯一下一执行内容为两家联合真实服务与角色准入及质量/延迟/用量评测（`TODO`），等待负责人确认权限、材料和预算，尚未开始；其余功能卡状态见下表，原报告的发现不等于已复现或已修复。
 
 设计以 [V03_PLAN.md](V03_PLAN.md) 为准。当前唯一任务由根目录 [PLANS.md](../PLANS.md) 指定。本文件保存每张卡的详细状态和证据，PLANS 不重复整张台账。
 
@@ -44,7 +44,7 @@
 | V03-U02 | M3 | 完整任务GUI与数据接线 | U01/R02/F04 | DONE（首切片 PR #40、完整旅程 PR #41 均再次审计 PASS / merged） |
 | V03-U03 | M3 | 结果中心与独立导出 | U02/F03 | DONE（PR #42 再次外部审计 PASS / merged） |
 | V03-P01 | M4 | 模型配置／凭据与GLM语义后端 | F01/R01/F04 | IN_PROGRESS（工程切片 DONE；真实准入待集中验证） |
-| V03-P02 | M4 | Kimi语义后端与切换评测 | P01 | IN_PROGRESS（工程切片 IN_REVIEW；真实准入/评测待验证） |
+| V03-P02 | M4 | Kimi语义后端与切换评测 | P01 | IN_PROGRESS（工程切片 DONE；真实准入/评测待验证） |
 | V03-P03 | M4 | 第二Worker能力准入决策 | P01/P02；AO官方契约 | TODO |
 | V03-Q01 | M5 | 新Windows产品验收与发布候选 | G1—G4 | TODO |
 
@@ -347,7 +347,7 @@ PR #42 导出误拦截返修（2026-09-08，再次外部审计 PASS，已合入�
 
 ## V03-P01｜模型配置／凭据与GLM语义后端
 
-- 状态：整卡 **IN_PROGRESS**；工程实现与离线验证切片 **DONE**。[PR #43](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/43) 再次外部审计 PASS，外发确认归属问题已解决、无继续返修阻塞项；2026-09-09 已 rebase 合入 main `d1738b5337aecdfbc063fd284fb1e7bfa6fe7fcc`，合入 tree 与已审计 head `c629890d6fa3e740ffaa48a3117961f59dbe4988` 一致。剩余为真实 GLM 服务与角色准入，非本次代码返修；待两家工程接入后按明确授权集中验证，不取消测试要求。
+- 状态：整卡 **IN_PROGRESS**；工程实现与离线验证切片 **DONE**。[PR #43](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/43) 再次外部审计 PASS，外发确认归属问题已解决、无继续返修阻塞项；2026-09-09 已 rebase 合入 main `d1738b5337aecdfbc063fd284fb1e7bfa6fe7fcc`，合入 tree 与已审计 head `c629890d6fa3e740ffaa48a3117961f59dbe4988` 一致。P02 工程也已审计合入；剩余为两家真实服务与角色准入，以及已规划的质量、延迟、用量评测，非代码返修。联合执行内容为 TODO，等待负责人确认服务/型号权限、外发材料与次数/时长/费用预算，不取消测试要求。
 
 - 对应：A11/A10。工作：profile/角色绑定/credential_ref；一种安全凭据存储；Codex保留；GLM明确服务域、认证、model/effort、JSON协议。语义角色无工具执行。
 - 必测：密钥不进入响应/log/Store/export；跨域发送须授权；非法/截断/拒绝/401/429/timeout；Schema+ID+coherence；运行中不热切；有模型调用与无模型检查分开。
@@ -369,15 +369,15 @@ Windows / CPython 3.12.7 / 产品 venv（Scripts 前置 PATH，`src` 与产品�
 - PR #43 外发确认归属返修：新建草稿的确认绑定项目及所选外发角色/连接（服务、endpoint、模型、credential_ref）；提交前再与确认配置核对，成功提交及下一草稿初始化清除。切换项目/外发角色/连接须重新确认；同一未提交草稿关闭重开、切页、SSE 和普通目标/预算编辑保留确认与输入。新默认值不热改草稿或已冻结任务；纯 Codex 无需外发确认，历史重新执行仍独立确认。未修改 Provider、凭据库、Controller 或 HTTP 重试。
 - 返修定向：`pytest tests/test_p01_panel.py::test_audit_browser_consent_scope_and_new_missions tests/test_u02_local_execution.py::test_audit_history_retry_b_while_a_loaded -q --tb=short` → **5 passed / 50.13s**。实际 Edge/正式 Panel 与 Controller/Git/Gate，外部引擎、HTTP 模型及凭据读取使用隔离替身；新增浏览器用例完成 A/B、纯 Codex、历史重新执行共 4 个隔离 Mission，核对确认页/提交/持久配置值与 revision、跨草稿范围和在途去重、原项目不写回。历史 4 例覆盖不同/相同内容及新旧后端；替身补齐现有 `config_snapshot` 参数，并新增配置断言。正式 HTTP `test_actual_controller_git_gate_http_verifier_and_result_export` 的 PASS/FAIL **2 例通过**，无确认请求仍在 Worker 前拒绝。
 - 返修首轮上述 7 项中 5 failed / 2 passed：新浏览器断言误要求 runtime 合并后的全部预算来源标注不变，旧历史替身未接收 P01 已有快照参数；修正测试契约后 5 项全部通过，保留配置值/revision/外发来源及原历史断言，未放宽产品规则。产品/开发 JS 语法、相关 Python compileall 与 diff-check 通过。仅返修定向验证，未重跑此前 54/31 项集合；返修提交时工程切片为 IN_REVIEW，之后已再次审计 PASS 并合入，真实 GLM 准入仍待验证，P02 未开始。
-- **真实服务准入：NOT_RUN / 待两家工程接入后集中验证**。真实验证前仍需负责人确认 BigModel 通用服务类型、可用模型权限、参与角色及次数/单次与总时长/费用上限、允许外发的测试材料；本轮不读取或使用用户真实 Key。Key 由用户在本机凭据页保存，不发到聊天。配置保存、工程离线验证、代码审计通过均不等于真实请求或全部角色准入通过，P01 整卡及 M4 不标 DONE。
-- NOT_RUN：真实 GLM/Codex/AO 模型、全量、干净安装、CLAO 发行打包、smoke、负责人完整 GUI 体验与发布验收。P02/Kimi、P03 Worker 扩展、安装器/闭环视图未实施；M0–M3 COMPLETE，M4 IN_PROGRESS。
+- **真实服务准入：NOT_RUN / 联合执行 TODO**（两家工程已完成，真实服务/角色准入及质量、延迟、用量评测尚未开始）。真实验证前仍需负责人确认 BigModel 通用服务类型、可用模型权限、参与角色及次数/单次与总时长/费用上限、允许外发的测试材料；本轮不读取或使用用户真实 Key。Key 由用户在本机凭据页保存，不发到聊天。配置保存、工程离线验证、代码审计通过均不等于真实请求或全部角色准入通过，P01 整卡及 M4 不标 DONE。
+- P01 实施阶段 NOT_RUN（历史）：真实 GLM/Codex/AO 模型、全量、干净安装、CLAO 发行打包、smoke、负责人完整 GUI 体验与发布验收；当时未实施 P02/Kimi。P02 工程现已完成，P03 Worker 扩展、安装器/闭环视图仍未实施；M0–M3 COMPLETE，M4 IN_PROGRESS。
 
 
-工程收尾（2026-09-09）：仅完成 PR #43 rebase merge、背景文档与本地 main 同步，保持已审计产品实现不变。沿用既有 Windows/浏览器/离线证据，本轮只检查文档链接与差异；未重跑测试、构建、smoke 或真实模型，未读取真实 Key、未创建 tag/Release。M0–M3 COMPLETE，M4 IN_PROGRESS；下一实施任务 P02 TODO，本轮停止，不开始 Kimi。
+P01 工程收尾（2026-09-09，历史）：仅完成 PR #43 rebase merge、背景文档与本地 main 同步，保持已审计产品实现不变。沿用既有 Windows/浏览器/离线证据，本轮只检查文档链接与差异；未重跑测试、构建、smoke 或真实模型，未读取真实 Key、未创建 tag/Release。M0–M3 COMPLETE，M4 IN_PROGRESS；下一实施任务 P02 TODO，本轮停止，不开始 Kimi。
 
 ## V03-P02｜Kimi语义后端与切换评测
 
-- 状态：整卡 **IN_PROGRESS**，工程与离线验证切片 **IN_REVIEW**；[PR #44](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/44) 已提交，等待审计，不自行合并。base `6aefa5f5d2c0aeebcc99b115cf282a181efb73b5`，分支 `codex/v03-p02-kimi-semantic`。本轮国内通用服务工程接入、GLM/Codex 兼容及离线验证；两家真实 API、角色准入与切换质量/延迟评测待集中验证，测试要求与费用/外发授权不变。
+- 状态：整卡 **IN_PROGRESS**，工程接入与离线验证切片 **DONE**；[PR #44](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/44) 外部工程审计 PASS，无返修阻塞项，2026-09-09 已 rebase 合入 main `c112e25d332a284e857c9b2b0d3bd1ad32856485`，与已审计 head `d140e5d14e152ad1a64a4643bcbb1b775bac4a38` 的 tree 一致。base `6aefa5f5d2c0aeebcc99b115cf282a181efb73b5`，分支 `codex/v03-p02-kimi-semantic`。本轮国内通用服务工程接入、GLM/Codex 兼容及离线验证；两家真实 API、角色准入与切换质量/延迟评测待集中验证，测试要求与费用/外发授权不变。
 - 对应：A11。依赖：P01的薄transport/本地校验契约。
 - 工作：核对官方Kimi当前API和具体model；实现供应商参数差异，不复制整套角色/Controller；设置页明确数据发送、凭据和支持角色。
 - 必测：与P01相同的协议/错误/安全矩阵；固定任务profile切换；Codex/GLM/Kimi回归；不支持参数保存前拒绝；requested/confirmed模型区分。
@@ -391,9 +391,10 @@ Windows / CPython 3.12.7 / 产品 venv（Scripts 前置 PATH，`src` 与产品�
 - 首轮 P02/P01 集合 95 passed / 9 failed：新 HTTP 夹具重复 model 参数、AC 类别断言及 300ms 测试进程启动时限已修正（语义路由测试明确使用 3s 启动/1s send/kill）；浏览器暴露保存连接到新草稿的快照接线问题已修复。其后 68 passed / 1 failed 为新浏览器角色大小写/文案断言，确认文案统一角色名称并通过上述最终集合。保留失败用例及边界断言，未用重试掩盖 Worker UNKNOWN。
 - 实际 Edge 截图（Codex 自查，非负责人体验验收）：[连接与凭据](assets/p02-models/p02-models-light.png)、[混合服务确认](assets/p02-models/p02-mixed-confirmation.png)、[任务模型诊断](assets/p02-models/p02-model-diagnostics.png)。正常查看：`clao/启动CLAO.bat` → 模型/新建任务；离线复现配置既有 U01_NODE / NODE_PATH 后 `pytest tests/test_p02_kimi.py -k browser -q -s`，可用 P02_SCREENSHOTS 指定截图位置。开发脚本复用 `dev/panel/p01-consent.cjs`，不成为产品预览或运行资源。
 - 静态检查：产品与相关测试 compileall、产品/开发 JS 语法、diff-check 通过；6 个现有文档的 81 个本地链接与 18 个锚点有效。现有 manifest 的 panel/src/tests 前缀覆盖本轮修改，未新增 runtime 依赖或执行发行构建。
-- NOT_RUN：真实 GLM/Kimi/Codex/AO 请求、实际角色准入与质量/延迟/费用评测、全量、干净安装、发行打包、smoke、负责人完整 GUI 体验及发布验收。真实验证待两家工程审计合入后确认服务/型号权限、材料与费用/次数/时长预算；不索取或使用真实 Key。P01 工程 DONE、整卡 IN_PROGRESS；M4 IN_PROGRESS，M0–M3 COMPLETE；P03/闭环视图/安装器未开始，提交 PR 后停止待审计。
+- NOT_RUN：真实 GLM/Kimi/Codex/AO 请求、实际角色准入与质量/延迟/费用评测、全量、干净安装、发行打包、smoke、负责人完整 GUI 体验及发布验收。两家工程均已审计合入；剩余为真实服务/角色准入及质量、延迟、用量评测，唯一下一联合执行内容为 TODO，等待负责人确认服务/型号权限、允许外发材料与费用/次数/时长预算；本轮不读取或使用真实 Key。P01/P02 工程 DONE、整卡 IN_PROGRESS；M4 IN_PROGRESS，M0–M3 COMPLETE；P03/闭环视图/安装器未开始。
 - 不做：猜测ChatGPT订阅覆盖API；以一次OK响应宣称全角色可用。
-- 证据：待填。
+- 证据：工程与离线验证见上述记录；联合真实服务/角色准入及质量、延迟、用量评测 TODO。
+- 工程收尾（2026-09-09）：PR #44 已合并，仅同步现有背景文件并检查链接/差异及产品 blob 不变；未重跑测试、构建、smoke 或模型。工程审计不等于真实供应商请求、角色准入、质量或完整 GUI/发布验收通过。联合实测未启动，不开始 P03、不创建 tag/Release，已发布 v0.2 不变。
 
 ## V03-P03｜第二Worker能力准入决策
 

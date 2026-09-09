@@ -90,7 +90,7 @@ U01 的 PR #39 已通过本轮外部代码与产品整改审计并 rebase 合入
 正常启动只读取真实任务；没有记录时显示空态。旧 `preview` 参数不改变数据来源，
 正式服务不提供样例资源。主层使用少量中文状态，断连单独提示，Gate 读取失败在证据卡
 中保留；原始状态和完整诊断可展开查看。“重新执行”会创建关联的新执行记录，不重跑旧终态。
-U02 首切片已接入本地项目与真实 App Server 生产适配；[PR #40](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/40) 再次外部审计 PASS、已 rebase 合入（首切片 DONE）。“完整任务旅程与 GUI 数据接线”的 [PR #41](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/41) 代码与返修再次外部审计 PASS、已 rebase 合入；本切片及 U02 整卡 DONE；V03-U03 — 结果中心与独立导出的 [PR #42](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/42) 再次外部审计 PASS 并已 rebase 合入（DONE）。M0/M1/M2 保持 COMPLETE，M3 COMPLETE 表示阶段开发和代码审计完成；M4 IN_PROGRESS；P01 工程与离线验证切片的 [PR #43](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/43) 再次外部审计 PASS、已 rebase 合入（切片 DONE）；P01 整卡 IN_PROGRESS，真实 GLM 服务与角色准入待两家工程接入后集中验证；当前唯一实施任务 P02 工程切片 IN_REVIEW，加入 Kimi 国内通用服务及三种服务兼容，待审计；两家真实准入与切换评测待集中验证。运行证据仍为协议替身/离线集成、Windows/浏览器定向验证及 Codex 截图自查；外部代码与返修审计不代表负责人已完成完整 GUI 体验验收。U02 的 200% 检查为等效布局/CSS zoom，非原生浏览器缩放验收。真实 Codex 模型任务、全量与安装/发布验证仍 NOT_RUN；任意进程重连、模型扩展与 Q01 安装/发布兼容性未完成；U03 结果中心/固定版本补丁包及历史下载已合入，文件类型支持不变；包不含完整基线/项目依赖，敏感检测仅为有限规则。M3 COMPLETE 不代表完整 GUI 体验或发布验收完成；闭环运行视图仍仅为未授权候选。
+U02 首切片已接入本地项目与真实 App Server 生产适配；[PR #40](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/40) 再次外部审计 PASS、已 rebase 合入（首切片 DONE）。“完整任务旅程与 GUI 数据接线”的 [PR #41](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/41) 代码与返修再次外部审计 PASS、已 rebase 合入；本切片及 U02 整卡 DONE；V03-U03 — 结果中心与独立导出的 [PR #42](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/42) 再次外部审计 PASS 并已 rebase 合入（DONE）。M0/M1/M2 保持 COMPLETE，M3 COMPLETE 表示阶段开发和代码审计完成；M4 IN_PROGRESS；P01 工程与离线验证切片的 [PR #43](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/43) 再次外部审计 PASS、已 rebase 合入（切片 DONE）；P02 工程接入与离线验证切片的 [PR #44](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/44) 工程审计 PASS、已 rebase 合入（DONE）；P01/P02 整卡及 M4 保持 IN_PROGRESS。唯一下一执行内容为两家联合真实服务/角色准入及质量、延迟、用量评测，TODO，等待负责人确认服务/型号权限、外发材料及预算，尚未启动，不开始 P03。运行证据仍为协议替身/离线集成、Windows/浏览器定向验证及 Codex 截图自查；外部代码与返修审计不代表负责人已完成完整 GUI 体验验收。U02 的 200% 检查为等效布局/CSS zoom，非原生浏览器缩放验收。真实 Codex 模型任务、全量与安装/发布验证仍 NOT_RUN；任意进程重连、模型扩展与 Q01 安装/发布兼容性未完成；U03 结果中心/固定版本补丁包及历史下载已合入，文件类型支持不变；包不含完整基线/项目依赖，敏感检测仅为有限规则。M3 COMPLETE 不代表完整 GUI 体验或发布验收完成；闭环运行视图仍仅为未授权候选。
 
 视觉参考：[Framework7 分组列表](https://framework7.io/docs/list-view)、
 [Konsta iOS 列表](https://konstaui.com/react/list)；没有引入这些框架。
@@ -274,7 +274,7 @@ Playwright 时不能视作浏览器通过。`U01_SCREENSHOTS` 可指定截图输
 
 Worker 仍使用本地 Codex App Server。Planner（分解和异常规划）、Auditor、Mission Verifier
 各自选择 Codex CLI、BigModel 通用或 Kimi 国内通用 Chat Completions；Observer/Gate 不使用模型。
-默认全为 Codex，不需要外部 Key。P01 工程切片已审计合入（DONE）；P02 的 Kimi 工程切片 IN_REVIEW、待审计。两家真实服务/角色准入及切换质量、延迟评测待集中验证，P01 整卡及 M4 保持 IN_PROGRESS。配置保存、离线验证和代码审计均不等于真实请求或全部角色准入通过。
+默认全为 Codex，不需要外部 Key。P01/P02 工程接入与离线验证切片均已审计合入（DONE）。两家真实服务/角色准入及切换质量、延迟、用量评测为唯一下一执行内容，TODO，等待负责人确认权限、材料与次数/时长/费用预算；P01/P02 整卡及 M4 保持 IN_PROGRESS。配置保存、离线验证和代码审计均不等于真实请求或全部角色准入通过。
 
 1. 在“模型”页选择服务、添加连接，填写连接名称和凭据引用。工程目标仅支持
    BigModel `https://open.bigmodel.cn/api/paas/v4/chat/completions` / `glm-4.7`，

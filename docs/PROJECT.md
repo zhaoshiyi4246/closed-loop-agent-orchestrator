@@ -1,6 +1,6 @@
 # CLAO 当前项目事实
 
-更新：2026-09-09（F01–F05、R01/R02、U01/U02/U03 均 DONE；PR #43 再次外部审计 PASS 并已合入，P01 工程切片 DONE、整卡 IN_PROGRESS；M0–M3 保持 COMPLETE，M4 IN_PROGRESS；真实 GLM 准入待两家工程接入后集中验证，P02 工程实现待审计，真实 Kimi 准入与切换评测待集中验证）。本文件只记录已实现事实与已知限制；v0.3 的设计见 [V03_PLAN.md](V03_PLAN.md)。真实模型、完整 GUI 体验、全量、安装与发布验收尚未完成，已发布版本仍为 v0.2。
+更新：2026-09-09（F01–F05、R01/R02、U01/U02/U03 均 DONE；PR #43 / #44 工程审计 PASS 并已合入，P01/P02 工程切片 DONE、整卡 IN_PROGRESS；M0–M3 保持 COMPLETE，M4 IN_PROGRESS；唯一下一执行内容为 P01/P02 联合真实服务与角色准入及质量、延迟、用量评测，TODO，等待负责人确认权限/材料/预算）。本文件只记录已实现事实与已知限制；v0.3 的设计见 [V03_PLAN.md](V03_PLAN.md)。真实模型、完整 GUI 体验、全量、安装与发布验收尚未完成，已发布版本仍为 v0.2。
 
 ## 1. 版本与基线
 
@@ -9,7 +9,7 @@
 | 产品 | CLAO / Closed-Loop Agent Orchestrator |
 | 已发布版本 | v0.2，Windows本地比赛版 |
 | 已发布源码 | 4d3e8e6b5e70bab868b2eef0d28c7742dea044ba |
-| 开发目标 | v0.3：F01–F05、R01/R02、U01/U02/U03 已审计合入 main（DONE）；M0/M1/M2/M3 COMPLETE，M4 IN_PROGRESS；P01 工程切片 DONE、整卡 IN_PROGRESS，真实 GLM 准入待集中验证；当前 P02 工程切片 IN_REVIEW、待审计，两家真实准入及切换评测待集中验证 |
+| 开发目标 | v0.3：F01–F05、R01/R02、U01/U02/U03 已审计合入 main（DONE）；M0/M1/M2/M3 COMPLETE，M4 IN_PROGRESS；P01/P02 工程切片 DONE、整卡 IN_PROGRESS；唯一下一执行内容为两家联合真实服务/角色准入及质量、延迟、用量评测，TODO，等待权限/材料/预算确认 |
 | 主仓库 | zhaoshiyi4246/closed-loop-agent-orchestrator |
 | 产品源码路径 | `clao/`，当前唯一正式产品，内部 Python 包为 `src/loopcore/` |
 | 发布工具 | `packaging/build-release.ps1` 与 `packaging/release-manifest.txt` |
@@ -44,7 +44,7 @@ StateStore → StoreBusProjector / JSONL / Markdown / GUI
 
 MissionController是控制编排权威，ClosedLoop负责子任务；StateStore保存逻辑状态、动作、计数和证据。新本地任务由 Codex App Server stdio 提供 thread/turn/item/approval 外部事实；旧 AO 后端提供 Session／conversation／activity／workspace 事实。AOAdapter主要读取，也包含approval resolve POST；ActionExecutor执行有限spawn/send/kill。Bus不是控制传输层。
 
-语义角色默认使用共享headless Codex CLI，P01 可按角色选用 BigModel 通用 HTTP 传输，P02 分支增加 Kimi 国内通用服务（工程待审计、真实准入均待验证）；stdin传Prompt，保留ephemeral/read-only、schema输出、non-Git cwd支持。新本地 Worker 使用 Codex 0.150.1 App Server；旧 AO 任务保留 Codex harness 兼容。当前历史验收模型为gpt-5.6-sol，不把这个字符串作为永久模型支持清单。Observer/Gate不用模型。
+语义角色默认使用共享headless Codex CLI，P01 可按角色选用 BigModel 通用 HTTP 传输，P02 已合入 Kimi 国内通用服务（两家工程已审计、真实准入均待验证）；stdin传Prompt，保留ephemeral/read-only、schema输出、non-Git cwd支持。新本地 Worker 使用 Codex 0.150.1 App Server；旧 AO 任务保留 Codex harness 兼容。当前历史验收模型为gpt-5.6-sol，不把这个字符串作为永久模型支持清单。Observer/Gate不用模型。
 
 ### U02 首切片：本地项目与 Codex Worker
 
@@ -248,7 +248,7 @@ CSP 脚本 nonce 要求不变。12 个本地 Lucide 符号及完整 ISC/Feather 
 
 定向 Windows/Edge 证据及截图索引见 [U01 卡](V03_BACKLOG.md#v03-u01iphone风格界面骨架与状态夹具)。
 已有 Windows/浏览器验证与实际截图沿用，截图由 Codex 自查；本次外部代码与产品整改审计通过，不宣称外部逐张截图验收。合并收尾未重新运行测试或模型，仅做文档与差异检查。
-M0/M1/M2/M3 COMPLETE；U01/U02/U03 均 DONE，U02 两个切片保持 DONE；M4 IN_PROGRESS，P01 工程切片 DONE、整卡 IN_PROGRESS，真实 GLM 准入待集中验证；当前 P02 工程切片 IN_REVIEW、待审计，两家真实准入及切换评测待集中验证。
+M0/M1/M2/M3 COMPLETE；U01/U02/U03 均 DONE，U02 两个切片保持 DONE；M4 IN_PROGRESS，P01/P02 工程切片 DONE、整卡 IN_PROGRESS；唯一下一执行内容为两家联合真实服务/角色准入及质量、延迟、用量评测，TODO，等待权限/材料/预算确认。
 
 ## 4. 已验证外部前提
 
@@ -276,7 +276,7 @@ Windows、CPython3.12、Git、AO Desktop0.12.9、Codex CLI0.150.1及ChatGPT登�
 | 主题 | 当前实现 | v0.3设计（待实现） |
 |---|---|---|
 | GUI | U01 / U02 / U03 DONE：四入口、完整旅程、结果中心与独立导出；开发夹具独立 | 完整 GUI 体验及原生浏览器 200% 缩放验收 |
-| 模型 | 本地 Worker 为 Codex App Server；语义角色默认 Codex CLI，可选 BigModel GLM；P02 分支增加 Kimi（未实测准入）；AO 显式兼容 | 两家真实准入/切换质量延迟、Worker单独准入 |
+| 模型 | 本地 Worker 为 Codex App Server；语义角色默认 Codex CLI，可选 BigModel GLM；P02 已合入 Kimi（未实测准入）；AO 显式兼容 | 两家真实准入/切换质量、延迟、用量评测；Worker单独准入 |
 | 配置 | R01 已合入；R02 恢复先验证冻结材料 | 新 GUI 的配置旅程 |
 | 结果 | U03 DONE：固定版本差异、独立文本补丁包及摘要、历史下载 | 完整体验/发布验收；更广文件类型支持不宣称完成 |
 | 停止 | F05 已合入；R02 明确取消状态、只读历史/恢复检查、关联新 attempt（DONE，已合入） | 新 GUI 的操作与错误体验 |
@@ -295,9 +295,9 @@ AGENTS=规则；PROJECT=事实；PLANS=当前指针；V03_PLAN=目标设计；V0
 
 ## P01 工程切片：连接、凭据与语义 HTTP
 
-工程实现与离线验证切片 DONE；[PR #43](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/43) 再次外部审计 PASS，2026-09-09 已 rebase 合入。整卡 IN_PROGRESS，剩余为真实 GLM 服务与角色准入，无继续代码返修阻塞项。
+工程实现与离线验证切片 DONE；[PR #43](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/43) 再次外部审计 PASS，2026-09-09 已 rebase 合入。整卡 IN_PROGRESS，剩余为真实 GLM 服务与角色准入，无继续代码返修阻塞项。P02 工程接入与离线验证切片也已完成：[PR #44](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/44) 工程审计 PASS，2026-09-09 rebase 合入 `c112e25d332a284e857c9b2b0d3bd1ad32856485`。P01/P02 整卡及 M4 仍 IN_PROGRESS。
 
-现有角色 Provider 复用同一提示词、输入与完整本地校验；P01 新增 BigModel 通用服务，P02 分支复用同一传输增加 Kimi。
+现有角色 Provider 复用同一提示词、输入与完整本地校验；P01 新增 BigModel 通用服务，P02 已合入实现复用同一传输增加 Kimi。
 Planner 的分解/异常调用、Auditor 和 Mission Verifier 分别消费冻结的 `roles.<role>.profile`。
 Worker/Observer/Gate 边界不变。连接限定 `open.bigmodel.cn` / `glm-4.7` 或 `api.moonshot.cn/v1/chat/completions` / `kimi-k3`，
 不共用 Z.AI/Coding 域或凭据，不静默 fallback。详细参数、来源/优先级兼容见
@@ -308,7 +308,7 @@ Worker/Observer/Gate 边界不变。连接限定 `open.bigmodel.cn` / `glm-4.7` 
 GET 只返回配置和凭据状态，无系统存储则失败。任务启动前验证冻结的外发确认与所选凭据存在性。
 默认设置、连接检查不调用模型；任务运行中的响应模型/用量与工程准入状态分别展示。
 
-P02 分支复用原传输、角色与模型页，仅按两个明确契约生成参数：GLM 沿用 thinking/temperature/max_tokens；Kimi K3 使用 reasoning_effort/max_completion_tokens 与 JSON object，不支持自定义采样或关闭思考。
+P02 已合入实现复用原传输、角色与模型页，仅按两个明确契约生成参数：GLM 沿用 thinking/temperature/max_tokens；Kimi K3 使用 reasoning_effort/max_completion_tokens 与 JSON object，不支持自定义采样或关闭思考。
 Windows 凭据按 `CLAO/BigModel`（旧位置）与 `CLAO/MoonshotCN` 隔离，同名引用不会跨服务读写/删除，无用户凭据迁移。
 新许可记录实际服务列表；旧 BigModel 字符串许可仅覆盖 GLM。确认页列出每个角色/服务，连续任务重新确认；项目/角色/连接变化失效，同一草稿切页、重开、SSE 不丢确认。
 连接变更不改已冻结快照；缺失该服务凭据明确失败，不选择其他服务。配置/连接状态读取不发供应商请求，不提供虚假的真实连接测试结果。
@@ -316,4 +316,4 @@ Windows 凭据按 `CLAO/BigModel`（旧位置）与 `CLAO/MoonshotCN` 隔离，�
 非流式 HTTP 每次超时明确、只接收完整 formal content，思考/工具/截断不制造 PASS。
 HTTP 与结构化错误共用每个角色调用 1–3 次总预算，Controller 不叠加重试 ProtocolError。
 取消接入既有 ExecutionControl，停止等待/重试并丢弃迟到结果；不声称远端计算或计费被取消。
-配置已保存、离线验证及代码审计通过均不等于真实 GLM 请求或全部角色准入通过。真实 API 测试保留，待 GLM/Kimi 两家工程接入完成后按明确费用与材料授权集中验证；P02 工程切片 IN_REVIEW、待审计，不把协议替身通过记为真实服务通过。完整 GUI 体验、全量/安装/发行包测试仍未运行。
+配置已保存、离线验证及工程审计通过均不等于真实 GLM/Kimi 请求、全部角色准入或质量评测通过。两家工程均已完成；唯一下一执行内容为联合真实服务与角色准入及质量、延迟、用量评测，TODO，等待服务/型号权限、允许外发材料及次数/时长/费用预算确认。工程收尾只做文档与差异检查，未调用供应商或读取真实 Key，不开始 P03。完整 GUI 体验、全量/安装/发行包测试仍未运行。
