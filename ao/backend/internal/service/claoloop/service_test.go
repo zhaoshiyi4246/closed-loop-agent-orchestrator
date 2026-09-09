@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
+	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
 	"github.com/aoagents/agent-orchestrator/backend/internal/storage/sqlite"
 	"github.com/aoagents/agent-orchestrator/backend/internal/storage/sqlite/sqlitetest"
 )
@@ -22,8 +23,166 @@ func contract() Request {
 	return Request{ID: "mission-test", ProjectID: "project-test", Objective: "change", AllowedPaths: []string{"**"}, Criteria: []Criterion{{ID: "AC1", Description: "accepted"}}, GateCommands: []string{"python check.py"}, GateTimeout: 10, Agent: domain.HarnessOpenCode}
 }
 
+// Faults at native Spawn/receipt boundaries; the admission, operation records,
+// immutable owner lookup and cancellation use the real service and SQLite.
+type spawnFault struct {
+	Sessions
+	store *receiptFaultStore
+	mode  string
+	calls int
+}
+
+func (f *spawnFault) Spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.SessionRecord, int, int, error) {
+	f.calls++
+	if f.mode == "before_session" {
+		return domain.SessionRecord{}, 0, 0, errors.New("injected pre-session failure")
+	}
+	rec, err := f.store.native.CreateSession(ctx, domain.SessionRecord{ProjectID: cfg.ProjectID, Kind: domain.KindWorker, Harness: cfg.Harness, Mode: domain.SessionModeChat, Activity: domain.Activity{State: domain.ActivityActive}, Metadata: domain.SessionMetadata{CLAOMissionID: cfg.CLAOMissionID, WorkspacePath: "isolated-workspace", Model: "resolved"}, CreatedAt: time.Now(), UpdatedAt: time.Now()})
+	if err != nil {
+		return rec, 0, 0, err
+	}
+	if f.mode == "receipt_lost" {
+		f.store.failNext = true
+		return rec, 0, 0, nil
+	}
+	return domain.SessionRecord{}, 0, 0, errors.New("injected native ACK loss")
+}
+
+type receiptFaultStore struct {
+	Store
+	native interface {
+		CreateSession(context.Context, domain.SessionRecord) (domain.SessionRecord, error)
+	}
+	failNext bool
+}
+
+func (f *receiptFaultStore) SaveCLAOMission(ctx context.Context, r domain.CLAOMissionRecord) error {
+	if f.failNext {
+		f.failNext = false
+		return errors.New("injected receipt write failure")
+	}
+	return f.Store.SaveCLAOMission(ctx, r)
+}
+
+type sourceOnly struct{ Acceptance }
+
+func (sourceOnly) Source(context.Context, string) (string, error) { return "frozen", nil }
+
+type readyChat struct{ absentController }
+
+func (readyChat) PreflightChat(context.Context, domain.AgentHarness, ports.PermissionMode) error {
+	return nil
+}
+
+func TestCLAOSpawnFailureReceiptAndNewAttempt(t *testing.T) {
+	for _, mode := range []string{"before_session", "ack_lost", "receipt_lost"} {
+		t.Run(mode, func(t *testing.T) {
+			st := sqlitetest.MustOpen(t)
+			ctx := context.Background()
+			req := contract()
+			if err := st.UpsertProject(ctx, domain.ProjectRecord{ID: string(req.ProjectID), Path: t.TempDir(), RegisteredAt: time.Now()}); err != nil {
+				t.Fatal(err)
+			}
+			store := &receiptFaultStore{Store: st, native: st}
+			spawn := &spawnFault{store: store, mode: mode}
+			svc := New(ctx, store, spawn, readyChat{}, sourceOnly{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+			wait := func() {
+				t.Helper()
+				for i := 0; i < 200; i++ {
+					svc.mu.Lock()
+					running := len(svc.running) > 0
+					svc.mu.Unlock()
+					if !running {
+						return
+					}
+					time.Sleep(5 * time.Millisecond)
+				}
+				t.Fatal("run did not finish")
+			}
+			receipt, err := svc.Create(ctx, req)
+			if err != nil || receipt.State != "SPAWNING" {
+				t.Fatalf("durable acceptance: %+v %v", receipt, err)
+			}
+			wait()
+			m, err := svc.Get(ctx, req.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := "UNKNOWN"
+			if mode == "before_session" {
+				want = "FAILED"
+			}
+			if m.State != want || len(m.Operations) != 1 || spawn.calls != 1 {
+				t.Fatalf("%+v; spawn count %d", m, spawn.calls)
+			}
+			if mode == "before_session" {
+				if m.SessionID != "" || m.Operations[0].State != "CONFIRMED_FAILURE" || !strings.Contains(m.Reason, "injected pre-session failure") {
+					t.Fatalf("missing no-start fact: %+v", m)
+				}
+			} else if m.SessionID == "" || m.ResolvedModel != "resolved" || m.Operations[0].State != "UNKNOWN" {
+				t.Fatalf("missing native owner adoption: %+v", m)
+			}
+			// Exact replay only reads the old request; edited replay cannot overwrite it.
+			if _, err = svc.Create(ctx, req); err != nil {
+				t.Fatal(err)
+			}
+			edited := req
+			edited.Objective = "another objective"
+			if _, err = svc.Create(ctx, edited); err == nil {
+				t.Fatal("old identity accepted an edit")
+			}
+			if spawn.calls != 1 {
+				t.Fatal("duplicate Worker")
+			}
+			next := req
+			next.ID = "new-attempt"
+			_, err = svc.Create(ctx, next)
+			if mode == "before_session" {
+				if err != nil {
+					t.Fatal(err)
+				}
+				wait()
+				if spawn.calls != 2 {
+					t.Fatal("new attempt did not run")
+				}
+			} else if err == nil || !strings.Contains(err.Error(), "未知") {
+				t.Fatalf("unknown did not block: %v", err)
+			}
+			old, _ := svc.Get(ctx, req.ID)
+			if old.Revision != m.Revision || old.Request.Objective != req.Objective {
+				t.Fatal("new attempt rewrote old request")
+			}
+		})
+	}
+}
+
+type unreadableOwners struct{ Store }
+
+func (unreadableOwners) ListAllSessions(context.Context) ([]domain.SessionRecord, error) {
+	return nil, errors.New("owner read failed")
+}
+func TestCLAOFailedOwnerReadDoesNotProveNoExecution(t *testing.T) {
+	st := sqlitetest.MustOpen(t)
+	ctx := context.Background()
+	req := contract()
+	if err := st.UpsertProject(ctx, domain.ProjectRecord{ID: string(req.ProjectID), Path: t.TempDir(), RegisteredAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.CreateCLAOMission(ctx, record(Mission{Request: req, State: "UNKNOWN", Revision: 1, Operations: []Operation{{Kind: "spawn", State: "UNKNOWN"}}})); err != nil {
+		t.Fatal(err)
+	}
+	svc := New(ctx, unreadableOwners{st}, nil, nil, nil, slog.Default())
+	if err := svc.reconcileSpawn(req.ID, nil); err == nil {
+		t.Fatal("missing read error")
+	}
+	m, _ := svc.Get(ctx, req.ID)
+	if m.State != "UNKNOWN" || m.Revision != 1 {
+		t.Fatal("failed read modified uncertainty")
+	}
+}
+
 func TestCLAORecoveryUsesDurableNativeOwnerAndDoesNotReplay(t *testing.T) {
-	for _, state := range []string{"active", "exited", "not_spawned"} {
+	for _, state := range []string{"active", "exited", "not_spawned", "before_intent"} {
 		t.Run(state, func(t *testing.T) {
 			dir := t.TempDir()
 			st, err := sqlitetest.Open(dir)
@@ -37,7 +196,7 @@ func TestCLAORecoveryUsesDurableNativeOwnerAndDoesNotReplay(t *testing.T) {
 				t.Fatal(err)
 			}
 			var persistedID domain.SessionID
-			if state != "not_spawned" {
+			if state != "not_spawned" && state != "before_intent" {
 				activity := domain.ActivityActive
 				if state == "exited" {
 					activity = domain.ActivityExited
@@ -50,6 +209,9 @@ func TestCLAORecoveryUsesDurableNativeOwnerAndDoesNotReplay(t *testing.T) {
 				persistedID = created.ID
 			}
 			m := Mission{Request: req, State: "SPAWNING", Revision: 1, Operations: []Operation{{ID: "spawn-intent", Kind: "spawn", State: "IN_FLIGHT"}}, UpdatedAt: now.Format(time.RFC3339Nano)}
+			if state == "before_intent" {
+				m.Operations = nil
+			}
 			if err = st.CreateCLAOMission(ctx, record(m)); err != nil {
 				t.Fatal(err)
 			}
@@ -69,7 +231,7 @@ func TestCLAORecoveryUsesDurableNativeOwnerAndDoesNotReplay(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if state == "not_spawned" {
+			if state == "not_spawned" || state == "before_intent" {
 				if got.State != "FAILED" {
 					t.Fatalf("no worker: %+v", got)
 				}

@@ -1,4 +1,5 @@
 import { memo, useCallback, useEffect, useRef, useState, type MouseEvent } from "react";
+import { CLAOMissionList } from "./CLAOAcceptance";
 import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
@@ -330,6 +331,7 @@ export function SessionsBoard({ projectId }: SessionsBoardProps) {
 
 	return (
 		<div className="relative flex h-full min-h-0 flex-col bg-background text-foreground" data-testid="board">
+			<CLAOMissionList key={projectId ?? "all"} projectId={projectId} />
 			{!boardActionsInPanel && isLoaded && visibleSpawnError && !showProjectEmpty ? (
 				<p role="alert" className="mx-3 my-3 whitespace-pre-wrap break-words text-sm text-destructive">
 					{visibleSpawnError}

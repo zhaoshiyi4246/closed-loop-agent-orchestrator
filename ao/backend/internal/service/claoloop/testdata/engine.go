@@ -174,6 +174,15 @@ func main() {
 		case "account/read":
 			reply(m.ID, map[string]any{"account": map[string]any{"type": "chatgpt", "email": "fixture@example.invalid", "planType": "plus"}, "requiresOpenaiAuth": false})
 		case "session/new", "session/load", "session/resume":
+			// Isolated test switch at the external protocol boundary, before any
+			// initial prompt. Production AO creation/rollback stays real.
+			if marker := os.Getenv("CLAO_FIXTURE_FAIL_START"); marker != "" {
+				if _, err := os.Stat(marker); err == nil {
+					trace("start_rejected", "controlled session/new failure")
+					_ = encoder.Encode(map[string]any{"jsonrpc": "2.0", "id": m.ID, "error": map[string]any{"code": -32603, "message": "controlled session/new failure"}})
+					continue
+				}
+			}
 			if cwd, ok := m.Params["cwd"].(string); ok {
 				workspace = cwd
 			}

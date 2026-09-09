@@ -5,7 +5,7 @@ import {
 	type TaskComposerModelCatalog,
 	type TaskComposerModelControl,
 } from "@aoagents/product-ui";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
 import { RequiredAgentField } from "./CreateProjectAgentSheet";
@@ -73,7 +73,9 @@ function hasErrorDetail(details: components["schemas"]["APIError"]["details"] | 
 }
 
 export type TaskComposerProps = {
-	createClosedLoop?: (input: CreateTaskInput) => Promise<string>;
+	createClosedLoop?: (input: CreateTaskInput) => Promise<void>;
+	initialInput?: { brief: string; agent: string; model: string; mode?: string };
+	onDraftChange?: (draft: { brief: string; agent: string; model: string; mode?: string }) => void;
 	projectId?: string;
 	onCreated: (sessionId: string) => void;
 	onDirtyChange?: (dirty: boolean) => void;
@@ -83,6 +85,8 @@ export type TaskComposerProps = {
 
 export function TaskComposer({
 	createClosedLoop,
+	initialInput,
+	onDraftChange,
 	projectId,
 	onCreated,
 	onDirtyChange,
@@ -98,14 +102,15 @@ export function TaskComposer({
 	}, [t]);
 	const queryClient = useQueryClient();
 	const [isPromptDirty, setIsPromptDirty] = useState(false);
-	const [model, setModel] = useState("");
-	const [mode, setMode] = useState("");
-	const [agent, setAgent] = useState("");
-	const [agentTouched, setAgentTouched] = useState(false);
-	const [modelTouched, setModelTouched] = useState(false);
+	const [model, setModel] = useState(initialInput?.model ?? "");
+	const [mode, setMode] = useState(initialInput?.mode ?? "");
+	const [agent, setAgent] = useState(initialInput?.agent ?? "");
+	const [agentTouched, setAgentTouched] = useState(Boolean(initialInput));
+	const [modelTouched, setModelTouched] = useState(Boolean(initialInput));
 	const [isSubmitting, setIsSubmitting] = useState(false);
 	const [error, setError] = useState<string | undefined>();
 	const [fallbackAction, setFallbackAction] = useState<FallbackAction>();
+	const draftPrompt = useRef(initialInput?.brief ?? "");
 	const {
 		attachments,
 		error: attachmentError,
@@ -199,7 +204,7 @@ export function TaskComposer({
 	);
 
 	const createTask = useCallback(
-		(input: CreateTaskInput): Promise<string> =>
+		(input: CreateTaskInput): Promise<string | void> =>
 			createClosedLoop ? createClosedLoop(input) : isCloudProject ? createCloudTask(input) : createLocalTask(input),
 		[isCloudProject, createCloudTask, createLocalTask, createClosedLoop],
 	);
@@ -310,10 +315,13 @@ export function TaskComposer({
 	}, [defaultModelForSelectedAgent, defaultModeForSelectedAgent, modelTouched]);
 
 	const isDirty = isPromptDirty || modelTouched || attachments.length > 0;
+	useEffect(() => { onDraftChange?.({ brief: draftPrompt.current, agent: selectedAgent, model, mode }); }, [selectedAgent, model, mode, onDraftChange]);
 	const handlePromptChange = useCallback((value: string) => {
+		draftPrompt.current = value;
+		onDraftChange?.({ brief: value, agent: selectedAgent, model, mode });
 		const nextDirty = value.trim() !== "";
 		setIsPromptDirty((wasDirty) => (wasDirty === nextDirty ? wasDirty : nextDirty));
-	}, []);
+	}, [selectedAgent, model, mode, onDraftChange]);
 	useEffect(() => {
 		onDirtyChange?.(isDirty);
 	}, [isDirty, onDirtyChange]);
@@ -355,7 +363,7 @@ export function TaskComposer({
 				approvalMode,
 				attachments: attachmentPayloads.length > 0 ? attachmentPayloads : undefined,
 			});
-			onCreated(sessionId);
+			if (sessionId) onCreated(sessionId);
 		} catch (err) {
 			const canBypassApprovals =
 				err instanceof TaskCreateError &&
@@ -379,6 +387,7 @@ export function TaskComposer({
 
 	return (
 		<TaskComposerView
+			initialPrompt={initialInput?.brief}
 			autoFocusPrompt={autoFocusTitle}
 			canSubmit={Boolean(projectId)}
 			onPromptChange={handlePromptChange}
