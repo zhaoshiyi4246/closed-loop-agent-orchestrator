@@ -27,10 +27,16 @@ from tests.test_p01_bigmodel import (glm_http, configuration, profile, envelope,
 def native_vault(monkeypatch):
     assert os.name == 'nt', 'P01 credential acceptance must run on Windows'
     vault = credentials.WindowsCredentials('CLAO-P01-Isolated-Test/' + uuid.uuid4().hex)
+    touched = {'test-key','browser-key'}
+    save = vault.save
+    def tracked_save(ref, key):
+        touched.add(ref)
+        save(ref, key)
+    vault.save = tracked_save
     monkeypatch.setattr(credentials, 'credentials', lambda service=SERVICE: vault)
     yield vault
     # Never enumerate or access user entries; every touched reference is named here.
-    for ref in ('test-key','browser-key'):
+    for ref in touched:
         vault.delete(ref)
         assert vault.read(ref) is None
 
@@ -210,8 +216,10 @@ def test_browser_profiles_credentials_consent_and_real_pipeline(journey,glm_http
     result=subprocess.run([os.environ['U01_NODE'],str(script),journey.origin,body['project_id'],str(output)],
         capture_output=True,encoding='utf-8',errors='replace',timeout=100)
     assert result.returncode==0,result.stdout+'\n'+result.stderr
-    assert len(glm_http.calls)==1 and native_vault.read('browser-key')==FAKE_KEY
-    assert journey.state.rt.cfg['roles']['verifier']['profile']=='browser-glm'
+    saved=journey.state.rt.cfg['model_profiles'][-1]
+    assert len(glm_http.calls)==1 and native_vault.read(saved['credential_ref'])==FAKE_KEY
+    assert saved['label']=='浏览器 GLM' and saved['id'].startswith('c-')
+    assert journey.state.rt.cfg['roles']['verifier']['profile']==saved['id']
     assert journey.state.rt.cfg['model_profiles'][-1]['timeout_seconds']==4.125
     print(result.stdout)
 

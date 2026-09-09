@@ -61,6 +61,11 @@ def services_http(monkeypatch):
     def handler(service,node):
         class Handler(BaseHTTPRequestHandler):
             def log_message(self,*args): pass
+            def do_GET(self):
+                assert service==KIMI_SERVICE and self.path=='/v1/models'
+                assert self.headers['Authorization']=='Bearer '+KEYS[service]
+                raw=json.dumps({'data':[{'id':'kimi-k3'},{'id':'kimi-new-official'}]}).encode()
+                self.send_response(200);self.send_header('Content-Length',str(len(raw)));self.end_headers();self.wfile.write(raw)
             def do_POST(self):
                 assert self.path==ENDPOINTS[service].split('.cn',1)[1]
                 assert self.headers['Authorization']=='Bearer '+KEYS[service]
@@ -74,7 +79,7 @@ def services_http(monkeypatch):
                     self.send_response(status);self.send_header('Content-Length',str(len(raw)));self.end_headers();self.wfile.write(raw)
                 except OSError: pass
         return Handler
-    for service in ENDPOINTS:
+    for service in (SERVICE, KIMI_SERVICE):
         node=SimpleNamespace(calls=[],replies=[],responder=None,entered=threading.Event(),release=threading.Event())
         node.release.set();nodes[service]=node
         httpd=ThreadingHTTPServer(('127.0.0.1',0),handler(service,node));node.port=httpd.server_port
@@ -102,7 +107,7 @@ def native_vaults(services_http,monkeypatch):
     # boundary so no production credential target can be read or written.
     monkeypatch.setattr(credentials,'WindowsCredentials',lambda namespace:original(prefix+namespace))
     monkeypatch.setattr(credentials,'credentials',CREDENTIAL_FACTORY)
-    vaults={s:credentials.credentials(s) for s in ENDPOINTS}
+    vaults={s:credentials.credentials(s) for s in (SERVICE, KIMI_SERVICE)}
     yield vaults
     for vault in vaults.values():
         for ref in ('test-key','shared'):
@@ -389,8 +394,9 @@ def test_kimi_inflight_mission_cancel_preserves_stop_boundary(journey,services_h
 
 def test_browser_mixed_consent_credentials_and_pipeline(journey,services_http,native_vaults,tmp_path,monkeypatch):
     pipeline(journey,services_http,monkeypatch)
-    journey.state.set_config({'model_profiles':[profile()], 'roles':{'verifier':{'profile':'glm-review'}}})
+    journey.state.set_config({'model_profiles':[profile(),kimi_profile(reasoning_effort='low',timeout_seconds=3.125)], 'roles':{'verifier':{'profile':'glm-review'}}})
     native_vaults[SERVICE].save('test-key',KEYS[SERVICE])
+    native_vaults[KIMI_SERVICE].save('test-key',KEYS[KIMI_SERVICE])
     codex=[]
     def reply(**kw):
         codex.append(kw['model'])
@@ -405,7 +411,7 @@ def test_browser_mixed_consent_credentials_and_pipeline(journey,services_http,na
     assert result.returncode==0,result.stdout+'\n'+result.stderr
     assert len(services_http[SERVICE].calls)==2 and len(services_http[KIMI_SERVICE].calls)==1 and len(codex)==1
     assert methods(journey).count('thread/start')==4
-    assert all(native_vaults[s].read('test-key')==KEYS[s] for s in ENDPOINTS)
+    assert all(native_vaults[s].read('test-key')==KEYS[s] for s in (SERVICE, KIMI_SERVICE))
     for folder in ('项目 A 中文','项目 B 中文'):
         assert (tmp_path/folder/'app.py').read_text()=='x=0\n' and not (tmp_path/folder/'.git').exists()
     print(result.stdout)

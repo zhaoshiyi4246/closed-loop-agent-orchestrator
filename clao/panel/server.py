@@ -123,6 +123,8 @@ class PanelState:
         self.last_summary = None
         self.errors = []
         self.readiness = {'status': 'unchecked', 'reason': '尚未检查执行环境', 'checked_at': None}
+        from loopcore.model_connections import ModelCatalogs
+        self.model_catalogs = ModelCatalogs()
 
     def check_environment(self):
         with self.lock:
@@ -136,7 +138,7 @@ class PanelState:
     def _check_environment(self):
         started = time.monotonic()
         try:
-            engine = run_mission.local_preflight(ROOT)
+            engine = run_mission.configured_local_preflight(ROOT, self.defaults())
             result = {'status': 'ready', 'reason': '工具、Codex 版本、已有登录和沙箱检查通过',
                       'version': engine['version'], 'python': sys.version.split()[0]}
         except Exception as exc:
@@ -799,7 +801,15 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == '/api/model-connections':
             from loopcore.model_profiles import connection_status
-            self._json({'ok': True, 'connections': connection_status(PANEL.defaults())})
+            from loopcore.model_connections import SERVICES
+            cfg = PANEL.defaults()
+            connections = connection_status(cfg)
+            for row, profile in zip(connections, cfg.get('model_profiles', [])):
+                catalog = PANEL.model_catalogs.read(profile)
+                row['catalog_status'] = catalog['connection_status']
+                row['catalog_error'] = catalog['error']
+            self._json({'ok': True, 'connections': connections, 'services': SERVICES,
+                        'revision': cfg.snapshot()['revision']})
             return
         if path == "/api/stream":
             self._sse()
@@ -856,6 +866,26 @@ class Handler(BaseHTTPRequestHandler):
                 self._discard_rejected_body()
                 raise
             body = self._body()
+            if path == '/api/model-connections':
+                from loopcore.model_connections import edit_connection
+                self._json({'ok': True, 'config': edit_connection(PANEL, body)})
+                return
+            if path == '/api/model-catalog':
+                if set(body) != {'id', 'refresh'} or type(body['refresh']) is not bool:
+                    raise ClientError('目录请求只接受连接 ID 与 refresh')
+                cfg = PANEL.defaults()
+                profile = next((p for p in cfg.get('model_profiles', []) if p['id'] == body['id']), None)
+                if profile is None:
+                    raise ClientError('请先保存连接')
+                query = PANEL.model_catalogs.refresh if body['refresh'] else PANEL.model_catalogs.read
+                self._json({'ok': True, 'catalog': query(profile)})
+                return
+            if path == '/api/model-parameters':
+                from loopcore.model_profiles import parameter_defaults, ENDPOINTS, MODEL_ID
+                if set(body) != {'service', 'model'} or body['service'] not in ENDPOINTS or not isinstance(body['model'], str) or not MODEL_ID.fullmatch(body['model']):
+                    raise ClientError('服务或模型 ID 无效')
+                self._json({'ok': True, 'parameters': parameter_defaults(body['service'], body['model'])})
+                return
             if path == '/api/credentials':
                 from loopcore.credentials import credentials
                 action = body.get('action')

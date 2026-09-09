@@ -1,6 +1,6 @@
 # CLAO v0.3 任务与验收台账
 
-版本：0.3-plan-r1 · 2026-09-06。状态：已批准 / IN EFFECT。DOC-00、F01–F05、R01 / R02 已完成（DONE），M0 / M1 / M2 为 `COMPLETE`；U01 / U02 / U03 均已审计合入（`DONE`），U02 两个切片保持 `DONE`；M3 `COMPLETE` 表示本阶段开发与代码审计完成，完整体验与发布验收尚未完成；M4 `IN_PROGRESS`，P01/P02 工程切片均已审计合入（`DONE`），两张整卡保持 `IN_PROGRESS`；唯一下一执行内容为两家联合真实服务与角色准入及质量/延迟/用量评测（`TODO`），等待负责人确认权限、材料和预算，尚未开始；其余功能卡状态见下表，原报告的发现不等于已复现或已修复。
+版本：0.3-plan-r1 · 2026-09-06。状态：已批准 / IN EFFECT。DOC-00、F01–F05、R01 / R02 已完成（DONE），M0 / M1 / M2 为 `COMPLETE`；U01 / U02 / U03 均已审计合入（`DONE`），U02 两个切片保持 `DONE`；M3 `COMPLETE` 表示本阶段开发与代码审计完成，完整体验与发布验收尚未完成；M4 `IN_PROGRESS`，P01/P02 工程切片均已审计合入（`DONE`），两张整卡保持 `IN_PROGRESS`；唯一执行内容为 M4 AO 对齐模型接入重构首切片（`IN_REVIEW`，D11）；原两家联合真实验证暂缓；其余功能卡状态见下表，原报告的发现不等于已复现或已修复。
 
 设计以 [V03_PLAN.md](V03_PLAN.md) 为准。当前唯一任务由根目录 [PLANS.md](../PLANS.md) 指定。本文件保存每张卡的详细状态和证据，PLANS 不重复整张台账。
 
@@ -347,6 +347,8 @@ PR #42 导出误拦截返修（2026-09-08，再次外部审计 PASS，已合入�
 
 ## V03-P01｜模型配置／凭据与GLM语义后端
 
+**D11 当前授权（2026-09-09）**：AO v0.12.12 对齐重构首切片 IN_REVIEW；与 P02 共用此记录，不新建任务卡。全量 27 入口、认证/目录/自定义与后续组见设计 7.6。P01/P02 原工程 DONE 是历史，新目标尚未完成，原联合真实测试暂缓。首批实现/验证记录见本卡末尾。
+
 - 状态：整卡 **IN_PROGRESS**；工程实现与离线验证切片 **DONE**。[PR #43](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/43) 再次外部审计 PASS，外发确认归属问题已解决、无继续返修阻塞项；2026-09-09 已 rebase 合入 main `d1738b5337aecdfbc063fd284fb1e7bfa6fe7fcc`，合入 tree 与已审计 head `c629890d6fa3e740ffaa48a3117961f59dbe4988` 一致。P02 工程也已审计合入；剩余为两家真实服务与角色准入，以及已规划的质量、延迟、用量评测，非代码返修。联合执行内容为 TODO，等待负责人确认服务/型号权限、外发材料与次数/时长/费用预算，不取消测试要求。
 
 - 对应：A11/A10。工作：profile/角色绑定/credential_ref；一种安全凭据存储；Codex保留；GLM明确服务域、认证、model/effort、JSON协议。语义角色无工具执行。
@@ -375,14 +377,28 @@ Windows / CPython 3.12.7 / 产品 venv（Scripts 前置 PATH，`src` 与产品�
 
 P01 工程收尾（2026-09-09，历史）：仅完成 PR #43 rebase merge、背景文档与本地 main 同步，保持已审计产品实现不变。沿用既有 Windows/浏览器/离线证据，本轮只检查文档链接与差异；未重跑测试、构建、smoke 或真实模型，未读取真实 Key、未创建 tag/Release。M0–M3 COMPLETE，M4 IN_PROGRESS；下一实施任务 P02 TODO，本轮停止，不开始 Kimi。
 
+### D11 / M4 AO 对齐首切片（2026-09-09）
+
+- 基线 `e5cc79aa7e15f618316d0206e759e443a41c8679`；分支 `codex/m4-ao-model-connections`，首切片 **IN_REVIEW**，提交独立 PR 等待审计。M4 IN_PROGRESS；P01/P02 原工程 DONE 不变，原联合真实测试暂缓，尚未迁移入口见设计 7.6，不开始后续组。
+- 产品：合并连接与凭据表单，内部生成引用、同名连接隔离、默认折叠高级参数。Codex 当前账号/API 接到原生 Worker 与语义执行；GLM-5.3 标准 API 接到 Planner 两入口/Auditor/Verifier；GLM Coding Plan 通过官方 Claude Code 的无工具结构化执行，独立域与 Key，拒绝走自建 Chat Completions。旧 Kimi/GLM 连接与系统存储保留；v3 新快照、v1/v2 原样恢复。新表单更换 Key 分配新引用，目录刷新不热改任务，外发确认仍绑定项目/角色/连接与实际服务。
+- 目录：Codex 公开 model/list、Kimi GET models、BigModel 标准/套餐公开文档；缓存、刷新失败与自定义 ID，型号选择不等于参数/角色准入。GLM-5.3 thinking 不可关闭；未定义型号参数时采用最小 JSON 协议，拒绝套旧参数，不取消 Schema/AC/完整性校验。
+- Windows / CPython 3.12.7 / 原产品 venv，Scripts 前置 PATH，隔离工作树产品目录和 src 为 PYTHONPATH，开发 Node/Playwright/Edge：`pytest tests/test_m4_connections.py tests/test_p01_panel.py tests/test_codex_planner.py tests/test_codex_auditor.py tests/test_codex_verifier.py tests/test_f04_panel_boundaries.py::test_real_browser_text_rendering_nonce_and_pending_writes tests/test_u02_local_execution.py::test_failed_or_unknown_worker_cannot_become_mission_success tests/test_u02_local_execution.py::test_interrupt_ack_is_not_stop_fact tests/test_u02_local_execution.py::test_green_worker_with_red_real_gate_is_not_done tests/test_u02_local_execution.py::test_audit_hard_rules_cannot_be_overridden_at_submit -q --tb=short` → **91 passed / 174.78s**。
+- M4 最终 `pytest tests/test_m4_connections.py -q --tb=short` → **22 passed / 67.04s**；其中正式 HTTP → 原角色/Controller/Git/StateStore/Gate/Verifier → 固定结果导出三条路径，仅外部 HTTP/进程被替换，原目录未写回，包无 Key。四种实际语义调用覆盖原生账号/API/套餐及 GLM-5.3；真实 WinCred 使用随机隔离命名空间与假 Key，finally 清理；公开模型目录未创建 Worker。此前 M4 + 新 UI 的 P01 浏览器兼容复查 **23 passed / 48.13s**，集合重叠不累计。
+- 最后补齐已保存连接的缓存目录读取、异步目录归属与表单宽度后，实际 Edge M4 浏览器节点 **1 passed / 15.26s**，包含缓存重开、自定义模型、统一认证表单、同名连接、冻结/外发确认和正式任务结果；四张截图重新生成并自查。compileall、产品/开发 JS 语法、diff-check、6 个现有文档的 **87 个本地路径 / 20 个锚点**检查通过；原 manifest 的 src/panel/tests 前缀覆盖新增文件，未增加运行依赖或执行发行构建。
+- 首轮 P01/P02/M4 集中检查 111 passed / 5 failed：新完整旅程凭据夹具未覆盖原生读取、旧 BigModel 文案/浏览器入口需适配；补齐隔离系统存储并修正已结束 Worker 不应强求 interrupt 的断言，改查 CONFIRMED 停止事实。其后 R01/Panel 集合 81 passed / 2 failed：Windows 粗时钟导致连续刷新误复用、旧浏览器 summary 选择器重复；以缓存对象代次判并发，选择正确表单后通过上述复查。保留原正常/禁止/未知断言；没有将替身、源码或 HTTP 200 写成真实模型验收。
+- 实际 Edge 截图（Codex 自查）：[模型页](assets/m4-models/m4-connections-light.png)、[统一连接编辑](assets/m4-models/m4-connection-editor.png)、[任务确认](assets/m4-models/m4-confirmation.png)、[窄屏深色](assets/m4-models/m4-connections-narrow-dark.png)。正常启动及离线复现见[产品说明](../clao/README.md#模型连接与角色)。没有产品演示模式；截图不等同负责人体验审计。
+- 边界：本机仅核对 Codex 0.150.1 版本/help/公开 schema；Claude Code 尚未安装，要求 2.1.205+ 的 2.1.x，生产命令/取消与结构化结果仅由受控进程验证。真实账号/API/套餐权限、额度来源、模型效果与质量/延迟/费用，完整 GUI 体验、全量、安装、发行打包、smoke 均 **NOT_RUN**。未读取/迁移用户 Key，原工作区已有默认配置修改保持不动；不自动登录/安装/购买，不合并或发布。
+
 ## V03-P02｜Kimi语义后端与切换评测
+
+**D11 当前授权**：原工程 DONE 保留，真实测试暂缓；Kimi 连接/系统凭据与 v1/v2 历史原样兼容。当前唯一实施指针为 P01 卡内的 AO 对齐首切片，P02/M4 整体 IN_PROGRESS，未开始原生 Kimi Coding 工具迁移。以下为 PR #44 历史范围与证据。
 
 - 状态：整卡 **IN_PROGRESS**，工程接入与离线验证切片 **DONE**；[PR #44](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/44) 外部工程审计 PASS，无返修阻塞项，2026-09-09 已 rebase 合入 main `c112e25d332a284e857c9b2b0d3bd1ad32856485`，与已审计 head `d140e5d14e152ad1a64a4643bcbb1b775bac4a38` 的 tree 一致。base `6aefa5f5d2c0aeebcc99b115cf282a181efb73b5`，分支 `codex/v03-p02-kimi-semantic`。本轮国内通用服务工程接入、GLM/Codex 兼容及离线验证；两家真实 API、角色准入与切换质量/延迟评测待集中验证，测试要求与费用/外发授权不变。
 - 对应：A11。依赖：P01的薄transport/本地校验契约。
 - 工作：核对官方Kimi当前API和具体model；实现供应商参数差异，不复制整套角色/Controller；设置页明确数据发送、凭据和支持角色。
 - 必测：与P01相同的协议/错误/安全矩阵；固定任务profile切换；Codex/GLM/Kimi回归；不支持参数保存前拒绝；requested/confirmed模型区分。
 - 完成：一个已验证Kimi profile；与GLM均不是只列在UI；完成批准预算下的质量/延迟评测，已知负例假PASS=0。
-- 本轮工程目标：`moonshot_cn`、固定 `https://api.moonshot.cn/v1/chat/completions`、`kimi-k3`；2026-09-09 核对官方 [模型](https://platform.kimi.com/docs/models)、[K3 参数](https://platform.kimi.com/docs/guide/kimi-k3-quickstart)、[JSON Mode](https://platform.kimi.com/docs/guide/response_format)。Bearer、非流式 JSON object + 原完整本地校验；reasoning_effort low/high/max，max_completion_tokens 含思考；不传 GLM thinking/temperature/max_tokens，不开放国际/Coding/中转。具体范围与参数见 [产品说明](../clao/README.md#glm-语义角色配置p01-工程切片)，不视为账户已获权限。
+- 本轮工程目标：`moonshot_cn`、固定 `https://api.moonshot.cn/v1/chat/completions`、`kimi-k3`；2026-09-09 核对官方 [模型](https://platform.kimi.com/docs/models)、[K3 参数](https://platform.kimi.com/docs/guide/kimi-k3-quickstart)、[JSON Mode](https://platform.kimi.com/docs/guide/response_format)。Bearer、非流式 JSON object + 原完整本地校验；reasoning_effort low/high/max，max_completion_tokens 含思考；不传 GLM thinking/temperature/max_tokens，不开放国际/Coding/中转。具体范围与参数见 [产品说明](../clao/README.md#模型连接与角色)，不视为账户已获权限。
 - 共用原 BigModelTransport 的完整回复、超时、取消及单层预算，不复制角色/Controller；Planner 两类调用、Auditor、Mission Verifier 可独立混用 Codex/GLM/Kimi，Worker 仍 Codex。旧配置/v1/v2 快照、glm-4.7 与 Codex 默认保持兼容；连接在当前 Mission 固定，默认删除/修改不热切换；缺凭据明确失败。
 - 凭据按原 GLM `CLAO/BigModel` 与新 Kimi `CLAO/MoonshotCN` 隔离，同名引用可分别读写/替换/删除，不枚举或迁移用户凭据。正式 HTTP 使用 service，缺字段的旧请求仍仅 GLM。实际 Windows CredWrite/Read/Delete 在随机测试命名空间验证，两家假 Key，finally 清理并核对不存在；不读用户真实 Key。
 - 外发许可列出实际服务组合，旧 BigModel 单项许可不能授权 Kimi；前后端在 Worker/外发前检查。模型页共用服务/参数/凭据/角色编辑，确认生命周期沿用 P01；保存连接后复用已有有序 HTTP 快照更新默认值，避免首个 SSE 前新草稿仍读旧连接，不改变已有草稿。新草稿清除上一任务准备提示。

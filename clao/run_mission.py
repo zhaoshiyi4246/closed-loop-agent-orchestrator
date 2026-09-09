@@ -299,11 +299,12 @@ class MissionRuntime:
         self.store = StateStore(str(self.runtime / "state.db"))
         self.diagnostics = Diagnostics(self.store, mission_dict["mission_id"])
         ao_cfg = cfg["ao"]
+        from loopcore.model_profiles import selected, worker_model
         if local_engine:
             from loopcore.codex_backend import CodexBackend
             source = self.store.mission_config(mission_dict["mission_id"])["source"]
             self.adapter = CodexBackend(self.store, mission_dict["mission_id"], local_engine["executable"],
-                cfg["worker"]["model"], source, timeout=cfg["worker"]["spawn_timeout_seconds"])
+                worker_model(cfg), source, timeout=cfg["worker"]["spawn_timeout_seconds"], profile=selected(cfg, 'worker'))
             self.ao_base_url = None
         else:
             self.adapter = AOAdapter(base_url=ao_cfg["base_url"], timeout=ao_cfg["request_timeout_seconds"], run_file=ao_run_file)
@@ -313,7 +314,7 @@ class MissionRuntime:
             ao_bin=ao_bin, data_dir=None, run_file=str(ao_run_file),
             store=self.store,
             adapter=self.adapter,
-            worker_model=wcfg["model"],
+            worker_model=worker_model(cfg),
             max_spawn_attempts=wcfg["spawn_max_attempts"],
             spawn_backoff_seconds=wcfg["spawn_backoff_seconds"],
             spawn_timeout_seconds=wcfg["spawn_timeout_seconds"],
@@ -428,6 +429,8 @@ def build_runtime(mission_dict: dict, cfg: dict, *, dry_run: bool = False,
                 raise ConfigError('historical Mission has no effective config snapshot; inspect only')
             cfg = restore_snapshot(row['effective_config'])
             mission_dict = copy.deepcopy(row['mission'])
+            if cfg.get('worker', {}).get('profile', 'codex') != 'codex':
+                raise ConfigError('显式 Worker 账号/API 连接只支持本地 Codex 后端；AO 历史不能切换认证')
             from loopcore.model_profiles import check_start
             check_start(cfg, mission_dict)
             checked = mission_preflight(mission_dict, cfg, freeze_source=False)
@@ -438,6 +441,8 @@ def build_runtime(mission_dict: dict, cfg: dict, *, dry_run: bool = False,
             store.close()
     else:
         cfg = resolve_config(cfg, overrides={'budgets': mission_dict.get('budgets', {})})
+        if cfg['worker']['profile'] != 'codex':
+            raise ConfigError('显式 Worker 账号/API 连接只支持本地 Codex 后端')
         for key in cfg.sources:
             if cfg.sources[key] == 'invocation override' and key.startswith('budgets.'):
                 cfg.sources[key] = 'mission input'
@@ -466,7 +471,7 @@ def build_runtime(mission_dict: dict, cfg: dict, *, dry_run: bool = False,
     return rt
 
 
-def local_preflight(cwd):
+def local_preflight(cwd, profile=None):
     """Same no-model tool/account/sandbox check for startup and Panel readiness."""
     from loopcore.codex_backend import preflight
     executable = shutil.which('git')
@@ -475,7 +480,13 @@ def local_preflight(cwd):
     result = subprocess.run([executable, '--version'], capture_output=True, timeout=15)
     if result.returncode:
         raise ValueError('Git 无法运行；请检查 Git 安装与 PATH 后重试')
-    return preflight(cwd)
+    return preflight(cwd, profile) if profile else preflight(cwd)
+
+
+def configured_local_preflight(cwd, cfg):
+    from loopcore.model_profiles import selected
+    profile = selected(cfg, 'worker')
+    return local_preflight(cwd, profile) if profile else local_preflight(cwd)
 
 
 def build_local_runtime(mission_dict, cfg, *, dry_run=False):
@@ -496,10 +507,11 @@ def build_local_runtime(mission_dict, cfg, *, dry_run=False):
             mission_dict = copy.deepcopy(row['mission'])
             from loopcore.model_profiles import check_start
             check_start(cfg, mission_dict)
-            engine = local_preflight(runtime)
+            engine = configured_local_preflight(runtime, cfg)
             if engine['version'] != row['engine']['version']:
                 raise RecoveryError('Codex protocol version differs from frozen Mission')
-            adapter = CodexBackend(store, mission_dict['mission_id'], engine['executable'], cfg['worker']['model'], row['source'])
+            from loopcore.model_profiles import selected, worker_model
+            adapter = CodexBackend(store, mission_dict['mission_id'], engine['executable'], worker_model(cfg), row['source'], profile=selected(cfg, 'worker'))
             validate_checkpoint(store, mission_dict['mission_id'], adapter)
         finally:
             store.close()
@@ -523,7 +535,7 @@ def build_local_runtime(mission_dict, cfg, *, dry_run=False):
             if mission_dict.get('previous_attempt'):
                 store.record_mission(mission.mission_id, {'previous_attempt': mission_dict['previous_attempt']})
             with Diagnostics(store, mission.mission_id).phase('preflight', reason='确认本地来源与 Codex 登录/沙箱能力'):
-                engine = local_preflight(runtime)
+                engine = configured_local_preflight(runtime, cfg)
                 source = local_projects.snapshot(project, runtime, mission_dict.get('source_revision'))
             store.record_mission(mission.mission_id, {'source': source, 'engine': engine})
         finally:

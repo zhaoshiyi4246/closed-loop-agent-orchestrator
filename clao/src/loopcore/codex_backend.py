@@ -36,7 +36,7 @@ class CodexNotStarted(RuntimeError):
 
 
 class StdioClient:
-    def __init__(self, executable, cwd, on_message=None, on_disconnect=None):
+    def __init__(self, executable, cwd, on_message=None, on_disconnect=None, *, config=None):
         self.lock = threading.RLock()
         self.pending = {}
         self.serial = 0
@@ -50,9 +50,13 @@ class StdioClient:
         for feature in ("apps", "connectors", "plugins", "hooks", "codex_hooks", "plugin_hooks",
                         "browser_use", "computer_use", "image_generation", "js_repl"):
             argv.extend(["-c", "features." + feature + "=false"])
+        for value in config or ():
+            argv.extend(['-c', value])
+        from .native_models import process_environment
         try:
             self.proc = subprocess.Popen(argv, cwd=cwd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL, creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+                stderr=subprocess.DEVNULL, env=process_environment(),
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
         except OSError as exc:
             raise CodexNotStarted("Codex App Server 进程未启动：" + type(exc).__name__) from exc
         self.reader = threading.Thread(target=self._read, daemon=True, name="codex-stdio")
@@ -121,7 +125,9 @@ class StdioClient:
                 error = reply["error"]
                 # Engine diagnostics can include prompt material. Only protocol
                 # category/code is persisted; the original stays with the engine.
-                code = error.get("code")
+                code = error.get("code") if isinstance(error, dict) else None
+                if type(code) is not int:
+                    code = 'unknown'
                 exception = CodexRejected if code in (-32600, -32601, -32602) else CodexUnknown
                 raise exception(method + " 返回错误 (code=" + str(code) + ")")
             if not isinstance(reply.get("result"), dict):
@@ -147,7 +153,7 @@ class StdioClient:
         self.reader.join(timeout=3)
 
 
-def preflight(cwd):
+def preflight(cwd, profile=None):
     executable = shutil.which("codex")
     if not executable:
         raise ValueError("未找到 Codex；安装官方 Codex CLI 后重试")
@@ -155,12 +161,16 @@ def preflight(cwd):
     version = result.stdout.decode("utf-8", "replace").strip()
     if result.returncode or version != "codex-cli " + SUPPORTED_VERSION:
         raise ValueError("当前本地后端仅核对 Codex " + SUPPORTED_VERSION + "；发现 " + version + "，未自动升级")
-    client = StdioClient(executable, cwd)
+    from .native_models import client_config, authenticate_client
+    from .model_profiles import CODEX_API
+    client = StdioClient(executable, cwd, config=client_config(profile))
     try:
         client.initialize()
+        authenticate_client(client, profile)
         account = client.request("account/read", {"refreshToken": False})
-        if (account.get("account") or {}).get("type") != "chatgpt":
-            raise ValueError("请先在官方 Codex 中登录 ChatGPT（codex login）；CLAO 不接收登录凭据")
+        required = 'apiKey' if profile and profile['service'] == CODEX_API else 'chatgpt'
+        if (account.get("account") or {}).get("type") != required:
+            raise ValueError("Codex 认证方式不符；请检查所选连接或在官方 Codex 登录 ChatGPT（codex login）")
         if os.name == "nt":
             ready = client.request("windowsSandbox/readiness", None)
             if ready.get("status") != "ready":
@@ -173,9 +183,10 @@ def preflight(cwd):
 class CodexBackend:
     backend = BACKEND
 
-    def __init__(self, store, mission_id, executable, model, source, timeout=30):
+    def __init__(self, store, mission_id, executable, model, source, timeout=30, profile=None):
         self.store, self.mission_id = store, mission_id
         self.executable, self.model, self.source, self.timeout = executable, model, source, timeout
+        self.profile = copy.deepcopy(profile)
         self.lock = threading.RLock()
         self.client = None
         self.approval_lock = threading.RLock()
@@ -197,9 +208,16 @@ class CodexBackend:
 
     def _connect(self):
         if self.client is None:
-            self.client = StdioClient(self.executable, Path(self.store.path).parent,
-                                      self._message, self._disconnected)
-            self.client.initialize(self.timeout)
+            from .native_models import client_config, authenticate_client
+            client = StdioClient(self.executable, Path(self.store.path).parent,
+                                 self._message, self._disconnected, config=client_config(self.profile))
+            try:
+                client.initialize(self.timeout)
+                authenticate_client(client, self.profile, self.timeout)
+            except BaseException:
+                client.close()
+                raise
+            self.client = client
         if self.client.closed:
             raise CodexUnknown("Worker 传输已断开；需人工确认，不自动连接重发")
         return self.client

@@ -22,6 +22,7 @@ trace = Path(os.environ["CLAO_TEST_CODEX_TRACE"])
 workers = {}
 pending = {}
 serial = 0
+api_authenticated = False
 
 
 def output(message):
@@ -73,7 +74,17 @@ for line in sys.stdin:
         assert "params" not in message
     elif method == "account/read":
         assert params == {"refreshToken": False}
-        reply(identity, {"account": None if scenario == "no_login" else {"type": "chatgpt", "email": "fixture@example.invalid", "planType": "unknown"}, "requiresOpenaiAuth": True})
+        reply(identity, {"account": {'type': 'apiKey'} if api_authenticated else None if scenario == "no_login" else {"type": "chatgpt", "email": "fixture@example.invalid", "planType": "unknown"}, "requiresOpenaiAuth": True})
+    elif method == 'account/login/start':
+        assert params['type'] == 'apiKey' and params['apiKey'].startswith('m4-fake-')
+        assert 'cli_auth_credentials_store="ephemeral"' in sys.argv
+        assert not os.environ.get('CODEX_API_KEY') and not os.environ.get('OPENAI_API_KEY')
+        api_authenticated = True
+        reply(identity, {'type': 'apiKey'})
+    elif method == 'model/list':
+        reply(identity, {'data': [{'id': 'model-item', 'model': 'gpt-test-catalog', 'displayName': 'Test model',
+                                  'description': '', 'isDefault': True, 'supportedReasoningEfforts': [],
+                                  'defaultReasoningEffort': 'medium'}], 'nextCursor': None})
     elif method == "windowsSandbox/readiness":
         assert params is None
         reply(identity, {"status": "notConfigured" if scenario == "no_sandbox" else "ready"})

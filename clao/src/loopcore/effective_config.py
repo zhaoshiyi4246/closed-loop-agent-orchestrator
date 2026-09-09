@@ -63,9 +63,11 @@ for _key in ("strip_ansi", "normalize_timestamps", "normalize_ids", "normalize_p
     FIELDS["fingerprint." + _key] = (True, "bool", None, "Fingerprinter")
 FIELDS["fingerprint.max_length"] = (200, "count", 1, "Fingerprinter")
 LEGACY_FIELDS = frozenset(FIELDS)
-FIELDS["model_profiles"] = ([], "profiles", None, "BigModel / Kimi semantic HTTP transport")
+FIELDS["model_profiles"] = ([], "profiles", None, "service/native executor connection and role parameters")
 for _role in ("planner", "auditor", "verifier"):
     FIELDS[f"roles.{_role}.profile"] = ("codex", "profile", None, "semantic role transport selection")
+V2_FIELDS = frozenset(FIELDS)
+FIELDS['worker.profile'] = ('codex', 'profile', None, 'Codex Worker authentication/model connection')
 
 # Historical options without production consumers are visible warnings, never
 # members of the effective values. No new functionality is invented for them.
@@ -86,7 +88,7 @@ class ConfigError(ValueError):
 
 
 class EffectiveConfig(dict):
-    def __init__(self, values, sources, warnings=(), schema_version=2):
+    def __init__(self, values, sources, warnings=(), schema_version=3):
         super().__init__(copy.deepcopy(values))
         self.sources = dict(sources)
         self.warnings = list(warnings)
@@ -191,6 +193,10 @@ def resolve_config(values=None, *, overrides=None, source="explicit input"):
     names = {p["id"] for p in values["model_profiles"]} | {"codex"}
     if any(values["roles"][r]["profile"] not in names for r in ("planner", "auditor", "verifier")):
         raise ConfigError("role profile does not name a saved connection")
+    from .model_profiles import selected, CODEX_ACCOUNT, CODEX_API
+    worker = selected(values, 'worker')
+    if worker and worker['service'] not in (CODEX_ACCOUNT, CODEX_API):
+        raise ConfigError('Worker requires the Codex executor; semantic API/Claude connections cannot control a Worker')
     return EffectiveConfig(values, sources, list(dict.fromkeys(warnings)))
 
 
@@ -244,14 +250,14 @@ def save_defaults(path, updates):
 
 
 def restore_snapshot(snapshot):
-    if not isinstance(snapshot, dict) or snapshot.get("schema_version") not in (1, 2):
+    if not isinstance(snapshot, dict) or snapshot.get("schema_version") not in (1, 2, 3):
         raise ConfigError("Mission effective config snapshot missing or unsupported")
-    fields = LEGACY_FIELDS if snapshot["schema_version"] == 1 else set(FIELDS)
+    fields = {1: LEGACY_FIELDS, 2: V2_FIELDS, 3: set(FIELDS)}[snapshot['schema_version']]
     if set(flatten(snapshot.get("values"))) != fields:
         raise ConfigError("Mission effective config fields missing or unsupported")
     cfg = resolve_config(snapshot["values"])
-    if snapshot["schema_version"] == 1:
-        cfg = EffectiveConfig(snapshot["values"], {k: cfg.sources[k] for k in fields}, cfg.warnings, schema_version=1)
+    if snapshot["schema_version"] < 3:
+        cfg = EffectiveConfig(snapshot["values"], {k: cfg.sources[k] for k in fields}, cfg.warnings, schema_version=snapshot['schema_version'])
     if cfg.warnings or cfg.snapshot()["revision"] != snapshot.get("revision"):
         raise ConfigError("Mission effective config snapshot invalid; defaults were not substituted")
     sources = snapshot.get("sources")

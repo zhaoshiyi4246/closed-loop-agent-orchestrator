@@ -949,6 +949,10 @@ body:has(dialog[open]) {
   padding:12px;
   background:var(--surface)
 }
+#saveBindings { margin-top:16px }
+#modelConfigStatus:not(:empty) { margin:12px 0 }
+#connectionEditor > summary { padding:12px 0 }
+#connectionEditor input { width:100%; max-width:none }
 .skip-link:focus {
   top:12px
 }

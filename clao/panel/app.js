@@ -614,37 +614,67 @@ function renderWorkbench(s){
 /* ---------------- navigation, dialogs and progressive form ---------------- */
 const SEMANTIC_ROLES=["planner","auditor","verifier"];
 const MODEL_SERVICES={
-  bigmodel_general:{label:"BigModel",endpoint:"https://open.bigmodel.cn/api/paas/v4/chat/completions",model:"glm-4.7",fields:["thinking","max_tokens","temperature"],note:"GLM thinking 开关及 Temperature 按下列设置发送；Codex effort 不适用。"},
-  moonshot_cn:{label:"Kimi 国内通用服务",endpoint:"https://api.moonshot.cn/v1/chat/completions",model:"kimi-k3",fields:["reasoning_effort","max_completion_tokens"],note:"K3 始终思考；生成上限含思考。temperature=1、top_p=0.95 等采样值由服务固定，不发送 GLM thinking/temperature/max_tokens。"}
+  codex_account:{label:"Codex · ChatGPT 账号",model:"gpt-5.6-sol",native:true},
+  codex_api:{label:"Codex · API",model:"gpt-5.6-sol",native:true},
+  bigmodel_general:{label:"BigModel · GLM API",model:"glm-5.3"},
+  bigmodel_coding:{label:"GLM · Coding Plan",model:"glm-5.3",native:true},
+  moonshot_cn:{label:"Kimi · 国内 API",model:"kimi-k3"}
 };
 const serviceLabel=service=>MODEL_SERVICES[service]?.label || "未知服务";
-const profileFields=service=>["id","credential_ref","model","timeout_seconds","max_attempts","retry_delay_seconds",...MODEL_SERVICES[service].fields];
-const PROFILE_NUMBERS=new Set(["timeout_seconds","max_attempts","retry_delay_seconds","max_tokens","temperature","max_completion_tokens"]);
-function showProfileService(){
-  const service=$("profile_service").value, info=MODEL_SERVICES[service];
-  const option=el("option",info.model+" · 真实准入待验证");option.value=info.model;$("profile_model").replaceChildren(option);
-  document.querySelectorAll("[data-profile-service]").forEach(n=>{n.hidden=n.dataset.profileService!==service;for(const control of n.querySelectorAll("input,select"))control.disabled=n.hidden;});
-  $("profileServiceNote").textContent=info.endpoint+"；"+info.note+" 国际/中转/Coding 服务不适用。保存只做本地校验，不发模型请求。";
+let EDIT_PROFILE=null, MODEL_PARAMETER_VERSION=0, MODEL_CATALOG_VERSION=0;
+async function post(path,body){
+  const response=await fetch(path,{method:"POST",headers:{"Content-Type":"application/json","X-Panel-Nonce":PANEL_NONCE},body:JSON.stringify(body)});
+  const data=await response.json();if(!response.ok || !data.ok)throw new Error(data.error || "请求失败");return data;
 }
-$("profile_service").onchange=showProfileService;showProfileService();
+const parameterLabel={thinking:"思考模式",reasoning_effort:"推理强度",temperature:"Temperature",max_tokens:"最大输出 token",max_completion_tokens:"总生成 token（含思考）"};
+function displayParameters(params){
+  const box=$("profileParameters");box.replaceChildren();
+  for(const [name,value] of Object.entries(params)){
+    const label=el("label",parameterLabel[name] || name),input=el(typeof value==="number"?"input":"select");input.id="profile_"+name;input.dataset.parameter=name;
+    if(typeof value==="number"){input.type="number";input.step=name==="temperature"?"0.01":"1";input.value=value;}
+    else{const options=name==="thinking"?($("profile_model").value==="glm-5.3"?["enabled"]:["enabled","disabled"]):["low","high","max"];for(const v of options){const o=el("option",v);o.value=v;input.append(o);}input.value=value;}
+    label.append(input);box.append(label);
+  }
+  $("profileServiceNote").textContent=Object.keys(params).length?"参数按当前型号发送。":"使用服务或执行器默认参数，仍校验完整结构化结果。";
+}
+async function refreshParameters(){
+  const version=++MODEL_PARAMETER_VERSION;$("saveProfile").dataset.blocked="1";$("saveProfile").disabled=true;
+  try{const d=await post("/api/model-parameters",{service:$("profile_service").value,model:$("profile_model").value});if(version!==MODEL_PARAMETER_VERSION)return;displayParameters(d.parameters);$("saveProfile").dataset.blocked="0";uiError("model-config",null);}
+  catch(error){if(version===MODEL_PARAMETER_VERSION)uiError("model-config",error.message);}
+  finally{if(version===MODEL_PARAMETER_VERSION)syncButtons();}
+}
+function showProfileService(resetModel=true){
+  const service=$("profile_service").value, info=MODEL_SERVICES[service];
+  $("profile_key_label").hidden=service==="codex_account";$("nativeLogin").hidden=service!=="codex_account";$("codingSetup").hidden=service!=="bigmodel_coding";
+  $("profile_key").value="";
+  if(resetModel){$("profile_model").value=info.model;$("profile_max_attempts").value=info.native?1:2;$("profile_retry_delay_seconds").value=info.native?0:1;refreshParameters();}
+  $("profile_max_attempts").disabled=!!info.native;$("profile_retry_delay_seconds").disabled=!!info.native;
+  $("refreshModelCatalog").disabled=!EDIT_PROFILE || EDIT_PROFILE.service!==service;
+  $("modelCatalog").replaceChildren();$("catalogStatus").textContent=EDIT_PROFILE?"按需刷新模型目录。":"保存连接后可刷新目录，也可直接输入模型 ID。";
+}
+$("profile_service").onchange=()=>showProfileService();
+$("profile_model").onchange=refreshParameters;
+$("defaultProfileModel").onclick=()=>{$("profile_model").value=MODEL_SERVICES[$("profile_service").value].model;refreshParameters();};
+function newProfile(){EDIT_PROFILE=null;$("profile_label").value="";$("profile_timeout_seconds").value=180;showProfileService();}
+$("newProfile").onclick=newProfile;
 function roleLabel(values,role){
   if(!values) return "unknown";
-  const id=values.roles?.[role]?.profile || "codex";
+  const id=(role==="worker"?values.worker:values.roles?.[role])?.profile || "codex";
   const profile=values.model_profiles?.find(p=>p.id===id);
-  return id==="codex"?"Codex · "+text(values.roles?.[role]?.model || "unknown"):
-    profile?serviceLabel(profile.service)+" · "+profile.model+" · "+id+" · "+profile.timeout_seconds+"秒 / 最多"+profile.max_attempts+"次":"连接缺失";
+  return id==="codex"?"Codex · "+text((role==="worker"?values.worker:values.roles?.[role])?.model || "unknown"):
+    profile?serviceLabel(profile.service)+" · "+profile.model+" · "+(profile.label || id):"连接缺失";
 }
-function hasExternal(values){return SEMANTIC_ROLES.some(r=>values?.roles?.[r]?.profile && values.roles[r].profile!=="codex");}
-function externalBindings(values){return SEMANTIC_ROLES.flatMap(role=>{const p=values?.model_profiles?.find(p=>p.id===values.roles?.[role]?.profile);return p?[[role,p]]:[];});}
+function hasExternal(values){return externalBindings(values).length>0;}
+function externalBindings(values){return SEMANTIC_ROLES.flatMap(role=>{const p=values?.model_profiles?.find(p=>p.id===values.roles?.[role]?.profile);return p && !["codex_api","codex_account"].includes(p.service)?[[role,p]]:[];});}
 function externalConsentValue(values){
   const services=[...new Set(externalBindings(values).map(([,p])=>p.service))].sort();
   return services.length===1 && services[0]==="bigmodel_general"?"bigmodel_general":services.length?services:null;
 }
-function consentText(values){return "同意本次 "+externalBindings(values).map(([r,p])=>({planner:"规划 Planner",auditor:"审计 Auditor",verifier:"复核 Verifier"})[r]+" → "+serviceLabel(p.service)).join("；")+" 发送任务目标、规划上下文、代码差异及验收证据，可能计费。取消本地等待不保证服务端停止计算或计费；真实角色准入尚未验证。";}
+function consentText(values){return "同意本次 "+externalBindings(values).map(([r,p])=>({planner:"规划 Planner",auditor:"审计 Auditor",verifier:"复核 Verifier"})[r]+" → "+serviceLabel(p.service)).join("；")+" 发送任务目标、规划上下文、代码差异及验收证据，可能计费。";}
 function externalConsentScope(values){
   if(!$("f_project").value || !hasExternal(values)) return null;
   // Bind only the sending scope, not unrelated draft text or polling/config revisions.
-  const roles=SEMANTIC_ROLES.filter(r=>values.roles[r].profile!=="codex").map(role=>{
+  const roles=externalBindings(values).map(([role])=>{
     const profile=values.model_profiles.find(p=>p.id===values.roles[role].profile);
     return [role,...["id","service","endpoint","model","credential_ref"].map(k=>profile?.[k])];
   });
@@ -662,57 +692,74 @@ $("externalConsent").onchange=()=>{
 };
 function renderBindings(id,values,prefix,change){
   const box=$(id);box.replaceChildren();
-  for(const role of SEMANTIC_ROLES){const label=el("label",({planner:"规划 · Planner",auditor:"审计 · Auditor",verifier:"最终复核 · Verifier"})[role]),select=el("select");select.id=prefix+role;
-    for(const [value,name] of [["codex","Codex · 现有 CLI"],...(values.model_profiles || []).map(p=>[p.id,p.id+" · "+serviceLabel(p.service)+" / "+p.model])]){const option=el("option",name);option.value=value;select.append(option);}
-    select.value=values.roles?.[role]?.profile || "codex";if(change)select.onchange=change;label.append(select);box.append(label);
+  for(const role of ["worker",...SEMANTIC_ROLES]){const label=el("label",({worker:"执行 · Worker",planner:"规划 · Planner",auditor:"审计 · Auditor",verifier:"最终复核 · Verifier"})[role]),select=el("select");select.id=prefix+role;
+    for(const [value,name] of [["codex","Codex · 当前账号 / 默认模型"],...(values.model_profiles || []).filter(p=>role!=="worker" || ["codex_account","codex_api"].includes(p.service)).map(p=>[p.id,(p.label || p.id)+" · "+serviceLabel(p.service)+" / "+p.model])]){const option=el("option",name);option.value=value;select.append(option);}
+    select.value=(role==="worker"?values.worker:values.roles?.[role])?.profile || "codex";if(change)select.onchange=change;label.append(select);box.append(label);
   }
 }
 async function loadConnections(){
   if(loadConnections.pending) return;loadConnections.pending=true;
   try{
     const [a,b]=await Promise.all([fetch("/api/model-connections"),fetch("/api/state")]);
-    const status=await a.json(),state=await b.json();if(!a.ok || !status.ok || !b.ok || !state.default_config) throw new Error(status.error || state.error || "配置读取失败");
-    // Only explicit settings reads refresh these controls; SSE never erases a draft.
-    // Reuse the ordered snapshot already read above so an immediately opened
-    // new draft sees saved connections without waiting for the next SSE tick.
-    // Existing FORM_BASE/consent remains frozen for an unsubmitted draft.
-    acceptSnapshot(state);loadConnections.values=LIVE.default_config.values;
+    const status=await a.json(),state=await b.json();if(!a.ok || !status.ok || !b.ok || !state.default_config)throw new Error(status.error || "配置读取失败");
+    acceptSnapshot(state);loadConnections.values=LIVE.default_config.values;loadConnections.revision=LIVE.default_config.revision;
     const box=$("connectionList");box.replaceChildren();
     for(const row of status.connections){const item=el("div",null,"list-row"),body=el("div",null,"grow");
-      body.append(el("h3",row.id+" · "+serviceLabel(row.service)+" · "+row.model),el("p","配置已保存 · 本地参数校验通过 · 凭据"+({configured:"已保存",missing:"未配置",unavailable:"存储不可用"}[row.credential_status] || "未知")),el("p","配置检查未发送模型请求；Planner / Auditor / Verifier 真实角色准入待验证","subtle"));
-      const edit=el("button","编辑");edit.onclick=()=>{const p=loadConnections.values.model_profiles.find(p=>p.id===row.id);$("profile_service").value=p.service;showProfileService();for(const key of profileFields(p.service))$("profile_"+key).value=p[key];$("connectionEditor").open=true;$("profile_id").focus();};
-      const remove=actionButton("删除连接","model-config",()=>saveModelConfig({model_profiles:loadConnections.values.model_profiles.filter(p=>p.id!==row.id)}));item.append(body,edit,remove);box.append(item);
+      const statusText=el("span",connectionState(row.catalog_status,row.credential_status));statusText.dataset.connectionStatus=row.id;
+      const description=el("p",serviceLabel(row.service)+" · "+row.model+" · ");description.append(statusText);
+      body.append(el("h3",row.label || row.id),description);
+      const edit=el("button","编辑");edit.onclick=()=>{
+        MODEL_PARAMETER_VERSION++;$("saveProfile").dataset.blocked="0";syncButtons();
+        EDIT_PROFILE=structuredClone(loadConnections.values.model_profiles.find(p=>p.id===row.id));const p=EDIT_PROFILE;$("profile_service").value=p.service;showProfileService(false);
+        $("profile_label").value=p.label || p.id;$("profile_model").value=p.model;
+        for(const key of ["timeout_seconds","max_attempts","retry_delay_seconds"])$("profile_"+key).value=p[key];
+        const params=p.parameters || Object.fromEntries(Object.keys(parameterLabel).filter(k=>k in p).map(k=>[k,p[k]]));displayParameters(params);
+        $("connectionEditor").open=true;$("profile_label").focus();showModelCatalog(false);
+      };
+      const remove=actionButton("移除","model-config",()=>writeAction("model-config","/api/model-connections",{action:"delete",id:row.id,revision:loadConnections.revision},loadConnections));item.append(body,edit,remove);box.append(item);
     }
-    if(!status.connections.length) box.append(el("p","尚未配置外部语义连接。当前默认仍为 Codex。","subtle"));
-    renderBindings("roleBindings",loadConnections.values,"default_profile_");
-    uiError("model-config",null);
+    if(!status.connections.length)box.append(el("p","使用当前 Codex 账号。添加连接以选择其他账号方式或服务。","subtle"));
+    renderBindings("roleBindings",loadConnections.values,"default_profile_");uiError("model-config",null);
   }catch(error){uiError("model-config",error.message);}finally{loadConnections.pending=false;}
 }
-async function saveModelConfig(updates){
-  return writeAction("model-config","/api/config",updates,async()=>{
-    $("modelConfigStatus").textContent="默认设置已保存；本次未发送模型请求。";await loadConnections();
-  });
-}
+async function saveModelConfig(updates){return writeAction("model-config","/api/config",updates,async()=>{$("modelConfigStatus").textContent="新任务默认设置已保存。";await loadConnections();});}
 $("refreshConnections").onclick=loadConnections;
 $("saveProfile").dataset.writeKey="model-config";$("saveBindings").dataset.writeKey="model-config";
-$("saveProfile").onclick=()=>{
-  if(!loadConnections.values){uiError("model-config","请先读取配置。" );return;}
-  const service=$("profile_service").value,profile={service,endpoint:MODEL_SERVICES[service].endpoint};for(const key of profileFields(service)){const value=$("profile_"+key).value;profile[key]=PROFILE_NUMBERS.has(key)?(value.trim()?Number(value):null):value;}
-  const profiles=structuredClone(loadConnections.values.model_profiles || []),index=profiles.findIndex(p=>p.id===profile.id);if(index>=0) profiles[index]=profile;else profiles.push(profile);
-  saveModelConfig({model_profiles:profiles});
+$("saveProfile").onclick=async()=>{
+  if(PENDING.has("model-config") || !loadConnections.values)return;
+  const editorVersion=MODEL_PARAMETER_VERSION;
+  const parameters={};for(const input of $("profileParameters").querySelectorAll("[data-parameter]"))parameters[input.dataset.parameter]=input.type==="number"?(input.value.trim()?Number(input.value):null):input.value;
+  const body={action:"save",revision:loadConnections.revision,id:EDIT_PROFILE?.id,label:$("profile_label").value,service:$("profile_service").value,model:$("profile_model").value,parameters};
+  for(const k of ["timeout_seconds","max_attempts","retry_delay_seconds"])body[k]=$("profile_"+k).value.trim()?Number($("profile_"+k).value):null;
+  if($("profile_key").value)body.key=$("profile_key").value;$("profile_key").value="";
+  await writeAction("model-config","/api/model-connections",body,async d=>{
+    if(editorVersion===MODEL_PARAMETER_VERSION){
+      const saved=d.config.values.model_profiles;EDIT_PROFILE=structuredClone(saved.find(p=>p.id===body.id) || saved.at(-1));
+      $("refreshModelCatalog").disabled=false;
+    }
+    $("modelConfigStatus").textContent="连接已配置。";await loadConnections();
+  });delete body.key;
 };
 $("saveBindings").onclick=()=>{
-  const roles={};for(const role of SEMANTIC_ROLES){if(!$("default_profile_"+role)){uiError("model-config","请先读取配置。");return;}roles[role]={profile:$("default_profile_"+role).value};}saveModelConfig({roles});
+  const roles={};for(const role of SEMANTIC_ROLES){if(!$("default_profile_"+role))return;roles[role]={profile:$("default_profile_"+role).value};}
+  saveModelConfig({roles,worker:{profile:$("default_profile_worker").value}});
 };
-for(const [id,action] of [["saveCredential","save"],["deleteCredential","delete"]]){
-  $(id).dataset.writeKey="credential";$(id).onclick=async()=>{
-    if(PENDING.has("credential")) return;
-    const body={action,service:$("credentialService").value,ref:$("credentialRef").value};if(action==="save") body.value=$("credentialValue").value;
-    $("credentialValue").value="";$("credentialStatus").textContent="";
-    await writeAction("credential","/api/credentials",body,async()=>{$("credentialStatus").textContent=serviceLabel(body.service)+" · "+body.ref+"："+(action==="save"?"已保存到 Windows 系统凭据存储；尚未验证真实服务。":"凭据已删除。");await loadConnections();});
-    delete body.value;
-  };
+async function showModelCatalog(refresh){
+  if(!EDIT_PROFILE)return;const id=EDIT_PROFILE.id,service=$("profile_service").value,ref=EDIT_PROFILE.credential_ref;
+  const version=++MODEL_CATALOG_VERSION;
+  const current=()=>version===MODEL_CATALOG_VERSION && EDIT_PROFILE?.id===id && EDIT_PROFILE.credential_ref===ref && $("profile_service").value===service;
+  $("refreshModelCatalog").disabled=true;$("catalogStatus").textContent="正在读取目录…";
+  try{const d=await post("/api/model-catalog",{id,refresh});if(!current())return;
+    const c=d.catalog;$("modelCatalog").replaceChildren(...c.models.map(m=>{const o=el("option",m.is_default?"已选默认":"");o.value=m.id;return o;}));
+    for(const node of $("connectionList").querySelectorAll("[data-connection-status]"))if(node.dataset.connectionStatus===id)node.textContent=connectionState(c.connection_status);
+    $("catalogStatus").textContent=c.error || (c.connection_status==="connected"?"已连接 · ":"")+c.models.length+" 个型号 · "+(c.fetched_at?new Date(c.fetched_at*1000).toLocaleTimeString()+(c.stale?" · 缓存已过期，请刷新":""):"尚未刷新");
+  }catch(error){if(current())$("catalogStatus").textContent=error.message;}finally{if(current())$("refreshModelCatalog").disabled=false;}
 }
+$("refreshModelCatalog").onclick=()=>showModelCatalog(true);
+function connectionState(catalog,credential="configured"){
+  return ({connected:"已连接",failed:"连接失败",login_required:"需要登录",unavailable:"需要安装"}[catalog]) || ({configured:"已配置",native:"已配置 · 当前账号",missing:"未配置",unavailable:"凭据不可用"}[credential]) || "未知";
+}
+showProfileService();
 $("detailActions").append(el("span",null,"button-row"));$("detailActions").lastChild.id="detailExtraActions";
 document.querySelectorAll("[data-view],[data-go]").forEach(b=>b.onclick=()=>navigate(b.dataset.view || b.dataset.go,true));
 $("backToTasks").onclick=()=>{DETAIL_ID=null;HISTORY=null;navigate("tasks");renderSelected();renderTaskDetail();$("tasksHeading").focus();};
@@ -840,6 +887,7 @@ async function confirmConfig(){
   const version=CONFIG_VERSION, overrides={budgets:{max_subtasks:Number($("f_sub").value)}};
   for(const [path,,kind] of MISSION_FIELDS){const input=$("param_"+path.replaceAll(".","_"));configSet(overrides,path,kind==="model"?input.value:input.value.trim()?Number(input.value):null);}
   for(const role of SEMANTIC_ROLES){const profile=$("mission_profile_"+role).value;configSet(overrides,"roles."+role+".profile",profile);$("param_roles_"+role+"_model").disabled=profile!=="codex";}
+  configSet(overrides,"worker.profile",$("mission_profile_worker").value);$("param_worker_model").disabled=$("mission_profile_worker").value!=="codex";
   FORM_CONFIG=null;
   await writeAction("config-preview","/api/mission-config",{base:FORM_BASE,overrides},d=>{
     if(version!==CONFIG_VERSION) return;
@@ -877,7 +925,7 @@ function renderReview(){
   if(values && EXTERNAL_CONSENT && !hasCurrentExternalConsent(values)) clearExternalConsent();
   if(LIVE?.launch_blocked) box.append(el("p",LIVE.launch_blocked,"notice warning"));
   if(LIVE?.running || LIVE?.preparing) box.append(el("p","当前已有任务运行，不能同时启动另一任务。表单输入会保留。","notice warning"));
-  box.append(el("p","Worker："+text(values?.worker?.model || "unknown")+"；"+SEMANTIC_ROLES.map(r=>r+"："+roleLabel(values,r)).join("；"),"notice"));
+  box.append(el("p","Worker："+roleLabel(values,"worker")+"；"+SEMANTIC_ROLES.map(r=>r+"："+roleLabel(values,r)).join("；"),"notice"));
   $("externalConsentLabel").hidden=!hasExternal(values);
   $("externalConsentText").textContent=hasExternal(values)?consentText(values):"";
   if(hasExternal(values)){

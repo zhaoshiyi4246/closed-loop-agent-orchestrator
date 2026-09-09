@@ -16,7 +16,7 @@ from urllib.parse import urlsplit
 from . import credentials
 from .diagnostics import model_attempt
 from .execution_control import checkpoint
-from .model_profiles import validate_profiles, SERVICE, LABELS
+from .model_profiles import validate_profiles, SERVICE, KIMI_SERVICE, LABELS, request_parameters
 from .structured import (ProtocolError, ContractConfigurationError, parse_json,
                          check_schema, schema_validator, evidence_part, require_complete)
 
@@ -24,6 +24,8 @@ from .structured import (ProtocolError, ContractConfigurationError, parse_json,
 class BigModelTransport:
     def __init__(self, profile):
         validate_profiles([profile])
+        if profile['service'] not in (SERVICE, KIMI_SERVICE):
+            raise ContractConfigurationError('native account/plan connections require the native executor')
         self.profile = copy.deepcopy(profile)
         self.service = profile['service']
         self.label = LABELS[self.service]
@@ -41,8 +43,7 @@ class BigModelTransport:
             raise ContractConfigurationError('semantic JSON schema unavailable') from None
         schema_validator(schema)
         # JSON mode is a transport capability, not a substitute for our schemas.
-        parameters = (dict(thinking={'type': p['thinking']}, temperature=p['temperature'], max_tokens=p['max_tokens'])
-                      if self.service == SERVICE else dict(reasoning_effort=p['reasoning_effort'], max_completion_tokens=p['max_completion_tokens']))
+        parameters = request_parameters(p)
         body = json.dumps(dict(model=p['model'], stream=False,
             messages=[{'role': 'system', 'content': 'Return only a JSON object matching this schema:\n' + json.dumps(schema)},
                       {'role': 'user', 'content': prompt}],
@@ -169,4 +170,8 @@ def role_options(cfg, role):
     profile = selected(cfg, role)
     if profile is None:
         return dict(model=cfg['roles'][role]['model'], timeout=cfg['roles'][role]['timeout_seconds'])
+    from .model_profiles import CODING_SERVICE, CODEX_API, CODEX_ACCOUNT
+    if profile['service'] in (CODING_SERVICE, CODEX_API, CODEX_ACCOUNT):
+        from .native_models import NativeSemanticTransport
+        return dict(model=profile['model'], timeout=profile['timeout_seconds'], transport=NativeSemanticTransport(profile))
     return dict(model=profile['model'], timeout=profile['timeout_seconds'], transport=BigModelTransport(profile))
