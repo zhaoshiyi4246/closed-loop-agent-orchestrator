@@ -2,7 +2,7 @@
 
 Closed-Loop Agent Orchestrator
 
-**当前路线：AO 原生底座 + CLAO 闭环。** 独立迁移分支采用 AO v0.12.12 原生 Electron/Go 界面，增加真实 Session/工作区的 Gate、范围、有界修复与独立复核。开发入口、当前支持和数据隔离见 [ao/CLAO.md](ao/CLAO.md)，[实际界面证据](docs/reference/ao-native/README.md)。PR #45 被替代、不合并；旧代码/配置保留，正式默认入口与发布包尚未切换。下文是旧 main 与已发布版本历史，不代表新底座的全能力验收。
+**当前路线：AO 原生底座 + CLAO 闭环。** [迁移 PR #46](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/46) 待审计。 独立迁移分支采用 AO v0.12.12 原生 Electron/Go 界面，增加真实 Session/工作区的 Gate、范围、有界修复与独立复核。开发入口、当前支持和数据隔离见 [ao/CLAO.md](ao/CLAO.md)，[实际界面证据](docs/reference/ao-native/README.md)。PR #45 被替代、不合并；旧代码/配置保留，正式默认入口与发布包尚未切换。下文是旧 main 与已发布版本历史，不代表新底座的全能力验收。
 
 CLAO 是本地闭环软件开发控制层；main 的 v0.3 开发代码中新本地任务通过 Codex App Server 执行，旧 AO 后端保留兼容。默认单Worker执行任务，通过确定性Gate、集成和Mission终局复核保存可检查结果。
 

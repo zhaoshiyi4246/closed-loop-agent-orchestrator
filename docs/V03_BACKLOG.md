@@ -15,7 +15,7 @@
 ### M4 当前迁移：AO 原生底座 + CLAO 闭环
 
 - 2026-09-09 负责人更新路线；PR #45 被替代、不合并，原分支及证据保留。不再向旧 Panel 逐项翻译执行器/模型页。
-- 状态：IN_PROGRESS；独立分支 `codex/ao-native-closed-loop`。M4 保持 IN_PROGRESS；M0–M3 的 COMPLETE 与 P01/P02 工程 DONE 是旧底座历史，不等于迁移验收。
+- 状态：IN_REVIEW；[PR #46](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/46) 已提交；独立分支 `codex/ao-native-closed-loop`。M4 保持 IN_PROGRESS；M0–M3 的 COMPLETE 与 P01/P02 工程 DONE 是旧底座历史，不等于迁移验收。
 - AO v0.12.12 / `84fb37ce5aa947ceb9b19b0c2435b242ac92ce26` 原样导入在独立提交 `81d2ea9`；后续增量可单独审计。原生模型/账号/Session/终端能力保留，交付不再以登记 27 个入口为指标。
 - 实际入口、控制权、当前支持及未迁移能力见 [ao/CLAO.md](../ao/CLAO.md)，直接验证与截图见 [原生证据](reference/ao-native/README.md)。真实模型/账户/套餐未运行；Codex 隔离账户安全阻塞单列，不假称全执行器兼容。
 - 停止条件：可运行开发构建与闭环定向检查后提交独立迁移 PR，等待审计，不合并，不切换正式默认入口。P01/P02 联合真实评测继续暂缓，P03 不开始。
