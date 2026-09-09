@@ -1032,7 +1032,7 @@ function ResumeAgentControl({ session }: { session: WorkspaceSession }) {
 		},
 	});
 
-	if (session.isTerminated === true || session.activity?.state !== "exited" || session.activeAgentSwitch) return null;
+	if (session.claoMissionId || session.isTerminated === true || session.activity?.state !== "exited" || session.activeAgentSwitch) return null;
 
 	const error = resume.error instanceof Error ? resume.error.message : null;
 	return (
@@ -1109,8 +1109,7 @@ function SessionControls({ session }: { session: WorkspaceSession }) {
 
 	return (
 		<Section title={t("inspector.sessionControls")}>
-			<AutoInjectCIPolicyControl session={session} />
-			<AutoInjectReviewPolicyControl session={session} />
+			{!session.claoMissionId && <><AutoInjectCIPolicyControl session={session} /><AutoInjectReviewPolicyControl session={session} /></>}
 			{session.kind === "orchestrator" ? null : canTerminateNow ? (
 				<div className="flex items-center justify-between gap-3 py-1">
 					<span className="min-w-0 text-xs font-medium text-settings-label">{t("inspector.terminateShort")}</span>

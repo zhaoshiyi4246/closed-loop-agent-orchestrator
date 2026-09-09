@@ -44,6 +44,7 @@ type Service struct {
 	now                    Clock
 	onAccountChanged       func(domain.SessionID, string, domain.AgentHarness)
 	onCodexCapacityChanged func(domain.SessionID, string, ports.CodexCapacityObservation)
+	claoApprovalPolicy     func(context.Context, domain.SessionRecord, domain.ConversationActivity) error
 
 	mu           sync.RWMutex
 	controllers  map[domain.SessionID]*Controller
@@ -267,6 +268,15 @@ func (s *Service) settleOrphanedWork(ctx context.Context, session domain.Session
 // conversation: presenting unrelated history as continuous is worse than an error
 // the user can act on.
 func (s *Service) Start(ctx context.Context, cfg StartConfig) (*Controller, error) {
+	if s.sessions != nil {
+		rec, _, err := s.sessions.GetSession(ctx, cfg.SessionID)
+		if err != nil {
+			return nil, err
+		}
+		if err = ports.RequireCLAOOwner(ctx, rec.Metadata.CLAOMissionID); err != nil {
+			return nil, err
+		}
+	}
 	gate := s.controllerGate(cfg.SessionID)
 	if err := gate.lock(ctx); err != nil {
 		return nil, err
@@ -720,8 +730,14 @@ func (s *Service) Send(
 	id domain.SessionID,
 	msg ports.ChatUserMessage,
 ) (domain.ConversationTurn, error) {
-	if _, err := s.requireChatSession(ctx, id); err != nil {
+	rec, err := s.requireChatSession(ctx, id)
+	if err != nil {
 		return domain.ConversationTurn{}, err
+	}
+	if rec.Metadata.CLAOMissionID != "" && (msg.Origin != domain.MessageOriginHuman || strings.HasSuffix(rec.Metadata.CLAOMissionID, ":verifier")) {
+		if err := ports.RequireCLAOOwner(ctx, rec.Metadata.CLAOMissionID); err != nil {
+			return domain.ConversationTurn{}, err
+		}
 	}
 	controller, err := s.Controller(id)
 	if err != nil {
@@ -737,7 +753,11 @@ func (s *Service) Resolve(
 	requestID string,
 	decision ports.ChatDecision,
 ) error {
-	if _, err := s.requireChatSession(ctx, id); err != nil {
+	rec, err := s.requireChatSession(ctx, id)
+	if err != nil {
+		return err
+	}
+	if err := s.claoApproval(ctx, rec, requestID, decision); err != nil {
 		return err
 	}
 	controller, err := s.Controller(id)
@@ -1308,6 +1328,13 @@ func (s *Service) SetConfigOption(
 	if err != nil {
 		return nil, err
 	}
+	rec, readErr := s.requireChatSession(ctx, id)
+	if readErr != nil {
+		return nil, readErr
+	}
+	if ownerErr := ports.RequireCLAOOwner(ctx, rec.Metadata.CLAOMissionID); ownerErr != nil {
+		return nil, ownerErr
+	}
 	controller, err := s.Controller(id)
 	if err != nil {
 		return nil, err
@@ -1414,6 +1441,13 @@ func (s *Service) RetryTurn(
 	if _, err := s.requireChatSession(ctx, id); err != nil {
 		return domain.ConversationTurn{}, err
 	}
+	rec, readErr := s.requireChatSession(ctx, id)
+	if readErr != nil {
+		return domain.ConversationTurn{}, readErr
+	}
+	if ownerErr := ports.RequireCLAOOwner(ctx, rec.Metadata.CLAOMissionID); ownerErr != nil {
+		return domain.ConversationTurn{}, ownerErr
+	}
 	controller, err := s.Controller(id)
 	if err != nil {
 		return domain.ConversationTurn{}, err
@@ -1436,6 +1470,13 @@ func (s *Service) SetTurnSettings(
 ) (domain.ConversationSettings, error) {
 	if _, err := s.requireChatSession(ctx, id); err != nil {
 		return domain.ConversationSettings{}, err
+	}
+	rec, readErr := s.requireChatSession(ctx, id)
+	if readErr != nil {
+		return domain.ConversationSettings{}, readErr
+	}
+	if ownerErr := ports.RequireCLAOOwner(ctx, rec.Metadata.CLAOMissionID); ownerErr != nil {
+		return domain.ConversationSettings{}, ownerErr
 	}
 	controller, err := s.Controller(id)
 	if err != nil {
@@ -1470,11 +1511,7 @@ func (s *Service) RelayChatTurnWithID(
 	id domain.SessionID,
 	text, clientMessageID string,
 ) (string, error) {
-	controller, err := s.Controller(id)
-	if err != nil {
-		return "", err
-	}
-	turn, err := controller.Send(ctx, ports.ChatUserMessage{
+	turn, err := s.Send(ctx, id, ports.ChatUserMessage{
 		Text:            text,
 		ClientMessageID: clientMessageID,
 		Origin:          domain.MessageOriginAutomation,

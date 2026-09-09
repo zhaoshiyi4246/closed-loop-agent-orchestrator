@@ -138,6 +138,9 @@ func (g *Guard) refuseDeliver(rec domain.SessionRecord) (Outcome, bool) {
 }
 
 func (g *Guard) refuseNudge(rec domain.SessionRecord) (Outcome, bool) {
+	if rec.Metadata.CLAOMissionID != "" {
+		return SuppressedInputGated, true
+	}
 	if g.tuiAwaitingStartupInput(rec) {
 		return SuppressedStartupPending, true
 	}
@@ -301,6 +304,9 @@ func (g *Guard) Nudge(ctx context.Context, id domain.SessionID, msg string) (Out
 // CoordinationUnderMutation's waiting_input gating.
 func (g *Guard) NudgeUrgent(ctx context.Context, id domain.SessionID, msg string, acceptsWaitingInput func(domain.AgentHarness) bool) (Outcome, error) {
 	return g.send(ctx, id, msg, func(rec domain.SessionRecord) (Outcome, bool) {
+		if rec.Metadata.CLAOMissionID != "" {
+			return SuppressedInputGated, true
+		}
 		if g.tuiAwaitingStartupInput(rec) {
 			return SuppressedStartupPending, true
 		}
@@ -324,6 +330,9 @@ func (g *Guard) NudgeUrgent(ctx context.Context, id domain.SessionID, msg string
 // unsolicited write during a live turn.
 func (g *Guard) NudgeCoordination(ctx context.Context, id domain.SessionID, msg string, steersActiveTurn func(domain.AgentHarness) bool) (Outcome, error) {
 	return g.send(ctx, id, msg, func(rec domain.SessionRecord) (Outcome, bool) {
+		if rec.Metadata.CLAOMissionID != "" {
+			return SuppressedInputGated, true
+		}
 		if g.tuiAwaitingStartupInput(rec) {
 			return SuppressedStartupPending, true
 		}

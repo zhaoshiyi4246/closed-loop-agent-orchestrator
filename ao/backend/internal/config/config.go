@@ -25,7 +25,7 @@ const (
 	// an IsLoopback() validator — not a raw env read.
 	LoopbackHost = "127.0.0.1"
 	// DefaultPort is the single port for REST, terminal mux, health, and control.
-	DefaultPort = 3001
+	DefaultPort = 7312
 	// DefaultRequestTimeout bounds a single REST request. Long-lived terminal mux
 	// connections are mounted outside this timeout.
 	DefaultRequestTimeout = 60 * time.Second
@@ -538,7 +538,7 @@ func defaultStateDir() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolve state dir: %w", err)
 	}
-	return filepath.Join(homeDir, ".ao"), nil
+	return filepath.Join(homeDir, ".clao-ao"), nil
 }
 
 // absOverride resolves an explicit AO_DATA_DIR/AO_RUN_FILE override to an

@@ -897,6 +897,10 @@ func parseApproval(method string, params json.RawMessage) ([]ports.ChatDecisionO
 	}
 
 	detail := map[string]any{"method": method}
+	// Preserve authorization facts for the opt-in CLAO boundary. Display-only
+	// command/cwd fields cannot prove absence of extra permissions or a remote
+	// environment. Ordinary AO approval routing remains unchanged.
+	detail["approvalRequest"] = params
 	if p.Command != "" {
 		detail["command"] = commanddetail.UnwrapShell(p.Command)
 		detail["rawCommand"] = p.Command

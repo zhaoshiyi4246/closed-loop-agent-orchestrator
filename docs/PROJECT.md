@@ -1,6 +1,6 @@
 # CLAO 当前项目事实
 
-更新：2026-09-09（F01–F05、R01/R02、U01/U02/U03 均 DONE；PR #43 / #44 工程审计 PASS 并已合入，P01/P02 工程切片 DONE、整卡 IN_PROGRESS；M0–M3 保持 COMPLETE，M4 IN_PROGRESS；唯一下一执行内容为 P01/P02 联合真实服务与角色准入及质量、延迟、用量评测，TODO，等待负责人确认权限/材料/预算）。本文件只记录已实现事实与已知限制；v0.3 的设计见 [V03_PLAN.md](V03_PLAN.md)。真实模型、完整 GUI 体验、全量、安装与发布验收尚未完成，已发布版本仍为 v0.2。
+更新：2026-09-09（F01–F05、R01/R02、U01/U02/U03 均 DONE；PR #43 / #44 工程审计 PASS 并已合入，P01/P02 工程切片 DONE、整卡 IN_PROGRESS；M0–M3 保持 COMPLETE，M4 IN_PROGRESS；当前唯一执行内容为 AO 原生底座 + CLAO 闭环迁移，IN_PROGRESS；联合真实评测暂缓）。本文件只记录已实现事实与已知限制；v0.3 的设计见 [V03_PLAN.md](V03_PLAN.md)。真实模型、完整 GUI 体验、全量、安装与发布验收尚未完成，已发布版本仍为 v0.2。
 
 ## 1. 版本与基线
 
@@ -9,9 +9,9 @@
 | 产品 | CLAO / Closed-Loop Agent Orchestrator |
 | 已发布版本 | v0.2，Windows本地比赛版 |
 | 已发布源码 | 4d3e8e6b5e70bab868b2eef0d28c7742dea044ba |
-| 开发目标 | v0.3：F01–F05、R01/R02、U01/U02/U03 已审计合入 main（DONE）；M0/M1/M2/M3 COMPLETE，M4 IN_PROGRESS；P01/P02 工程切片 DONE、整卡 IN_PROGRESS；唯一下一执行内容为两家联合真实服务/角色准入及质量、延迟、用量评测，TODO，等待权限/材料/预算确认 |
+| 开发目标 | v0.3：F01–F05、R01/R02、U01/U02/U03 已审计合入 main（DONE）；M0/M1/M2/M3 COMPLETE，M4 IN_PROGRESS；P01/P02 工程切片 DONE、整卡 IN_PROGRESS；当前唯一执行内容为 AO 原生底座 + CLAO 闭环迁移，IN_PROGRESS；联合真实评测暂缓 |
 | 主仓库 | zhaoshiyi4246/closed-loop-agent-orchestrator |
-| 产品源码路径 | `clao/`，当前唯一正式产品，内部 Python 包为 `src/loopcore/` |
+| 产品源码路径 | `ao/` 为当前迁移开发入口；`clao/` 保留旧产品与可复用核心，正式默认入口未切换 |
 | 发布工具 | `packaging/build-release.ps1` 与 `packaging/release-manifest.txt` |
 | 历史／reference | `legacy/` 保存原历史内容；`docs/reference/` 保存冻结审计 PDF |
 | 用户发布包 | clao/，由唯一映射manifest从clean Git tree构建 |
@@ -30,7 +30,17 @@ F04 已通过外部审计 PASS、无需返修，[PR #35](https://github.com/zhao
 
 F05 已通过再次外部审计 PASS，[PR #36](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/36) rebase 合入 main `1e1401f7b55ff71617c0e3ef4ab277490b916cff`，状态 DONE。同一 StateStore 持久 operation intent 与结果，ACK 丢失后对账或 UNKNOWN；Stop 请求与 Worker 停止事实分开记录，HTTP 成功回执以持久 receipt 为准。沿用既有定向故障恢复与返修验证，合并收尾无新增产品修改、未重跑测试或发布验证；AO v0.12.9 契约边界见 F05 卡。M1 / M2 COMPLETE；R01 / R02 已审计 PASS 并合入，实现见下文。
 
-## 2. 当前真实架构
+## 2. 当前迁移架构
+
+`ao/` 基于 v0.12.12，原样导入 `81d2ea9`；实际开发入口为 [dev-clao.ps1](../ao/dev-clao.ps1)。Electron 原生界面/模型菜单 → AO HTTP/Manager/Chat/driver/workspace/SQLite；可选 CLAO service 在同一 daemon 内保存 Mission/operation/验收并独占自动跟进。纯 Python 子进程复用 F02/F03/Gate/Verifier 校验，不运行旧 Controller 或 Panel。
+
+已接线：原生项目与模型选项创建闭环、冻结干净单仓库 base、Worker 停止确认、确定性 Gate/范围、最多三次修复、固定结果及独立原生 Session 复核。原生详情展示 AC/分项验收/文件与结果位置；缺结果或读取失败不算 PASS。开发身份/数据/发现与官方 AO 分离，更新/云账户路径不接官方服务；旧 CLAO 配置、凭据、数据库不自动迁入。
+
+当前边界与开发步骤见 [ao/CLAO.md](../ao/CLAO.md)。代表 OpenCode ACP 离线完整路径已验证，Codex 隔离 Windows 账户被上游安全检查阻止；真实账户/模型、全执行器闭环准入未通过。旧版脏/普通目录来源快照、独立导出中心、历史导入、完整恢复和 Planner/Auditor/独立角色配置尚待迁移。M4 IN_PROGRESS，PR #45 已被新路线替代；历史 M0–M3 完成状态不代表这些新路径完成。
+
+### 保留的旧 clao 架构与历史实现
+
+以下内容说明旧产品，不与新 daemon 同时运行，也不伪装成已迁移能力。
 
 ```text
 Panel / CLI → 同一runtime组装与preflight → MissionController
@@ -248,7 +258,7 @@ CSP 脚本 nonce 要求不变。12 个本地 Lucide 符号及完整 ISC/Feather 
 
 定向 Windows/Edge 证据及截图索引见 [U01 卡](V03_BACKLOG.md#v03-u01iphone风格界面骨架与状态夹具)。
 已有 Windows/浏览器验证与实际截图沿用，截图由 Codex 自查；本次外部代码与产品整改审计通过，不宣称外部逐张截图验收。合并收尾未重新运行测试或模型，仅做文档与差异检查。
-M0/M1/M2/M3 COMPLETE；U01/U02/U03 均 DONE，U02 两个切片保持 DONE；M4 IN_PROGRESS，P01/P02 工程切片 DONE、整卡 IN_PROGRESS；唯一下一执行内容为两家联合真实服务/角色准入及质量、延迟、用量评测，TODO，等待权限/材料/预算确认。
+M0/M1/M2/M3 COMPLETE；U01/U02/U03 均 DONE，U02 两个切片保持 DONE；M4 IN_PROGRESS，P01/P02 工程切片 DONE、整卡 IN_PROGRESS；当前唯一执行内容为 AO 原生底座 + CLAO 闭环迁移，IN_PROGRESS；联合真实评测暂缓。
 
 ## 4. 已验证外部前提
 

@@ -6,7 +6,7 @@ info:
   version: 0.1.0-route-shell
 servers:
 - description: Local daemon (loopback only)
-  url: http://127.0.0.1:3001
+  url: http://127.0.0.1:7312
 paths:
   /api/v1/agents:
     get:
@@ -1078,6 +1078,88 @@ paths:
       summary: Check whether the desktop browser runtime is connected for a session
       tags:
       - browser
+  /api/v1/clao/missions:
+    get:
+      operationId: listCLAOMissions
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CLAOMissionListResponse'
+          description: OK
+      summary: Read acceptance facts
+      tags:
+      - clao
+    post:
+      operationId: createCLAOMission
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CLAORequest'
+        required: true
+      responses:
+        "202":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CLAOMissionResponse'
+          description: Accepted
+      summary: Create acceptance-driven native session
+      tags:
+      - clao
+  /api/v1/clao/missions/{id}:
+    get:
+      operationId: getCLAOMission
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CLAOMissionResponse'
+          description: OK
+      summary: Read one acceptance task
+      tags:
+      - clao
+  /api/v1/clao/missions/{id}/cancel:
+    post:
+      operationId: cancelCLAOMission
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        "202":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CLAOMissionResponse'
+          description: Accepted
+      summary: Durably request cancellation
+      tags:
+      - clao
+  /api/v1/clao/session:
+    get:
+      operationId: claoSession
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CLAONonceResponse'
+          description: OK
+      summary: Read local acceptance session credential
+      tags:
+      - clao
   /api/v1/desktop/sessions/{sessionId}/workspace:
     get:
       operationId: getDesktopSessionWorkspace
@@ -7206,6 +7288,188 @@ components:
       - connected
       - transport
       type: object
+    CLAOCriterion:
+      properties:
+        description:
+          type: string
+        id:
+          type: string
+      required:
+      - id
+      - description
+      type: object
+    CLAOEvidence:
+      properties:
+        digest:
+          type: string
+        forbidden:
+          items:
+            type: string
+          type: array
+        gate: {}
+        ok:
+          type: boolean
+        outside:
+          items:
+            type: string
+          type: array
+        paths:
+          items:
+            type: string
+          type: array
+        readError:
+          type: string
+        records: {}
+        resultHead:
+          type: string
+        scopeOK:
+          type: boolean
+        verification: {}
+        verifierPrompt:
+          type: string
+      required:
+      - ok
+      - scopeOK
+      - paths
+      - forbidden
+      - outside
+      - digest
+      type: object
+    CLAOMission:
+      properties:
+        base:
+          type: string
+        cancelRequested:
+          type: boolean
+        evidence:
+          items:
+            $ref: '#/components/schemas/CLAOEvidence'
+          type: array
+        operations:
+          items:
+            $ref: '#/components/schemas/CLAOOperation'
+          type: array
+        reason:
+          type: string
+        repairs:
+          type: integer
+        request:
+          $ref: '#/components/schemas/CLAORequest'
+        resolvedModel:
+          type: string
+        resultHead:
+          type: string
+        revision:
+          format: int64
+          type: integer
+        sessionId:
+          type: string
+        state:
+          type: string
+        updatedAt:
+          type: string
+        verifierSessionId:
+          type: string
+        workspace:
+          type: string
+      required:
+      - request
+      - state
+      - reason
+      - revision
+      - repairs
+      - cancelRequested
+      - operations
+      - evidence
+      - updatedAt
+      type: object
+    CLAOMissionListResponse:
+      properties:
+        missions:
+          items:
+            $ref: '#/components/schemas/CLAOMission'
+          type: array
+      required:
+      - missions
+      type: object
+    CLAOMissionResponse:
+      properties:
+        mission:
+          $ref: '#/components/schemas/CLAOMission'
+      required:
+      - mission
+      type: object
+    CLAONonceResponse:
+      properties:
+        nonce:
+          type: string
+      required:
+      - nonce
+      type: object
+    CLAOOperation:
+      properties:
+        id:
+          type: string
+        kind:
+          type: string
+        reason:
+          type: string
+        state:
+          type: string
+        target:
+          type: string
+      required:
+      - id
+      - kind
+      - target
+      - state
+      type: object
+    CLAORequest:
+      properties:
+        agent:
+          type: string
+        allowedPaths:
+          items:
+            type: string
+          type: array
+        criteria:
+          items:
+            $ref: '#/components/schemas/CLAOCriterion'
+          type: array
+        forbiddenPaths:
+          items:
+            type: string
+          type: array
+        gateCommands:
+          items:
+            type: string
+          type: array
+        gateTimeout:
+          format: double
+          type: number
+        id:
+          type: string
+        maxRepairs:
+          type: integer
+        model:
+          type: string
+        objective:
+          type: string
+        projectId:
+          type: string
+      required:
+      - id
+      - projectId
+      - objective
+      - allowedPaths
+      - forbiddenPaths
+      - criteria
+      - gateCommands
+      - agent
+      - model
+      - maxRepairs
+      - gateTimeout
+      type: object
     CancelReviewResponse:
       properties:
         reviewerHandleId:
@@ -7939,6 +8203,8 @@ components:
         autoReviewEnabled:
           type: boolean
         branch:
+          type: string
+        claoMissionId:
           type: string
         createdAt:
           format: date-time
@@ -11954,6 +12220,8 @@ components:
       - type
       type: object
 tags:
+- description: Opt-in acceptance missions owned by the native daemon
+  name: clao
 - description: Supported and locally runnable agent adapters
   name: agents
 - description: Project registry, configuration, and lifecycle administration

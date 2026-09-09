@@ -7,6 +7,7 @@ package specgen
 
 import (
 	"fmt"
+	"github.com/aoagents/agent-orchestrator/backend/internal/service/claoloop"
 	"net/http"
 	"reflect"
 	"strings"
@@ -55,9 +56,10 @@ func Build() ([]byte, error) {
 	r.Spec.SetDescription("Loopback-only HTTP surface served by the Go daemon. " +
 		"Generated from Go (code-first) — do not edit by hand; run `go generate ./...`.")
 	r.Spec.Servers = []openapi31.Server{
-		*(&openapi31.Server{URL: "http://127.0.0.1:3001"}).WithDescription("Local daemon (loopback only)"),
+		*(&openapi31.Server{URL: "http://127.0.0.1:7312"}).WithDescription("Local daemon (loopback only)"),
 	}
 	r.Spec.Tags = []openapi31.Tag{
+		*(&openapi31.Tag{Name: "clao"}).WithDescription("Opt-in acceptance missions owned by the native daemon"),
 		*(&openapi31.Tag{Name: "agents"}).WithDescription(
 			"Supported and locally runnable agent adapters"),
 		*(&openapi31.Tag{Name: "projects"}).WithDescription(
@@ -143,6 +145,11 @@ func schemaName(_ reflect.Type, defaultName string) string {
 // by projectOperations(). Add an entry when a new contract type is introduced;
 // the drift test fails until the spec is regenerated, which flags the gap.
 var schemaNames = map[string]string{ //nolint:gosec // Public OpenAPI type names include reset-credit contracts; no credential value is stored here.
+	"ClaoloopRequest": "CLAORequest", "ClaoloopMission": "CLAOMission", "ClaoloopCriterion": "CLAOCriterion",
+	"ClaoloopEvidence": "CLAOEvidence", "ClaoloopOperation": "CLAOOperation",
+	"ControllersCLAONonceResponse": "CLAONonceResponse", "ControllersCLAOMissionResponse": "CLAOMissionResponse",
+	"ControllersCLAOMissionListResponse": "CLAOMissionListResponse",
+
 	"ControllersSettingsResponse":                          "SettingsResponse",
 	"ControllersDesktopWorkspaceLocationResponse":          "DesktopWorkspaceLocationResponse",
 	"ControllersUpdateSessionInterfaceRequest":             "UpdateSessionInterfaceRequest",
@@ -533,7 +540,8 @@ type operation struct {
 }
 
 func operations() []operation {
-	ops := append([]operation{}, eventOperations()...)
+	ops := append([]operation{}, claoOperations()...)
+	ops = append(ops, eventOperations()...)
 	ops = append(ops, agentOperations()...)
 	ops = append(ops, projectOperations()...)
 	ops = append(ops, sessionOperations()...)
@@ -2419,5 +2427,15 @@ func prOperations() []operation {
 				{http.StatusNotImplemented, envelope.APIError{}},
 			},
 		},
+	}
+}
+
+func claoOperations() []operation {
+	return []operation{
+		{method: http.MethodGet, path: "/api/v1/clao/session", id: "claoSession", tag: "clao", summary: "Read local acceptance session credential", resps: []respUnit{{200, controllers.CLAONonceResponse{}}}},
+		{method: http.MethodGet, path: "/api/v1/clao/missions", id: "listCLAOMissions", tag: "clao", summary: "Read acceptance facts", resps: []respUnit{{200, controllers.CLAOMissionListResponse{}}}},
+		{method: http.MethodPost, path: "/api/v1/clao/missions", id: "createCLAOMission", tag: "clao", summary: "Create acceptance-driven native session", reqBody: claoloop.Request{}, resps: []respUnit{{202, controllers.CLAOMissionResponse{}}}},
+		{method: http.MethodGet, path: "/api/v1/clao/missions/{id}", id: "getCLAOMission", tag: "clao", summary: "Read one acceptance task", pathParams: []any{controllers.CLAOIDParam{}}, resps: []respUnit{{200, controllers.CLAOMissionResponse{}}}},
+		{method: http.MethodPost, path: "/api/v1/clao/missions/{id}/cancel", id: "cancelCLAOMission", tag: "clao", summary: "Durably request cancellation", pathParams: []any{controllers.CLAOIDParam{}}, reqBody: struct{}{}, resps: []respUnit{{202, controllers.CLAOMissionResponse{}}}},
 	}
 }

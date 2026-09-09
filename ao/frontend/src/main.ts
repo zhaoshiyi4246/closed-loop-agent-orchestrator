@@ -1,3 +1,4 @@
+import { CLAO_NATIVE_NAME, CLAO_NATIVE_APP_ID, CLAO_NATIVE_HOME, CLAO_UPDATES_ENABLED } from "./shared/clao-identity";
 import {
 	app,
 	BaseWindow,
@@ -80,12 +81,10 @@ import {
 } from "./shared/tray";
 import {
 	type DaemonProbe,
-	expectedDaemonPort,
 	parseDaemonProbe,
-	resolveDaemonFromPort,
 	resolveDaemonFromRunFile,
 } from "./shared/daemon-attach";
-import { browserDaemonOwnershipDecision, shouldReplacePortHolder } from "./shared/daemon-takeover";
+import { browserDaemonOwnershipDecision } from "./shared/daemon-takeover";
 import {
 	buildDaemonEnv,
 	devDaemonAllowedOrigins,
@@ -98,12 +97,8 @@ import { DEFAULT_TERMINAL_SHELL, type TerminalShellPreference } from "./shared/u
 import { bundledTmuxBinaryPath, stableBundledTmuxBinaryPath } from "./shared/bundled-tmux";
 import {
 	handleCloudDeepLink,
-	installCloudIPC,
-	registerCloudProtocol,
 	showCloudSignInFailure,
 } from "./main/cloud-auth";
-import { installCloudLocalAuthIPC } from "./main/cloud-auth-local";
-import { installCloudCpProxy } from "./main/cloud-cp-proxy";
 import { DEFAULT_POSTHOG_HOST, DEFAULT_POSTHOG_PROJECT_KEY } from "./shared/posthog-config";
 import { DEFAULT_SENTRY_DSN } from "./shared/sentry-config";
 import { buildTelemetryBootstrap, rendererTelemetryEnabled } from "./shared/telemetry";
@@ -159,14 +154,14 @@ process.stdout.on("error", ignoreStdStreamError);
 process.stderr.on("error", ignoreStdStreamError);
 
 // Must run before app ready so the About panel and default-menu role labels use it.
-app.setName("Agent Orchestrator");
+app.setName(CLAO_NATIVE_NAME);
 
 // Windows shows native toasts only when the app declares an AppUserModelID that
 // matches its installer shortcut (the NSIS maker's appId). Without it,
 // Notification.isSupported() still returns true but show() silently drops the
 // toast, so notifications never appear. No-op on macOS/Linux.
 if (process.platform === "win32") {
-	app.setAppUserModelId("dev.agent-orchestrator.desktop");
+	app.setAppUserModelId(CLAO_NATIVE_APP_ID);
 }
 
 // Escape hatch for hosts whose GPU driver stack crashes Chromium on startup
@@ -200,8 +195,8 @@ if (disableGpu === "1" || disableGpu === "true" || disableGpu === "yes" || disab
 app.setPath(
 	"userData",
 	app.isPackaged
-		? path.join(os.homedir(), ".ao", "electron")
-		: (process.env.AO_DEV_ELECTRON_DIR ?? path.join(os.homedir(), ".ao", "dev", "electron")),
+		? path.join(CLAO_NATIVE_HOME, "electron")
+		: (process.env.AO_DEV_ELECTRON_DIR ?? path.join(CLAO_NATIVE_HOME, "dev", "electron")),
 );
 
 // Resolve once against the launch cwd, before the daemon can chdir. The exact
@@ -331,8 +326,8 @@ function syncNativeWindowBackground(): void {
 function resolvedDaemonDataDir(): string {
 	const override = process.env.AO_DATA_DIR?.trim();
 	if (override) return override;
-	if (isDev) return path.join(os.homedir(), ".ao", DEV_STATE_SUBDIR, "data");
-	return path.join(os.homedir(), ".ao", "data");
+	if (isDev) return path.join(CLAO_NATIVE_HOME, DEV_STATE_SUBDIR, "data");
+	return path.join(CLAO_NATIVE_HOME, "data");
 }
 
 // Cursor Agent reads TERM_THEME at process start. The daemon applies it from
@@ -370,7 +365,7 @@ protocol.registerSchemesAsPrivileged([
 
 // Register ao-app:// as the deep-link protocol for WorkOS auth callbacks.
 // Must run before app.whenReady().
-registerCloudProtocol();
+// Fork has no AO cloud identity or official deep-link registration.
 if (!app.requestSingleInstanceLock()) {
 	app.exit(0);
 }
@@ -507,7 +502,7 @@ async function disposeBrowserViewHost(): Promise<void> {
 
 function browserProfileStateDir(): string {
 	const runFile = runFilePath();
-	return path.dirname(runFile ?? path.join(os.homedir(), ".ao", "running.json"));
+	return path.dirname(runFile ?? path.join(CLAO_NATIVE_HOME, "running.json"));
 }
 
 async function clearElectronBrowserProfileData(partition: string): Promise<void> {
@@ -531,7 +526,7 @@ async function createWindowInternal(): Promise<void> {
 		// Agent Browser creates Unix sockets below each run root. Keep this base
 		// deliberately short so the namespace/session suffix stays below macOS's
 		// 103-byte sockaddr_un limit; all AO state remains under ~/.ao.
-		dataDir: path.join(os.homedir(), ".ao", ...(app.isPackaged ? ["br"] : ["dev", "br"])),
+		dataDir: path.join(CLAO_NATIVE_HOME, ...(app.isPackaged ? ["br"] : ["dev", "br"])),
 		log: (message) => console.log(`AO: ${message}`),
 	});
 	await agentBrowserRuntime.prepare();
@@ -788,7 +783,7 @@ const DAEMON_PROBE_TIMEOUT_MS = 2_000;
 
 function runFilePath(): string | null {
 	if (process.env.AO_RUN_FILE) return process.env.AO_RUN_FILE;
-	if (isDev) return path.join(os.homedir(), ".ao", DEV_STATE_SUBDIR, "running.json");
+	if (isDev) return path.join(CLAO_NATIVE_HOME, DEV_STATE_SUBDIR, "running.json");
 	return defaultRunFilePath(process.platform, process.env, os.homedir());
 }
 
@@ -984,7 +979,7 @@ async function ensureBundledTmuxStaged(): Promise<void> {
 	const source = bundledTmuxBinaryPath(app.isPackaged, process.resourcesPath, process.platform);
 	const destination = stableBundledTmuxBinaryPath(
 		app.isPackaged,
-		process.env.AO_DATA_DIR?.trim() || path.join(os.homedir(), ".ao"),
+		process.env.AO_DATA_DIR?.trim() || CLAO_NATIVE_HOME,
 		app.getVersion(),
 		process.platform,
 		process.arch,
@@ -1054,7 +1049,7 @@ function daemonEnv(forceKeep = keepDaemonAlive(process.env)): NodeJS.ProcessEnv 
 	if (isDev) {
 		if (!process.env.AO_PORT) devExtras.AO_PORT = String(DEV_DAEMON_PORT);
 		if (!process.env.AO_RUN_FILE) devExtras.AO_RUN_FILE = runFilePath() ?? "";
-		if (!process.env.AO_DATA_DIR) devExtras.AO_DATA_DIR = path.join(os.homedir(), ".ao", DEV_STATE_SUBDIR, "data");
+		if (!process.env.AO_DATA_DIR) devExtras.AO_DATA_DIR = path.join(CLAO_NATIVE_HOME, DEV_STATE_SUBDIR, "data");
 		devExtras.AO_ALLOWED_ORIGINS = devDaemonAllowedOrigins(
 			process.env.AO_ALLOWED_ORIGINS,
 			rendererUrl(),
@@ -1269,6 +1264,7 @@ async function refreshDaemonStatus(): Promise<DaemonStatus> {
 	if (!launch) return daemonStatus;
 	const existing = await inspectExistingDaemon(launch);
 	if (existing) {
+		if (existing.status.state !== "ready") { setDaemonStatus(existing.status); return daemonStatus; }
 		if (browserDaemonOwnershipDecision(appRunId, existing).action === "replace") {
 			return startDaemon();
 		}
@@ -1298,13 +1294,6 @@ async function startDaemon(): Promise<DaemonStatus> {
 	});
 	daemonStartPromise = promise;
 	return daemonStartPromise;
-}
-
-// The port this Electron instance expects the daemon to bind. In dev mode a
-// separate port isolates the dev daemon from the installed-app daemon.
-// AO_PORT always wins if set explicitly.
-function resolvedDaemonPort(): number {
-	return isDev && !process.env.AO_PORT ? DEV_DAEMON_PORT : expectedDaemonPort(process.env);
 }
 
 function daemonLaunchEnv(): NodeJS.ProcessEnv {
@@ -1361,6 +1350,7 @@ async function startDaemonInner(startEpoch: number): Promise<DaemonStatus> {
 		return daemonStatus;
 	}
 	if (existing) {
+		if (existing.status.state !== "ready") { setDaemonStatus(existing.status); return daemonStatus; }
 		const ownership = browserDaemonOwnershipDecision(appRunId, existing);
 		if (ownership.action === "replace") {
 			try {
@@ -1386,123 +1376,8 @@ async function startDaemonInner(startEpoch: number): Promise<DaemonStatus> {
 		}
 	}
 
-	// Defensive: inspectExistingDaemon only attaches when the run-file agrees with
-	// a live daemon. Any divergence (missing/stale/unparseable run-file, dead PID,
-	// health.pid mismatch) makes it return null — yet a daemon may still be serving
-	// the port. Spawning then would just make the Go child refuse and exit 1. Probe
-	// the expected port directly, independent of the run-file, and attach if a
-	// daemon answers. The expected port (AO_PORT or the default) is exactly the
-	// port the Go child would bind and collide on — probing a hardcoded 3001 would
-	// miss an AO_PORT override.
-	const directDaemon = await resolveDaemonFromPort({
-		expectedPort: resolvedDaemonPort(),
-		probe: readDaemonProbe,
-		identityError: (probe) => daemonIdentityError(launch, probe),
-	});
-	if (startEpoch !== daemonStartEpoch) {
-		return daemonStatus;
-	}
-	if (directDaemon) {
-		let portAttachOwner: string | undefined;
-		let portAttachAppRunId: string | undefined;
-		// Re-link iff the daemon is app-owned. Read the run-file for the owner tag;
-		// if unavailable (run-file absent or unreadable), treat as headless and skip.
-		// ponytail: narrow TOCTOU here (the port was probed live, then the run-file
-		// is read separately), so in theory a headless daemon could have replaced an
-		// app-owned one in the gap. Acceptable: the window is tiny, the worst case is
-		// linking a headless daemon, and establishSupervisorLink disposes any prior
-		// link so nothing leaks.
-		const rfp = runFilePath();
-		if (rfp) {
-			try {
-				const info = parseRunFile(await readFile(rfp, "utf8"));
-				portAttachOwner = info?.owner;
-				portAttachAppRunId = info?.appRunId;
-			} catch {
-				// run-file absent or unreadable: treat as headless, skip link.
-			}
-		}
-		const ownership = browserDaemonOwnershipDecision(appRunId, {
-			owner: portAttachOwner,
-			appRunId: portAttachAppRunId,
-		});
-		if (ownership.action === "replace") {
-			try {
-				await gracefullyReplaceDaemonForBrowser(directDaemon);
-				replacementKeepAlive = ownership.keepAlive;
-			} catch (err) {
-				setDaemonStatus({
-					state: "error",
-					message: `Could not take ownership of the browser runtime: ${(err as Error).message}`,
-					code: "not_ready",
-				});
-				return daemonStatus;
-			}
-		} else {
-			setDaemonStatus(directDaemon);
-			if (shouldLinkOnAttach(portAttachOwner)) establishSupervisorLink();
-			return daemonStatus;
-		}
-	}
-
-	// Wedged-orphan kill+replace: both attach paths returned null, but a process
-	// may still be holding the port. The only reachable case here is a hung/wedged
-	// holder whose run-file PID is still alive but is not answering /healthz (e.g.
-	// our own daemon that bound the port and then deadlocked). Two cases are
-	// intentionally NOT handled: an identity-mismatched but healthy AO daemon is
-	// already surfaced as an error status upstream by resolveDaemonFromPort (not
-	// killed here), and a foreign non-AO process holding the port with a dead
-	// run-file PID is not replaced (out of scope). When no holder is detectable,
-	// skip straight to spawn.
-	const orphanProbe = await readDaemonProbe(resolvedDaemonPort(), "healthz");
-	const runFilePath_ = runFilePath();
-	let runFilePid: number | null = null;
-	if (runFilePath_) {
-		try {
-			runFilePid = parseRunFile(await readFile(runFilePath_, "utf8"))?.pid ?? null;
-		} catch {
-			// run-file absent or unreadable; proceed without a PID.
-		}
-	}
-	// process.kill(pid, 0) does not kill; it throws iff the PID is not live.
-	let holderPidAlive = false;
-	if (runFilePid) {
-		try {
-			process.kill(runFilePid, 0);
-			holderPidAlive = true;
-		} catch {
-			holderPidAlive = false;
-		}
-	}
-	if (shouldReplacePortHolder(orphanProbe, holderPidAlive)) {
-		// Use the run-file PID when available; fall back to the probe's reported
-		// PID as a last resort (a wedged daemon may not have written a fresh run-file).
-		const pidToKill = runFilePid ?? orphanProbe?.pid ?? null;
-		if (pidToKill) {
-			try {
-				process.kill(-pidToKill, "SIGTERM");
-			} catch {
-				try {
-					process.kill(pidToKill, "SIGTERM");
-				} catch {
-					// process already gone; proceed
-				}
-			}
-		}
-		// Poll until the port is free (probe returns null) or 8 s elapses.
-		const TAKEOVER_TIMEOUT_MS = 8_000;
-		const TAKEOVER_POLL_MS = 200;
-		const deadline = Date.now() + TAKEOVER_TIMEOUT_MS;
-		while (Date.now() < deadline) {
-			const still = await readDaemonProbe(resolvedDaemonPort(), "healthz");
-			if (!still) break;
-			await new Promise<void>((r) => setTimeout(r, TAKEOVER_POLL_MS));
-		}
-		// Remove the stale run-file so the new daemon can write a fresh one.
-		if (runFilePath_) {
-			await rm(runFilePath_, { force: true });
-		}
-	}
+	// CLAO never probes or takes over an unrecorded port holder. A collision
+	// must fail the bind; it must not attach to or stop an installed AO daemon.
 
 	if (launch.source === "bundled" && !existsSync(launch.command)) {
 		setDaemonStatus({
@@ -1561,7 +1436,7 @@ async function startDaemonInner(startEpoch: number): Promise<DaemonStatus> {
 	let keepDaemonLogFd: number | undefined;
 	let stdio: "pipe" | "ignore" | ["pipe", number | "ignore", number | "ignore"] = "pipe";
 	if (keep) {
-		const logPath = path.join(os.homedir(), ".ao", "daemon.log");
+		const logPath = path.join(CLAO_NATIVE_HOME, "daemon.log");
 		try {
 			keepDaemonLogFd = openSync(logPath, "a");
 			stdio = ["pipe", keepDaemonLogFd, keepDaemonLogFd];
@@ -2278,8 +2153,8 @@ ipcMain.on(TRAY_RENDERER_READY_CHANNEL, (event) => {
 // Data dir resolves to ~/.ao (prod) or ~/.ao/dev (dev) matching daemon conventions.
 function cloudDataDir(): string {
 	return isDev
-		? path.join(os.homedir(), ".ao", DEV_STATE_SUBDIR)
-		: path.join(os.homedir(), ".ao");
+		? path.join(CLAO_NATIVE_HOME, DEV_STATE_SUBDIR)
+		: CLAO_NATIVE_HOME;
 }
 
 function notifyRenderersOfCloudSession(account: import("./shared/cloud-account").CloudAccount | null): void {
@@ -2288,16 +2163,18 @@ function notifyRenderersOfCloudSession(account: import("./shared/cloud-account")
 	contents.send("cloud:sessionChanged", account);
 }
 
-installCloudIPC(cloudDataDir, notifyRenderersOfCloudSession);
+ipcMain.handle("cloud:getSession", () => null);
+ipcMain.handle("cloud:signIn", () => { throw new Error("此开发版不连接 AO 云服务"); });
+ipcMain.handle("cloud:signOut", () => null);
 
 // Dev-only local (email/password) sign-in against a loopback Docker control
 // plane running AO_CLOUD_LOCAL_AUTH. Gated to unpackaged/dev builds + loopback
 // CP inside the handlers; a no-op surface for production/WorkOS users.
-installCloudLocalAuthIPC(cloudDataDir, notifyRenderersOfCloudSession);
+ipcMain.handle("cloud:localAuthAvailable", () => false);
 
 // Cloud control-plane proxy IPC — cloudCp:request/openStream/closeStream.
 // CP calls go through main so the WorkOS bearer token never reaches a renderer.
-installCloudCpProxy(cloudDataDir);
+// AO cloud proxy is not installed in the CLAO fork.
 
 function focusCloudWindow(): void {
 	const window = BaseWindow.getAllWindows()[0];
@@ -2328,7 +2205,7 @@ app.on("open-url", (event, url) => {
 });
 
 app.on("second-instance", (_event, argv) => {
-	const deepLink = argv.find((value) => value.startsWith("ao-app://"));
+	const deepLink = argv.find((value) => value.startsWith("clao-native://"));
 	if (deepLink) {
 		void handleCloudDeepLinkAndFocus(deepLink);
 		return;
@@ -2365,7 +2242,7 @@ app.on("second-instance", (_event, argv) => {
 // A live updater additionally requires a signed + notarized build — see
 // frontend/docs/desktop-release.md.
 function initAutoUpdates(): void {
-	if (!app.isPackaged) return;
+	if (!CLAO_UPDATES_ENABLED || !app.isPackaged) return;
 	const runFile = runFilePath();
 	if (!runFile) return;
 	const stateDir = path.dirname(runFile);
@@ -2520,7 +2397,7 @@ app.whenReady().then(async () => {
 
 	// Windows/Linux: on first launch, the deep-link URL may arrive as a
 	// process.argv entry (e.g. ao-app://callback?token=...).
-	const deepLinkArg = process.argv.find((a) => a.startsWith("ao-app://"));
+	const deepLinkArg = process.argv.find((a) => a.startsWith("clao-native://"));
 	if (deepLinkArg) {
 		void handleCloudDeepLinkAndFocus(deepLinkArg);
 	}

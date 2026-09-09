@@ -158,6 +158,15 @@ type ChangeLog struct {
 	CreatedAt time.Time
 }
 
+type ClaoMission struct {
+	ID        string
+	ProjectID string
+	State     string
+	Revision  int64
+	Document  string
+	UpdatedAt string
+}
+
 type CodexAccountSwitch struct {
 	ID                      string
 	SourceAccountID         string
@@ -547,6 +556,7 @@ type Session struct {
 	LatestUserPromptAt        sql.NullTime
 	ReviewerAgentConfig       string
 	SessionPermissions        string
+	ClaoMissionID             string
 }
 
 type SessionCleanupFact struct {

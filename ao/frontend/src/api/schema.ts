@@ -464,6 +464,75 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/clao/missions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read acceptance facts */
+        get: operations["listCLAOMissions"];
+        put?: never;
+        /** Create acceptance-driven native session */
+        post: operations["createCLAOMission"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/clao/missions/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read one acceptance task */
+        get: operations["getCLAOMission"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/clao/missions/{id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Durably request cancellation */
+        post: operations["cancelCLAOMission"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/clao/session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read local acceptance session credential */
+        get: operations["claoSession"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/desktop/sessions/{sessionId}/workspace": {
         parameters: {
             query?: never;
@@ -2553,6 +2622,72 @@ export interface components {
             sessionId: string;
             transport: string;
         };
+        CLAOCriterion: {
+            description: string;
+            id: string;
+        };
+        CLAOEvidence: {
+            digest: string;
+            forbidden: string[];
+            gate?: unknown;
+            ok: boolean;
+            outside: string[];
+            paths: string[];
+            readError?: string;
+            records?: unknown;
+            resultHead?: string;
+            scopeOK: boolean;
+            verification?: unknown;
+            verifierPrompt?: string;
+        };
+        CLAOMission: {
+            base?: string;
+            cancelRequested: boolean;
+            evidence: components["schemas"]["CLAOEvidence"][];
+            operations: components["schemas"]["CLAOOperation"][];
+            reason: string;
+            repairs: number;
+            request: components["schemas"]["CLAORequest"];
+            resolvedModel?: string;
+            resultHead?: string;
+            /** Format: int64 */
+            revision: number;
+            sessionId?: string;
+            state: string;
+            updatedAt: string;
+            verifierSessionId?: string;
+            workspace?: string;
+        };
+        CLAOMissionListResponse: {
+            missions: components["schemas"]["CLAOMission"][];
+        };
+        CLAOMissionResponse: {
+            mission: components["schemas"]["CLAOMission"];
+        };
+        CLAONonceResponse: {
+            nonce: string;
+        };
+        CLAOOperation: {
+            id: string;
+            kind: string;
+            reason?: string;
+            state: string;
+            target: string;
+        };
+        CLAORequest: {
+            agent: string;
+            allowedPaths: string[];
+            criteria: components["schemas"]["CLAOCriterion"][];
+            forbiddenPaths: string[];
+            gateCommands: string[];
+            /** Format: double */
+            gateTimeout: number;
+            id: string;
+            maxRepairs: number;
+            model: string;
+            objective: string;
+            projectId: string;
+        };
         CancelReviewResponse: {
             reviewerHandleId: string;
             reviews: components["schemas"]["PRReviewState"][];
@@ -2816,6 +2951,7 @@ export interface components {
             autoInjectReview: boolean;
             autoReviewEnabled: boolean;
             branch?: string;
+            claoMissionId?: string;
             /** Format: date-time */
             createdAt: string;
             displayName?: string;
@@ -5730,6 +5866,114 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["APIError"];
+                };
+            };
+        };
+    };
+    listCLAOMissions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CLAOMissionListResponse"];
+                };
+            };
+        };
+    };
+    createCLAOMission: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CLAORequest"];
+            };
+        };
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CLAOMissionResponse"];
+                };
+            };
+        };
+    };
+    getCLAOMission: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CLAOMissionResponse"];
+                };
+            };
+        };
+    };
+    cancelCLAOMission: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CLAOMissionResponse"];
+                };
+            };
+        };
+    };
+    claoSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CLAONonceResponse"];
                 };
             };
         };

@@ -11,3 +11,6 @@
 !**/.env.template
 ao-data/
 ao-app/
+
+# Isolated AO-native development state (never committed)
+.native-dev/

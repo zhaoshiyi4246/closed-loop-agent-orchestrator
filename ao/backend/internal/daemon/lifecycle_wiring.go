@@ -166,6 +166,9 @@ func (l *lifecycleStack) Stop() {
 // and Reconcile on the next boot adopts them, preserving session IDs. Re-adding
 // the method here is a visible, reviewable interface change.
 type sessionLifecycle interface {
+	Spawn(context.Context, ports.SpawnConfig) (domain.SessionRecord, int, int, error)
+	ExitAgent(context.Context, domain.SessionID) (domain.SessionRecord, error)
+	ResumeAgentWithMode(context.Context, domain.SessionID) (sessionmanager.RestoreResult, error)
 	Reconcile(ctx context.Context) error
 	ReconcileStartupSafety(ctx context.Context) error
 	ReconcileBackground(ctx context.Context) error
