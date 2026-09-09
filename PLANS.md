@@ -7,7 +7,7 @@
 ## 当前唯一执行指针
 
 - 当前阶段：**M4 IN_PROGRESS**；M0 / M1 / M2 / M3 保持 COMPLETE。
-- 当前唯一执行内容：**AO 原生底座 + CLAO 闭环迁移，IN_PROGRESS**。以 AO v0.12.12 为源码基线，在独立迁移分支交付原生桌面与真实 Session/工作区验收接线。PR #45 被新路线替代、不合并，保留分支与证据；P01/P02 联合真实评测暂缓。
+- 当前唯一执行内容：**AO 原生底座 + CLAO 闭环迁移，IN_REVIEW**。以 AO v0.12.12 为源码基线，在独立迁移分支交付原生桌面与真实 Session/工作区验收接线。[PR #46](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/46) 已提交，等待审计；PR #45 被新路线替代、不合并，保留分支与证据；P01/P02 联合真实评测暂缓。
 - 最近完成：**P02 工程接入与离线验证切片 DONE**；[PR #44](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/44) 外部工程审计 PASS，无返修阻塞项，2026-09-09 已 rebase 合入 main `c112e25d332a284e857c9b2b0d3bd1ad32856485`，合入 tree 与已审计 head `d140e5d14e152ad1a64a4643bcbb1b775bac4a38` 一致。P01 工程切片保持 DONE；P01/P02 整卡及 M4 保持 IN_PROGRESS。
 - P02 已合入 Moonshot 国内通用 `kimi-k3`，复用原传输/角色校验与模型页；凭据及外发许可按实际服务隔离，旧 GLM/Codex 配置兼容、当前快照冻结。最终 Windows P02/浏览器定向 65 passed，Codex/Worker 停止兼容 41 passed；实际 Edge 截图自查及首轮修正见 P02 卡。仅外部边界使用替身，真实模型仍 NOT_RUN，P02 整卡与 M4 不标完成；不开始 P03。
 - 此前完成：**P01 工程实现与离线验证切片 DONE**；[PR #43](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/43) 再次外部审计 PASS，外发确认归属问题已解决，2026-09-09 已 rebase merge 到 main `d1738b5337aecdfbc063fd284fb1e7bfa6fe7fcc`，合入 tree 与已审计 head `c629890d6fa3e740ffaa48a3117961f59dbe4988` 一致。P01 整卡 IN_PROGRESS，剩余为实际 GLM 服务/角色准入，非本次代码返修；U01 / U02 / U03 保持 DONE。
