@@ -1,6 +1,6 @@
 # CLAO v0.3 任务与验收台账
 
-版本：0.3-plan-r1 · 2026-09-06。状态：已批准 / IN EFFECT。DOC-00、F01–F05、R01 / R02 已完成（DONE），M0 / M1 / M2 为 `COMPLETE`；U01 / U02 / U03 均已审计合入（`DONE`），U02 两个切片保持 `DONE`；M3 `COMPLETE` 表示本阶段开发与代码审计完成，完整体验与发布验收尚未完成；M4 `IN_PROGRESS`，P01/P02 工程切片均已审计合入（`DONE`），两张整卡保持 `IN_PROGRESS`；当前唯一执行内容为 AO 原生底座 + CLAO 闭环迁移，联合真实评测暂缓；其余功能卡状态见下表，原报告的发现不等于已复现或已修复。
+版本：0.3-plan-r1 · 2026-09-06。状态：已批准 / IN EFFECT。DOC-00、F01–F05、R01 / R02 已完成（DONE），M0 / M1 / M2 为 `COMPLETE`；U01 / U02 / U03 均已审计合入（`DONE`），U02 两个切片保持 `DONE`；M3 `COMPLETE` 表示本阶段开发与代码审计完成，完整体验与发布验收尚未完成；M4 `IN_PROGRESS`，P01/P02 工程切片均已审计合入（`DONE`），两张整卡保持 `IN_PROGRESS`；原生底座基础集成已完成，整体迁移仍 IN_PROGRESS；唯一下一开发内容为 Planner/Auditor 决策与独立角色配置迁移（TODO），联合真实评测暂缓；其余功能卡状态见下表，原报告的发现不等于已复现或已修复。
 
 设计以 [V03_PLAN.md](V03_PLAN.md) 为准。当前唯一任务由根目录 [PLANS.md](../PLANS.md) 指定。本文件保存每张卡的详细状态和证据，PLANS 不重复整张台账。
 
@@ -15,12 +15,13 @@
 ### M4 当前迁移：AO 原生底座 + CLAO 闭环
 
 - 2026-09-09 负责人更新路线；PR #45 被替代、不合并，原分支及证据保留。不再向旧 Panel 逐项翻译执行器/模型页。
-- 状态：IN_REVIEW；[PR #46](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/46) 已提交；独立分支 `codex/ao-native-closed-loop`。M4 保持 IN_PROGRESS；M0–M3 的 COMPLETE 与 P01/P02 工程 DONE 是旧底座历史，不等于迁移验收。
+- 基础切片“AO 原生底座 + 单 Worker 验收闭环基础集成”：**DONE**；[PR #46](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/46) 启动失败返修已通过外部代码审计，2026-09-10 已 rebase 合入 main。迁移工作树与 `codex/ao-native-closed-loop` 分支保留。**整体迁移 / M4 IN_PROGRESS**；M0–M3 COMPLETE 与 P01/P02 工程 DONE 仅为旧底座历史。
 - AO v0.12.12 / `84fb37ce5aa947ceb9b19b0c2435b242ac92ce26` 原样导入在独立提交 `81d2ea9`；后续增量可单独审计。原生模型/账号/Session/终端能力保留，交付不再以登记 27 个入口为指标。
 - 实际入口、控制权、当前支持及未迁移能力见 [ao/CLAO.md](../ao/CLAO.md)，直接验证与截图见 [原生证据](reference/ao-native/README.md)。真实模型/账户/套餐未运行；Codex 隔离账户安全阻塞单列，不假称全执行器兼容。
 - PR #46 局部返修：项目页直接查询持久 Mission，启动失败无 Session 也可查看原因和原请求；原生 owner 关联回执丢失保持 UNKNOWN/停止入口，已确认未启动记 FAILED 并允许新尝试。新提交身份与分支不复用旧请求，保留草稿；不放宽 `account_storage_unsafe`。本次定向故障/桌面证据及准确启动命令见上述入口。
-- 已接：单 Worker、Gate/范围/完整性、有界修复、独立 Verifier、原生新建入口与验收面板。未接：Planner/Auditor 决策、独立角色配置、完整恢复、旧历史导入、独立导出及闭环运行图。
-- 停止条件：更新原迁移 PR #46 后等待再次审计，不合并，不切换正式默认入口。P01/P02 联合真实评测继续暂缓，P03 不开始。
+- 已接：原生项目/模型入口、单 Worker 的 Session/工作区接线、Gate/范围/完整性、有界修复、独立 Verifier、启动请求可见/失败处理及验收面板。
+- 唯一下一开发内容：**Planner/Auditor 决策与独立角色配置迁移，TODO**，本轮不开始。另未迁移：完整恢复与用户指令回执、旧历史/连接导入、普通目录/未提交来源支持、独立导出与结果中心、闭环运行图及正式发布入口。P01/P02 联合真实评测继续暂缓，P03 不开始。
+- 收尾仅检查文档链接与差异，不重跑既有验证。沿用 Windows/离线集成与 Electron 检查、Codex 截图自查；本次为外部代码审计 PASS，负责人完整体验、真实账户/模型及发布验收尚未完成。`account_storage_unsafe` 保持待解决，xfailed 不是执行通过；保留空账户隔离开发入口，不切换正式发行入口。
 
 ### 原发现映射（历史）
 

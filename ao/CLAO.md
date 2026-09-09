@@ -4,6 +4,8 @@
 
 保留 [Apache-2.0 LICENSE](LICENSE) 及各目录原有归属/许可；AO 原 README、作者与组件来源不改成 CLAO 原创。CLAO 修改范围为独立应用身份、原生 Session 的可选闭环所有权、SQLite 验收记录、验收入口/结果以及原 Python 纯逻辑桥接。云服务、官方更新与发布目标不用于此开发版。
 
+“AO 原生底座 + 单 Worker 验收闭环基础集成” **DONE**：[PR #46](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/46) 启动失败返修通过外部代码审计，2026-09-10 已 rebase 合入 main。整体迁移与 M4 仍 IN_PROGRESS；唯一下一开发内容为 **Planner/Auditor 决策与独立角色配置迁移，TODO**。迁移工作树、依赖及独立开发数据保留。
+
 ## 启动
 
 需要 Windows、Git、Node（此次构建 24.19.0）、Go（此次构建 1.26.5）、Python 3.12 与原 `clao` 的依赖。Frontend 依赖/锁文件及 Vite/Forge 构建结构沿用上游；未自动安装编码工具、登录或调用模型。
@@ -62,10 +64,10 @@ $env:CODEX_HOME = Join-Path $profileDir '.codex'
 
 每个 Worker/Verifier 回合等待上限 30 分钟，Gate 每条 1–600 秒、输出上限 20000 字符；超限/截断保留原证据规则，过大的 Verifier 输入明确失败，不以片段当完整证据。单 Worker 闭环是当前准入范围，使用同一原生执行器/解析模型做独立复核；Planner/Auditor 异常规划、不同角色连接/参数快照和旧多角色 UI 尚待迁移。
 
-当前已接：**单 Worker、Gate/范围/完整性、有界修复、独立 Verifier、原生新建入口及验收面板**。未接：**Planner/Auditor 决策、独立角色配置、完整恢复、旧历史导入、独立导出、闭环运行图**；没有用旧底座的完成记录替代这些迁移验收。
+当前已接：**原生项目/模型入口、单 Worker 的 Session/工作区接线、Gate/范围/完整性、有界修复、独立 Verifier、启动请求可见/失败处理及验收面板**。未接：**Planner/Auditor 决策与独立角色配置迁移、完整恢复与用户指令回执、旧历史/连接导入、普通目录/未提交来源支持、独立导出与结果中心、闭环运行图及正式发布入口**；旧底座完成记录不替代这些迁移验收。
 
 ## 数据与验证
 
 旧 `clao/config`、系统凭据、runtime 和官方 AO 数据不读取/迁移到新数据库，也不删除。新页面为空不代表旧连接丢失；将来如需迁移须有明确导入。用户实际调用原生工具时仍使用该工具官方认证；本轮自动验证全部用临时 HOME/APPDATA、测试进程，不使用用户账号或 Key。
 
-验证与实际截图见 [原生集成证据](../docs/reference/ao-native/README.md)。OpenCode ACP 路径经过实际 AO 服务；Codex 在隔离 Windows 账户目录遇到上游 `account_storage_unsafe`，保持失败边界，没有将其算作闭环通过。真实模型、套餐计费、全部执行器/角色兼容、完整体验、全量、安装与发布验收均未完成。正式默认入口和发布 manifest 未切换。
+验证与实际截图见 [原生集成证据](../docs/reference/ao-native/README.md)。沿用既有 Windows/离线集成、开发构建、Electron 操作及 Codex 截图自查；本次外部代码审计 PASS 不代表负责人已完成完整体验。OpenCode ACP 路径经过实际 AO 服务，外部进程/模型使用替身；Codex 隔离环境的 `account_storage_unsafe` 仍待解决，xfailed 不是执行通过。真实账户/模型、套餐计费、全部执行器/角色兼容、全量、安装与发布验收尚未完成。收尾不重跑测试或构建；正式默认入口和发布 manifest 未切换。

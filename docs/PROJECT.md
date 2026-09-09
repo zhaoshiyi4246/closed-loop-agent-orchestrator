@@ -1,6 +1,6 @@
 # CLAO 当前项目事实
 
-更新：2026-09-09（F01–F05、R01/R02、U01/U02/U03 均 DONE；PR #43 / #44 工程审计 PASS 并已合入，P01/P02 工程切片 DONE、整卡 IN_PROGRESS；M0–M3 保持 COMPLETE，M4 IN_PROGRESS；当前唯一执行内容为 AO 原生底座 + CLAO 闭环迁移，IN_REVIEW；联合真实评测暂缓）。本文件只记录已实现事实与已知限制；v0.3 的设计见 [V03_PLAN.md](V03_PLAN.md)。真实模型、完整 GUI 体验、全量、安装与发布验收尚未完成，已发布版本仍为 v0.2。
+更新：2026-09-10（F01–F05、R01/R02、U01/U02/U03 均 DONE；PR #43 / #44 工程审计 PASS 并已合入，P01/P02 工程切片 DONE、整卡 IN_PROGRESS；M0–M3 保持 COMPLETE，M4 IN_PROGRESS；原生底座基础集成 DONE，整体迁移 IN_PROGRESS；唯一下一开发内容为 Planner/Auditor 决策与独立角色配置迁移（TODO）；联合真实评测暂缓）。本文件只记录已实现事实与已知限制；v0.3 的设计见 [V03_PLAN.md](V03_PLAN.md)。真实模型、完整 GUI 体验、全量、安装与发布验收尚未完成，已发布版本仍为 v0.2。
 
 ## 1. 版本与基线
 
@@ -9,7 +9,7 @@
 | 产品 | CLAO / Closed-Loop Agent Orchestrator |
 | 已发布版本 | v0.2，Windows本地比赛版 |
 | 已发布源码 | 4d3e8e6b5e70bab868b2eef0d28c7742dea044ba |
-| 开发目标 | v0.3：F01–F05、R01/R02、U01/U02/U03 已审计合入 main（DONE）；M0/M1/M2/M3 COMPLETE，M4 IN_PROGRESS；P01/P02 工程切片 DONE、整卡 IN_PROGRESS；当前唯一执行内容为 AO 原生底座 + CLAO 闭环迁移，IN_REVIEW；联合真实评测暂缓 |
+| 开发目标 | v0.3：F01–F05、R01/R02、U01/U02/U03 已审计合入 main（DONE）；M0/M1/M2/M3 COMPLETE，M4 IN_PROGRESS；P01/P02 工程切片 DONE、整卡 IN_PROGRESS；原生底座基础集成 DONE，整体迁移 IN_PROGRESS；唯一下一开发内容为 Planner/Auditor 决策与独立角色配置迁移（TODO）；联合真实评测暂缓 |
 | 主仓库 | zhaoshiyi4246/closed-loop-agent-orchestrator |
 | 产品源码路径 | `ao/` 为当前迁移开发入口；`clao/` 保留旧产品与可复用核心，正式默认入口未切换 |
 | 发布工具 | `packaging/build-release.ps1` 与 `packaging/release-manifest.txt` |
@@ -32,11 +32,11 @@ F05 已通过再次外部审计 PASS，[PR #36](https://github.com/zhaoshiyi4246
 
 ## 2. 当前迁移架构
 
-当前迁移 [PR #46](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/46) 已提交、IN_REVIEW。`ao/` 基于 v0.12.12，原样导入 `81d2ea9`；实际开发入口为 [dev-clao.ps1](../ao/dev-clao.ps1)。Electron 原生界面/模型菜单 → AO HTTP/Manager/Chat/driver/workspace/SQLite；可选 CLAO service 在同一 daemon 内保存 Mission/operation/验收并独占自动跟进。纯 Python 子进程复用 F02/F03/Gate/Verifier 校验，不运行旧 Controller 或 Panel。
+“AO 原生底座 + 单 Worker 验收闭环基础集成” **DONE**；[PR #46](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/46) 启动失败返修已通过外部代码审计，2026-09-10 rebase 合入 main。整体迁移仍 IN_PROGRESS。`ao/` 基于 v0.12.12，原样导入 `81d2ea9`；实际开发入口为 [dev-clao.ps1](../ao/dev-clao.ps1)。Electron 原生界面/模型菜单 → AO HTTP/Manager/Chat/driver/workspace/SQLite；可选 CLAO service 在同一 daemon 内保存 Mission/operation/验收并独占自动跟进。纯 Python 子进程复用 F02/F03/Gate/Verifier 校验，不运行旧 Controller 或 Panel。
 
 已接线：单 Worker、原生项目/模型新建入口、冻结干净单仓库 base、停止确认、Gate/范围/完整性、有界修复、固定结果及独立 Verifier。验收面板展示 AC/分项验收/文件与结果位置；项目页按 Mission 查询原请求，启动失败没有 Session 也可见。按不可变 owner 关联已发布 Session；未启动 FAILED 与真正 UNKNOWN 分开，后者仍阻止新闭环并可请求/重新确认停止。新尝试保留草稿但使用新请求身份与工作分支，不覆写旧记录或删除旧分支。开发身份/数据/发现与官方 AO 分离，旧配置/凭据/数据库不自动迁入。
 
-当前边界与本机完整启动命令见 [ao/CLAO.md](../ao/CLAO.md)。代表 OpenCode ACP 离线路径已验证，Codex 隔离 Windows 账户仍被 `account_storage_unsafe` 阻止；真实账户/模型、全执行器闭环准入未通过。未接：Planner/Auditor 决策、独立角色配置、完整恢复、旧历史导入、独立导出及闭环运行图；旧版脏/普通目录来源快照也未迁移。M4 IN_PROGRESS，迁移 IN_REVIEW；PR #45 被替代，历史 M0–M3 完成状态不代表这些新路径完成。
+当前边界与本机完整启动命令见 [ao/CLAO.md](../ao/CLAO.md)，命令使用空账户隔离环境，不是用户现有登录环境。沿用 Windows/离线集成、开发构建、Electron 检查及 Codex 截图自查；本次外部代码审计不代表负责人完整体验验收。OpenCode ACP 离线路径已验证；Codex 隔离环境的 `account_storage_unsafe` 仍待解决，xfailed 不算执行通过。真实账户/模型、全执行器闭环准入及发布验收尚未完成。唯一下一开发内容为 **Planner/Auditor 决策与独立角色配置迁移，TODO**；另未迁移：完整恢复与用户指令回执、旧历史/连接导入、普通目录/未提交来源支持、独立导出与结果中心、闭环运行图及正式发布入口。整体迁移 / M4 保持 IN_PROGRESS；PR #45 被替代并保留，历史阶段完成不代表新路径完成。本轮仅文档与差异检查，未重跑测试或构建。
 
 ### 保留的旧 clao 架构与历史实现
 
@@ -258,7 +258,7 @@ CSP 脚本 nonce 要求不变。12 个本地 Lucide 符号及完整 ISC/Feather 
 
 定向 Windows/Edge 证据及截图索引见 [U01 卡](V03_BACKLOG.md#v03-u01iphone风格界面骨架与状态夹具)。
 已有 Windows/浏览器验证与实际截图沿用，截图由 Codex 自查；本次外部代码与产品整改审计通过，不宣称外部逐张截图验收。合并收尾未重新运行测试或模型，仅做文档与差异检查。
-M0/M1/M2/M3 COMPLETE；U01/U02/U03 均 DONE，U02 两个切片保持 DONE；M4 IN_PROGRESS，P01/P02 工程切片 DONE、整卡 IN_PROGRESS；当前唯一执行内容为 AO 原生底座 + CLAO 闭环迁移，IN_REVIEW；联合真实评测暂缓。
+M0/M1/M2/M3 COMPLETE；U01/U02/U03 均 DONE，U02 两个切片保持 DONE；M4 IN_PROGRESS，P01/P02 工程切片 DONE、整卡 IN_PROGRESS；原生底座基础集成 DONE，整体迁移 IN_PROGRESS；唯一下一开发内容为 Planner/Auditor 决策与独立角色配置迁移（TODO）；联合真实评测暂缓。
 
 ## 4. 已验证外部前提
 
@@ -326,4 +326,4 @@ Windows 凭据按 `CLAO/BigModel`（旧位置）与 `CLAO/MoonshotCN` 隔离，�
 非流式 HTTP 每次超时明确、只接收完整 formal content，思考/工具/截断不制造 PASS。
 HTTP 与结构化错误共用每个角色调用 1–3 次总预算，Controller 不叠加重试 ProtocolError。
 取消接入既有 ExecutionControl，停止等待/重试并丢弃迟到结果；不声称远端计算或计费被取消。
-配置已保存、离线验证及工程审计通过均不等于真实 GLM/Kimi 请求、全部角色准入或质量评测通过。两家工程均已完成；唯一下一执行内容为联合真实服务与角色准入及质量、延迟、用量评测，TODO，等待服务/型号权限、允许外发材料及次数/时长/费用预算确认。工程收尾只做文档与差异检查，未调用供应商或读取真实 Key，不开始 P03。完整 GUI 体验、全量/安装/发行包测试仍未运行。
+配置已保存、离线验证及工程审计通过均不等于真实 GLM/Kimi 请求、全部角色准入或质量评测通过。两家工程完成属于旧底座历史；联合真实服务与角色准入及质量、延迟、用量评测继续暂缓，仍需另行确认服务/型号权限、允许外发材料及次数/时长/费用预算。当前原生迁移下一指针见第 2 节。工程收尾只做文档与差异检查，未调用供应商或读取真实 Key，不开始 P03。完整 GUI 体验、全量/安装/发行包测试仍未运行。
