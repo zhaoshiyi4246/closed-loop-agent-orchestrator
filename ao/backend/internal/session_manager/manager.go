@@ -929,7 +929,15 @@ func (m *Manager) Spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.Sess
 	if branch == "" {
 		branch = DefaultSpawnBranch(id, cfg.Kind, sessionPrefix(project), projectKind, m.dataDir)
 	}
-	baseRefs := m.refreshDefaultBranchesBestEffort(ctx, project)
+	var baseRefs map[string]string
+	if cfg.CLAOMissionID != "" {
+		if cfg.CLAOBaseSHA == "" {
+			return domain.SessionRecord{}, 0, 0, errors.New("closed-loop frozen source missing")
+		}
+		baseRefs = map[string]string{filepath.Clean(project.Path): cfg.CLAOBaseSHA}
+	} else {
+		baseRefs = m.refreshDefaultBranchesBestEffort(ctx, project)
+	}
 	ws, workspaceProject, err := m.createSessionWorkspace(ctx, project, cfg, id, branch, baseRefs)
 	if err != nil {
 		// Nothing observable exists yet — no worktree, no runtime — so the seed
@@ -941,7 +949,12 @@ func (m *Manager) Spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.Sess
 
 	// Per-project workspace provisioning: symlink shared files, then run any
 	// post-create commands (e.g. `pnpm install`) before the agent launches.
-	if err := m.provisionWorkspace(ctx, project, ws.Path); err != nil {
+	if err := func() error {
+		if cfg.CLAOMissionID != "" {
+			return nil
+		} // no implicit project commands/shared symlinks in acceptance workspaces
+		return m.provisionWorkspace(ctx, project, ws.Path)
+	}(); err != nil {
 		m.rollbackSeedSpawnWorkspace(ctx, rec, ws, workspaceProject, false)
 		return domain.SessionRecord{}, 0, 0, wrapSpawnStage(id, ErrWorkspaceProvision, err)
 	}
@@ -1970,6 +1983,9 @@ func (m *Manager) RestoreWithMode(ctx context.Context, id domain.SessionID) (Res
 	if !ok {
 		return RestoreResult{}, fmt.Errorf("restore %s: %w", id, ErrNotFound)
 	}
+	if err := ports.RequireCLAOOwner(ctx, rec.Metadata.CLAOMissionID); err != nil {
+		return RestoreResult{}, err
+	}
 	releaseHarness, err := m.beginHarnessUse(rec.Harness)
 	if err != nil {
 		return RestoreResult{}, fmt.Errorf("restore %s: %w", id, err)
@@ -2130,6 +2146,9 @@ func (m *Manager) ResumeAgentWithMode(ctx context.Context, id domain.SessionID) 
 	if !ok {
 		return RestoreResult{}, fmt.Errorf("resume agent %s: %w", id, ErrNotFound)
 	}
+	if err := ports.RequireCLAOOwner(ctx, rec.Metadata.CLAOMissionID); err != nil {
+		return RestoreResult{}, err
+	}
 	releaseHarness, err := m.beginHarnessUse(rec.Harness)
 	if err != nil {
 		return RestoreResult{}, fmt.Errorf("resume agent %s: %w", id, err)
@@ -2176,6 +2195,9 @@ func (m *Manager) resumeAgentRecordWithReservedGeneration(
 	requireNativeHistory bool,
 	reservedGeneration string,
 ) (RestoreResult, error) {
+	if err := ports.RequireCLAOOwner(ctx, rec.Metadata.CLAOMissionID); err != nil {
+		return RestoreResult{}, err
+	}
 	project, err := m.loadProject(ctx, rec.ProjectID)
 	if err != nil {
 		return RestoreResult{}, fmt.Errorf("%s %s: %w", operation, rec.ID, err)
@@ -2209,6 +2231,9 @@ func (m *Manager) relaunchSessionWithPolicy(ctx context.Context, operation strin
 }
 
 func (m *Manager) relaunchSessionWithPolicyAndGeneration(ctx context.Context, operation string, rec domain.SessionRecord, project domain.ProjectRecord, ws ports.WorkspaceInfo, restartHandle *ports.RuntimeHandle, forceFresh, requireNativeHistory bool, reservedGeneration string) (RestoreResult, error) {
+	if err := ports.RequireCLAOOwner(ctx, rec.Metadata.CLAOMissionID); err != nil {
+		return RestoreResult{}, err
+	}
 	// Relaunch dispatches from the currently committed persisted mode, never from
 	// a caller hint. The interface-transition coordinator changes that fact only
 	// after stopping the old controller, then reuses this ordinary restore path.
@@ -2746,6 +2771,9 @@ func (m *Manager) ReconcileBackground(ctx context.Context) error {
 	}
 	m.reconcileLivePass(ctx, recs)
 	for _, rec := range recs {
+		if rec.Metadata.CLAOMissionID != "" {
+			continue
+		} // CLAO recovery never replays uncertain launches
 		if !rec.IsTerminated {
 			continue
 		}
@@ -3790,10 +3818,10 @@ func seedRecord(cfg ports.SpawnConfig, projectConfig domain.ProjectConfig, now t
 		// Resolved before this point and persisted here. There is no UPDATE
 		// statement that can change it afterwards.
 		Mode:              domain.NormalizeSessionMode(cfg.RequestedMode),
-		Metadata:          domain.SessionMetadata{Permissions: applySpawnAgentConfig(effectiveAgentConfig(cfg.Kind, projectConfig), cfg.AgentConfig).Permissions},
-		AutoReviewEnabled: projectConfig.AutoReview,
-		AutoInjectReview:  true,
-		AutoInjectCI:      true,
+		Metadata:          domain.SessionMetadata{CLAOMissionID: cfg.CLAOMissionID, Permissions: applySpawnAgentConfig(effectiveAgentConfig(cfg.Kind, projectConfig), cfg.AgentConfig).Permissions},
+		AutoReviewEnabled: projectConfig.AutoReview && cfg.CLAOMissionID == "",
+		AutoInjectReview:  cfg.CLAOMissionID == "",
+		AutoInjectCI:      cfg.CLAOMissionID == "",
 	}
 }
 

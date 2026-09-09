@@ -1,3 +1,4 @@
+import { CLAO_UPDATES_ENABLED } from "../shared/clao-identity";
 import { autoUpdater } from "electron-updater";
 import { CancellationToken } from "builder-util-runtime";
 import { app, BrowserWindow, dialog } from "electron";
@@ -301,7 +302,7 @@ function broadcastCompletedCheck(status: UpdateStatus): void {
 async function readAppUpdateYml(): Promise<
   { owner: string; repo: string } | undefined
 > {
-  if (!app.isPackaged) return undefined;
+  if (!CLAO_UPDATES_ENABLED || !app.isPackaged) return undefined;
   try {
     const yml = await readFile(
       path.join(process.resourcesPath, "app-update.yml"),
@@ -1283,6 +1284,7 @@ async function requestAutomaticUpdateCheck(
 // downloaded automatically. Both preferences come from update-settings.
 // Caller guards on app.isPackaged.
 export async function startAutoUpdates(stateDir: string): Promise<void> {
+  if (!CLAO_UPDATES_ENABLED) return;
   escalationStateDir = stateDir;
   restoreStagedBuild(stateDir);
   startRetirementPollTimer(stateDir);
@@ -1296,8 +1298,10 @@ async function persistUpdaterSettings(
   settings: UpdateSettings,
 ): Promise<void> {
   await writeUpdateSettings(stateDir, settings);
-  configureFeed(settings);
-  reconcileAutomaticUpdateSchedule(stateDir, settings);
+  if (CLAO_UPDATES_ENABLED) {
+    configureFeed(settings);
+    reconcileAutomaticUpdateSchedule(stateDir, settings);
+  }
 }
 
 /** Persist settings and reconcile the live updater feed/timer as one updater operation. */
@@ -1326,7 +1330,7 @@ export async function checkForUpdatesNow(
 ): Promise<void> {
   escalationStateDir = stateDir;
   wireUpdaterEvents();
-	if (!app.isPackaged) {
+	if (!CLAO_UPDATES_ENABLED || !app.isPackaged) {
     emitUpdateOutcome({
       event: "ao.renderer.update_unsupported",
       phase: activeUpdaterPhase,
@@ -1401,7 +1405,7 @@ export async function returnToHome(
 ): Promise<void> {
   escalationStateDir = stateDir;
   wireUpdaterEvents();
-  if (!app.isPackaged) {
+  if (!CLAO_UPDATES_ENABLED || !app.isPackaged) {
     emitUpdateOutcome({
       event: "ao.renderer.update_unsupported",
       phase: activeUpdaterPhase,
@@ -1448,7 +1452,7 @@ export async function returnToHome(
 // downloadUpdateNow starts downloading the update found by checkForUpdatesNow.
 export async function downloadUpdateNow(requestId?: string): Promise<void> {
   wireUpdaterEvents();
-	if (!app.isPackaged) {
+	if (!CLAO_UPDATES_ENABLED || !app.isPackaged) {
     emitUpdateOutcome({
       event: "ao.renderer.update_unsupported",
       phase: activeUpdaterPhase,
@@ -1569,7 +1573,7 @@ function applyInstallOnQuitPolicy(): void {
 // quitAndInstallUpdate installs a downloaded update and relaunches. isSilent
 // false keeps the installer UI on Windows; isForceRunAfter relaunches the app.
 export function quitAndInstallUpdate(): void {
-	if (!app.isPackaged) return;
+	if (!CLAO_UPDATES_ENABLED || !app.isPackaged) return;
   const blocker = getMacInstallBlocker();
   if (blocker !== undefined) {
     console.warn("update install blocked:", blocker);

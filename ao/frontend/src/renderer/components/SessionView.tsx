@@ -1,3 +1,4 @@
+import { CLAOAcceptance } from "./CLAOAcceptance";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { LoaderCircle, PanelRight, Plus } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
@@ -1483,6 +1484,7 @@ export function SessionView({ sessionId }: SessionViewProps) {
 					</div>
 				</div>
 			) : null}
+			<CLAOAcceptance sessionId={sessionId} />
 			<div
 				className="session-split relative flex min-h-0 flex-1 overflow-hidden"
 				data-testid="panel-group"

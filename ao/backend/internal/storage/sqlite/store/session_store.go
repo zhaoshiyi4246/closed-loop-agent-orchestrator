@@ -447,6 +447,7 @@ func rowToRecord(row gen.GetSessionRow) domain.SessionRecord {
 		AutoInjectReview:   row.AutoInjectReview,
 		AutoInjectCI:       row.AutoInjectCI,
 		Metadata: domain.SessionMetadata{
+			CLAOMissionID:             row.ClaoMissionID,
 			Branch:                    row.Branch,
 			WorkspacePath:             row.WorkspacePath,
 			WorkspaceRepoPath:         row.WorkspaceRepoPath,
@@ -490,6 +491,7 @@ func listAllSessionsRowToRecord(row gen.ListAllSessionsRow) domain.SessionRecord
 func recordToInsert(rec domain.SessionRecord, num int64) gen.InsertSessionParams {
 	activity := normalActivity(rec.Activity, rec.CreatedAt)
 	return gen.InsertSessionParams{
+		ClaoMissionID:             rec.Metadata.CLAOMissionID,
 		ID:                        rec.ID,
 		ProjectID:                 rec.ProjectID,
 		Num:                       num,

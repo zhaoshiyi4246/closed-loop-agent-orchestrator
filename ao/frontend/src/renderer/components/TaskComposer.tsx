@@ -35,7 +35,7 @@ import { SettingsOptionMenu } from "./settings/SettingsOptionMenu";
 type Project = components["schemas"]["Project"];
 type DelegateAgent = components["schemas"]["DelegateTaskRequest"]["agent"];
 
-type CreateTaskInput = {
+export type CreateTaskInput = {
 	projectId: string;
 	brief: string;
 	agent?: DelegateAgent;
@@ -73,6 +73,7 @@ function hasErrorDetail(details: components["schemas"]["APIError"]["details"] | 
 }
 
 export type TaskComposerProps = {
+	createClosedLoop?: (input: CreateTaskInput) => Promise<string>;
 	projectId?: string;
 	onCreated: (sessionId: string) => void;
 	onDirtyChange?: (dirty: boolean) => void;
@@ -81,6 +82,7 @@ export type TaskComposerProps = {
 };
 
 export function TaskComposer({
+	createClosedLoop,
 	projectId,
 	onCreated,
 	onDirtyChange,
@@ -198,8 +200,8 @@ export function TaskComposer({
 
 	const createTask = useCallback(
 		(input: CreateTaskInput): Promise<string> =>
-			isCloudProject ? createCloudTask(input) : createLocalTask(input),
-		[isCloudProject, createCloudTask, createLocalTask],
+			createClosedLoop ? createClosedLoop(input) : isCloudProject ? createCloudTask(input) : createLocalTask(input),
+		[isCloudProject, createCloudTask, createLocalTask, createClosedLoop],
 	);
 
 	const projectQuery = useQuery({

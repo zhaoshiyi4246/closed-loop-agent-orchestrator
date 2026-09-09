@@ -969,6 +969,15 @@ func (f *fakeSessionLifecycle) GetActiveCodexAccountSwitch(context.Context) (dom
 	return domain.CodexAccountSwitch{}, false, nil
 }
 func (f *fakeSessionLifecycle) SetCodexAccountSwitchObserver(func()) {}
+func (f *fakeSessionLifecycle) Spawn(context.Context, ports.SpawnConfig) (domain.SessionRecord, int, int, error) {
+	panic("unexpected spawn in wiring-only fixture")
+}
+func (f *fakeSessionLifecycle) ExitAgent(context.Context, domain.SessionID) (domain.SessionRecord, error) {
+	panic("unexpected stop in wiring-only fixture")
+}
+func (f *fakeSessionLifecycle) ResumeAgentWithMode(context.Context, domain.SessionID) (sessionmanager.RestoreResult, error) {
+	panic("unexpected resume in wiring-only fixture")
+}
 
 // TestWiring_SessionLifecycleInterfaceInvokedByDaemon asserts the
 // sessionLifecycle interface is satisfied by *sessionmanager.Manager (compile

@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/aoagents/agent-orchestrator/backend/internal/service/claoloop"
 	"log/slog"
 	"net/http"
 	"os"
@@ -738,7 +739,13 @@ func Run() error {
 
 	bs.HostID = hostIdentity.HostID
 
+	claoSvc := claoloop.New(ctx, store, wiredSessMgr, chatSvc, claoloop.PythonAcceptance{Python: os.Getenv("CLAO_CORE_PYTHON"), CoreRoot: os.Getenv("CLAO_CORE_ROOT")}, log)
+	chatSvc.SetCLAOApprovalPolicy(claoSvc.CheckApproval)
+	if err := claoSvc.Recover(); err != nil {
+		return fmt.Errorf("recover CLAO acceptance facts: %w", err)
+	}
 	srv, err := httpd.NewWithDeps(cfg, log, termMgr, httpd.APIDeps{
+		CLAO:               claoSvc,
 		Projects:           projectSvc,
 		HostID:             hostIdentity.HostID,
 		Endpoints:          bs,
@@ -756,7 +763,7 @@ func Run() error {
 		Presence:           presenceTracker,
 		DeviceRoster:       deviceRoster,
 		DeviceLive:         presenceTracker,
-		Import:             importsvc.New(importsvc.Deps{Store: store}),
+		Import:             importsvc.New(importsvc.Deps{Store: store, Root: filepath.Join(cfg.StateDir, "explicit-import")}),
 		ShellTerminals:     shellTermSvc,
 		AgentAuth:          agentAuthSvc,
 		Conversations:      chatSvc,

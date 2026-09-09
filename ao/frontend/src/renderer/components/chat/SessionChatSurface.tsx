@@ -368,14 +368,14 @@ export function SessionChatSurface({
 				openingShell={openingShell}
 				shellError={shellError}
 				models={models}
-				onChooseSettings={hasProviderMode ? undefined : commands.chooseSettings}
+				onChooseSettings={hasProviderMode || session.claoMissionId ? undefined : commands.chooseSettings}
 				onRememberPermissions={can(renderSnapshot, "config_options") && !configOptions.loaded
 					? undefined : projectPermissions.remember}
 				rememberPermissionsPending={projectPermissions.pending}
 				rememberPermissionsError={projectPermissions.error}
 				rememberedPermissionMode={projectPermissions.savedMode}
 				configOptions={configOptions.options}
-				onChooseConfigOption={configOptions.setOption}
+				onChooseConfigOption={session.claoMissionId ? undefined : configOptions.setOption}
 				configOptionPending={configOptions.pending || commands.choosingSettings}
 				configOptionError={configOptions.error}
 				onCompact={commands.compact}

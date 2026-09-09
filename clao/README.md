@@ -2,6 +2,8 @@
 
 Closed-Loop Agent Orchestrator
 
+> 本目录保留旧产品及可复用核心。当前开发路线为 [AO 原生底座 + CLAO 闭环](../ao/CLAO.md)，开发入口不启动本 Panel/Controller。以下旧产品功能与历史完成状态不等于已迁移；配置、凭据和 runtime 原样保留，新数据不写入旧数据库。正式默认入口尚未切换。
+
 CLAO 是本地闭环软件开发控制层。新本地任务通过 Codex App Server 执行，无需 AO。它把用户的
 Mission 交给受控的 Codex Worker，在确定性观察、Gate 和最终验证后生成可审计结果。
 当前架构见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)。

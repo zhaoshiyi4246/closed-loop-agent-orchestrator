@@ -42,6 +42,7 @@
 ## 源码、发布与依赖
 
 - 正式仓库：`zhaoshiyi4246/closed-loop-agent-orchestrator`。`clao/` 是唯一正式产品源码；不另复制一份 v0.3 源码。产品包顶层仍为 `clao/`。
+- 2026-09-09 负责人授权迁移为 AO 原生底座 + CLAO 闭环：`ao/` 受控保存 v0.12.12 上游源码与增量，保留许可证和独立导入提交；`clao/` 暂保留为历史产品与可复用核心。开发版独立身份/数据/发现信息，不接触官方 AO 安装、daemon 或 `.ao`。在集成验收前不切换正式默认入口；不并行启动旧 Panel/Controller。此授权优先于上文原产品目录及旧运行层约束，安全边界不变。
 - `packaging/build-release.ps1` 与 `packaging/release-manifest.txt` 是唯一发布工具和映射入口，从 clean HEAD tracked blobs 构建，输出目录必须在仓库外。
 - `legacy/` 保存 v0.1、sidecar、demo 和旧开发资料，不进入产品；内部 `clao/src/loopcore/` 包不改名。`docs/` 保存当前事实与规划，`docs/reference/` 审计附件冻结。
 - 发布边界唯一来源为 manifest；新 runtime 资源／依赖必须相应纳入、验证；开发工具不能混入 runtime。

@@ -25,6 +25,8 @@ const (
 // SessionMetadata is the typed, off-status metadata for a session: operational
 // handles and seed inputs used by Session Manager and reaper.
 type SessionMetadata struct {
+	// Immutable ownership; ordinary AO sessions leave this empty.
+	CLAOMissionID string `json:"claoMissionId,omitempty"`
 	// Permissions pins the resolved launch policy independently of future project defaults.
 	Permissions PermissionMode `json:"permissions,omitempty"`
 

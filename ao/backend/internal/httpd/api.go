@@ -22,6 +22,7 @@ import (
 
 // APIDeps bundles every service the API layer's controllers depend on.
 type APIDeps struct {
+	CLAO controllers.CLAOService
 	Agents             controllers.AgentCatalog
 	CodexAccounts      controllers.CodexAccountService
 	Projects           projectsvc.Manager
@@ -101,6 +102,7 @@ func normalizeAPIDeps(deps APIDeps, log *slog.Logger) APIDeps {
 // API owns one controller per resource and is the single Register call the
 // router invokes to mount the /api/v1 surface.
 type API struct {
+	clao *controllers.CLAOController
 	cfg           config.Config
 	deps          APIDeps
 	agents        *controllers.AgentsController
@@ -132,6 +134,7 @@ type API struct {
 // environment.
 func NewAPI(cfg config.Config, deps APIDeps) *API {
 	return &API{
+		clao: controllers.NewCLAOController(deps.CLAO,cfg.Port,cfg.AllowedOrigins),
 		cfg:  cfg,
 		deps: deps,
 		agents: &controllers.AgentsController{
@@ -184,6 +187,7 @@ func (a *API) Register(root chi.Router) {
 		r.Group(func(r chi.Router) {
 			r.Use(middleware.Timeout(timeout))
 			r.Use(presenceMiddleware(a.deps.Presence))
+			a.clao.Register(r)
 			a.agents.Register(r)
 			a.codexAccounts.Register(r)
 			a.projects.Register(r)

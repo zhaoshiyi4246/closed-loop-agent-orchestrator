@@ -7,28 +7,21 @@ import MakerNSIS from "./makers/maker-nsis";
 import MakerDMG, { isSigningConfigured, sealDmg, verifyDmg, verifyMacArtifact } from "./makers/maker-dmg";
 import { machoHasX86_64Slice } from "./makers/macho-archs";
 import MakerAppImage from "./makers/maker-appimage";
-import { existsSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 
-// Default GitHub release target (production). Releases land on Untrivial-ai
-// (the org the repo was transferred to in July 2026; AgentWrapper and aoagents
-// are prior homes). Builds cut by CI must NOT rely on this fallback: the
-// workflows set AO_RELEASE_REPO to the repo they run in, and build-artifacts.yml
-// asserts the baked app-update.yml matches it, so a future org/repo rename
-// fails the build instead of stranding the fleet on a redirect (#3523).
-const DEFAULT_RELEASE_REPO = "Untrivial-ai/agent-orchestrator";
-
+// CLAO migration builds have no release/update target.
 // The packaged binary name (no extension). Single source of truth: the packager
 // names the exe/ELF from this, and the NSIS + deb makers must point their
 // shortcut/launcher at the SAME name. Drift here means a broken Start menu
 // shortcut on Windows (#2414) or "could not find the Electron app binary" on deb.
-const EXECUTABLE_NAME = "agent-orchestrator";
+const EXECUTABLE_NAME = "clao-native";
 const AUTH_PROTOCOL = {
-	name: "Agent Orchestrator authentication callback",
-	schemes: ["ao-app"],
+	name: "CLAO Native callback",
+	schemes: ["clao-native"],
 };
-const AUTH_PROTOCOL_MIME_TYPE = "x-scheme-handler/ao-app";
+const AUTH_PROTOCOL_MIME_TYPE = "x-scheme-handler/clao-native";
 const PACKAGED_EXTERNAL_DEPENDENCIES = [
 	"/node_modules/better-sqlite3",
 	"/node_modules/bindings",
@@ -44,7 +37,7 @@ function ignoreFromVitePackage(file: string): boolean {
 	);
 }
 
-async function prepareNativeDependencies(platform: NodeJS.Platform, arch: string): Promise<void> {
+export async function prepareNativeDependencies(platform: NodeJS.Platform, arch: string): Promise<void> {
 	// Rebuild in the source tree, where prebuild-install and its helper packages
 	// are available. The Vite package intentionally carries only the resulting
 	// native runtime, not the install-time download toolchain.
@@ -68,7 +61,6 @@ export function extraResourcesForPlatform(platform: NodeJS.Platform): string[] {
 		"assets/icon.ico",
 		"assets/trayIconTemplate.png",
 		"assets/trayIconTemplate@2x.png",
-		"app-update.yml",
 	];
 }
 
@@ -100,18 +92,6 @@ export function macSignOptionsForFile(filePath: string): { entitlements?: string
 	return machoHasX86_64Slice(filePath) ? { entitlements: ACP_RUNTIME_NODE_ENTITLEMENTS } : {};
 }
 
-// parseReleaseRepo turns an "owner/repo" string (from AO_RELEASE_REPO) into the
-// publisher-github { owner, name } shape, falling back to the production default
-// when unset or malformed.
-function parseReleaseRepo(value: string | undefined): { owner: string; name: string } {
-	const [owner, name] = (value || DEFAULT_RELEASE_REPO).split("/");
-	if (!owner || !name) {
-		const [defOwner, defName] = DEFAULT_RELEASE_REPO.split("/");
-		return { owner: defOwner, name: defName };
-	}
-	return { owner, name };
-}
-
 const config: ForgeConfig = {
 	packagerConfig: {
 		asar: true,
@@ -120,8 +100,8 @@ const config: ForgeConfig = {
 		// runtime dependency tree explicitly; AutoUnpackNativesPlugin then places
 		// the .node binary outside app.asar.
 		ignore: ignoreFromVitePackage,
-		appBundleId: "dev.agent-orchestrator.desktop",
-		name: "Agent Orchestrator",
+		appBundleId: "dev.clao.native.desktop",
+		name: "CLAO Native",
 		executableName: EXECUTABLE_NAME,
 		protocols: [AUTH_PROTOCOL],
 		appCategoryType: "public.app-category.developer-tools",
@@ -156,26 +136,9 @@ const config: ForgeConfig = {
 				: undefined,
 	},
 	hooks: {
-		// electron-forge does not generate app-update.yml (electron-builder does);
-		// electron-updater reads it from the app's Resources dir at runtime to know
-		// which GitHub repo to pull from, else it throws ENOENT during download.
-		// Generate it in prePackage (BEFORE osxSign) and ship it via extraResource
-		// above, so it is copied into the bundle and SIGNED as part of the seal.
-		// Writing it after signing (a postPackage hook) adds an unsealed resource
-		// and macOS reports the app as "damaged". owner/repo are baked from
-		// AO_RELEASE_REPO at build time.
-		prePackage: async (_forgeConfig, platform, arch) => {
-			await prepareNativeDependencies(platform as NodeJS.Platform, arch);
-			const { owner, name } = parseReleaseRepo(process.env.AO_RELEASE_REPO);
-			const yml = [
-				"provider: github",
-				`owner: ${owner}`,
-				`repo: ${name}`,
-				"updaterCacheDirName: agent-orchestrator-updater",
-				"",
-			].join("\n");
-			writeFileSync("app-update.yml", yml);
-		},
+        prePackage: async () => {
+            throw new Error("CLAO Native migration is development-only; release packaging is not configured");
+        },
 		packageAfterPrune: async (_forgeConfig, buildPath) => {
 			const nativeModule = path.join(
 				buildPath,
@@ -257,7 +220,7 @@ const config: ForgeConfig = {
 		// custom install dir or proper uninstaller (issue #401).
 		new MakerNSIS(
 			{
-				appId: "dev.agent-orchestrator.desktop",
+				appId: "dev.clao.native.desktop",
 				productName: "Agent Orchestrator",
 				// Match the packaged binary name so the Start menu shortcut targets
 				// the real "agent-orchestrator.exe" (not "Agent Orchestrator.exe").
@@ -276,7 +239,7 @@ const config: ForgeConfig = {
 		// break the signature seal on the way in (see makers/maker-dmg.ts, #3267).
 		new MakerDMG(
 			{
-				appId: "dev.agent-orchestrator.desktop",
+				appId: "dev.clao.native.desktop",
 				productName: "Agent Orchestrator",
 			},
 			["darwin"],
@@ -287,7 +250,7 @@ const config: ForgeConfig = {
 		// prefer a system package.
 		new MakerAppImage(
 			{
-				appId: "dev.agent-orchestrator.desktop",
+				appId: "dev.clao.native.desktop",
 				productName: "Agent Orchestrator",
 				icon: "assets/icon.png",
 				protocols: [AUTH_PROTOCOL],
@@ -322,29 +285,7 @@ const config: ForgeConfig = {
 			},
 		},
 	],
-	publishers: [
-		{
-			name: "@electron-forge/publisher-github",
-			// Release target is build-time overridable so a fork run publishes to the
-			// fork without a source edit. AO_RELEASE_REPO is "owner/repo"; it defaults
-			// to the production target. The dev/test loop sets
-			// AO_RELEASE_REPO=harshitsinghbhandari/agent-orchestrator (spec §1.1, §8).
-			// Note: aoagents/agent-orchestrator and AgentWrapper/agent-orchestrator
-			// are prior homes and intentionally NOT the default; releases land on
-			// Untrivial-ai.
-			config: {
-				repository: parseReleaseRepo(process.env.AO_RELEASE_REPO),
-				prerelease: process.env.AO_RELEASE_PRERELEASE === "true",
-				draft: false,
-				// Ask GitHub to compose the body from the PRs merged since the last
-				// release. Without it the publisher creates the release with an empty
-				// body, and the app's new "what's new" section has nothing to show:
-				// electron-updater reads release notes from the release body, so an
-				// empty body means users get told nothing about what changed.
-				generateReleaseNotes: true,
-			},
-		},
-	],
+	publishers: [],
 	plugins: [
 		new AutoUnpackNativesPlugin({}),
 		new VitePlugin({

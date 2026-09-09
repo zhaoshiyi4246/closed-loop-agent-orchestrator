@@ -1092,6 +1092,7 @@ export function ChatWorkspace({
 						<ReauthBanner account={snapshot.account} harness={snapshot.harness} />
 					) : null}
 					<ControllerBanner
+						claoOwned={Boolean(session?.claoMissionId)}
 						controller={snapshot.controller}
 						transitioning={controllerTransitioning}
 						onResume={newWorkDisabled ? undefined : onResumeAgent}
@@ -1533,7 +1534,7 @@ function ChatHeader({
  * silent surface is indistinguishable from an agent that is simply thinking.
  */
 function ControllerBanner({
-	controller,
+	claoOwned,	controller,
 	transitioning,
 	onResume,
 	resuming,
@@ -1542,6 +1543,7 @@ function ControllerBanner({
 	openingShell,
 	shellError,
 }: {
+	claoOwned?: boolean;
 	controller: { state: ControllerState; error?: string };
 	transitioning?: boolean;
 	onResume?: () => void;
@@ -1554,7 +1556,7 @@ function ControllerBanner({
 	// The transition coordinator intentionally stops one controller before it
 	// starts the other. The top-bar handoff state already explains that interval;
 	// presenting its intermediate snapshot as a crash produces a red false alarm.
-	if (transitioning && controller.state === "stopped") return null;
+	if ((transitioning || claoOwned) && controller.state === "stopped") return null;
 	if (controller.state === "ready" || controller.state === "busy") return null;
 
 	const copy: Partial<Record<ControllerState, { title: string; tone: string }>> = {
