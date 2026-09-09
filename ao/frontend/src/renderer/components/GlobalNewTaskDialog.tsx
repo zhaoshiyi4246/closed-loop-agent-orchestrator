@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { workspaceQueryKey } from "../hooks/useWorkspaceQuery";
 import { useUiStore } from "../stores/ui-store";
 import { NewTaskDialog } from "./NewTaskDialog";
+import type { AcceptanceRequest } from "./CLAOAcceptance";
 
 // App-level New Task surface. Lives in the shell (always mounted, on every
 // route and platform, unlike ShellTopbar which unmounts on Linux boards) so a
@@ -17,6 +18,7 @@ export function GlobalNewTaskDialog() {
 	const newTaskRequest = useUiStore((state) => state.newTaskRequest);
 	const [open, setOpen] = useState(false);
 	const [projectId, setProjectId] = useState<string | undefined>(undefined);
+	const [attempt, setAttempt] = useState<{ request: AcceptanceRequest; nonce: number }>();
 	const lastNonce = useRef(0);
 
 	useEffect(() => {
@@ -27,8 +29,10 @@ export function GlobalNewTaskDialog() {
 		// not replay the ignored request when the user later closes the dialog.
 		if (open) return;
 		setProjectId(newTaskRequest.projectId);
+		if (newTaskRequest.acceptanceRequest) setAttempt({ request: newTaskRequest.acceptanceRequest, nonce: newTaskRequest.nonce });
+		else if (newTaskRequest.projectId !== projectId) setAttempt(undefined);
 		setOpen(true);
-	}, [newTaskRequest, open]);
+	}, [newTaskRequest, open, projectId]);
 
 	const handleCreated = async (sessionId: string) => {
 		if (!projectId) return;
@@ -41,6 +45,8 @@ export function GlobalNewTaskDialog() {
 
 	return (
 		<NewTaskDialog
+			key={`${projectId}:${attempt?.nonce ?? "draft"}`}
+			initialRequest={attempt?.request}
 			open={open}
 			projectId={projectId}
 			onCreated={(sessionId) => void handleCreated(sessionId)}

@@ -317,9 +317,79 @@ func (s *Service) ownedSessions(id string) ([]domain.SessionRecord, error) {
 	}
 	return result, nil
 }
+
+// Spawn rollback only deletes a native seed row, before initial turn delivery.
+// Once a controller/turn is published, immutable ownership survives even when
+// the caller loses the receipt. Adopt that association, never launch a replacement.
+func (s *Service) reconcileSpawn(id string, cause error) error {
+	owned, err := s.ownedSessions(id)
+	if err != nil {
+		return err // A failed read is not evidence that nothing started.
+	}
+	_, err = s.mutate(id, func(m *Mission) error {
+		if len(m.Operations) == 0 {
+			return nil
+		}
+		op := &m.Operations[len(m.Operations)-1]
+		if op.Kind != "spawn" && op.Kind != "spawn_verifier" {
+			return nil
+		}
+		if op.Reason == "" && cause != nil {
+			op.Reason = cause.Error()
+		}
+		owner, priorID := id, m.SessionID
+		if op.Kind == "spawn_verifier" {
+			owner, priorID = id+":verifier", m.VerifierSessionID
+		}
+		found, allStopped := false, true
+		for _, r := range owned {
+			if r.Metadata.CLAOMissionID == id {
+				m.SessionID, m.Workspace, m.ResolvedModel = r.ID, r.Metadata.WorkspacePath, r.Metadata.Model
+			} else {
+				m.VerifierSessionID = r.ID
+			}
+			found = found || r.Metadata.CLAOMissionID == owner
+			allStopped = allStopped && r.Activity.State == domain.ActivityExited && !s.chat.HasLiveChatController(r.ID)
+		}
+		if !found && priorID == "" && op.State != "CONFIRMED_SUCCESS" {
+			op.State = "CONFIRMED_FAILURE"
+			op.Reason += "; native owner query: no Session was published; initial turn was not dispatched"
+			// Verifier failure must not hide a missing or still-live Worker.
+			if allStopped && (op.Kind == "spawn" || m.SessionID != "" && len(owned) > 0) {
+				m.State = "FAILED"
+				m.Reason = "启动失败，已确认没有启动本次执行：" + op.Reason
+				return nil
+			}
+		}
+		if op.State == "IN_FLIGHT" {
+			op.State = "UNKNOWN"
+		}
+		m.State = "UNKNOWN"
+		m.Reason = "启动结果尚未确认；不会重复启动。" + op.Reason
+		if found {
+			m.Reason += "（已按不可变 owner 关联原生 Session）"
+		} else {
+			m.Reason += "（无法确认目标 Session 事实）"
+		}
+		return nil
+	})
+	return err
+}
 func (s *Service) cancelStopped(id string) error {
 	rows, err := s.ownedSessions(id)
 	if err != nil {
+		return err
+	}
+	if _, err = s.mutate(id, func(m *Mission) error {
+		for _, r := range rows {
+			if r.Metadata.CLAOMissionID == id {
+				m.SessionID, m.Workspace, m.ResolvedModel = r.ID, r.Metadata.WorkspacePath, r.Metadata.Model
+			} else {
+				m.VerifierSessionID = r.ID
+			}
+		}
+		return nil
+	}); err != nil {
 		return err
 	}
 	for _, r := range rows {
@@ -362,9 +432,14 @@ func (s *Service) Recover() error {
 					v.Operations[i].State = "UNKNOWN"
 				}
 			}
-			if len(owned) == 0 {
+			noDispatch := len(v.Operations) == 0 || len(v.Operations) == 1 && v.Operations[0].Kind == "spawn" && v.Operations[0].State != "CONFIRMED_SUCCESS"
+			if len(owned) == 0 && v.SessionID == "" && v.VerifierSessionID == "" && v.ResultHead == "" && noDispatch {
 				v.State = "FAILED"
 				v.Reason = "启动在原生 Session 创建前中断；没有启动 Worker"
+				if len(v.Operations) > 0 {
+					v.Operations[0].State = "CONFIRMED_FAILURE"
+					v.Operations[0].Reason += "; native owner query: no Session was published"
+				}
 			}
 			return nil
 		})
@@ -490,6 +565,16 @@ func (s *Service) run(id string) {
 		}
 		s.log.Error("CLAO loop paused", "mission", id, "error", err)
 		m, e := s.Get(s.ctx, id)
+		if e == nil && len(m.Operations) > 0 {
+			op := m.Operations[len(m.Operations)-1]
+			if op.Kind == "spawn" || op.Kind == "spawn_verifier" {
+				if e = s.reconcileSpawn(id, err); e != nil {
+					s.log.Error("CLAO spawn reconciliation failed", "mission", id, "error", e)
+					_, _ = s.phase(id, "UNKNOWN", "启动对账失败，不会自动重试："+e.Error()+"；原错误："+err.Error())
+				}
+				return
+			}
+		}
 		if e == nil && !m.Terminal() {
 			_, _ = s.phase(id, "UNKNOWN", err.Error())
 		}
@@ -503,7 +588,10 @@ func (s *Service) execute(id string) error {
 	var worker domain.SessionRecord
 	err = s.operation(id, "spawn", "worker", func() error {
 		var e error
-		worker, _, _, e = s.sessions.Spawn(ports.WithCLAOOwner(s.ctx, id), ports.SpawnConfig{ProjectID: m.Request.ProjectID, Kind: domain.KindWorker, Harness: m.Request.Agent, RequestedMode: domain.SessionModeChat, CLAOMissionID: id, CLAOBaseSHA: m.Base, AgentConfig: ports.AgentConfig{Model: m.Request.Model, Permissions: domain.PermissionModeDefault}, Prompt: workerPrompt(m), DisplayName: "闭环 · " + m.Request.Objective})
+		// Seed Session numbers can be reused after failed-start rollback, while
+		// its Git branch survives. A new mission gets its own branch; no cleanup
+		// or history rewrite is needed to create a genuinely new attempt.
+		worker, _, _, e = s.sessions.Spawn(ports.WithCLAOOwner(s.ctx, id), ports.SpawnConfig{ProjectID: m.Request.ProjectID, Branch: "clao/" + id + "/worker", Kind: domain.KindWorker, Harness: m.Request.Agent, RequestedMode: domain.SessionModeChat, CLAOMissionID: id, CLAOBaseSHA: m.Base, AgentConfig: ports.AgentConfig{Model: m.Request.Model, Permissions: domain.PermissionModeDefault}, Prompt: workerPrompt(m), DisplayName: "闭环 · " + m.Request.Objective})
 		return e
 	})
 	if err != nil {
@@ -637,7 +725,7 @@ func (s *Service) verify(id string, m Mission, proof Evidence) error {
 	var review domain.SessionRecord
 	err := s.operation(id, "spawn_verifier", "verifier", func() error {
 		var e error
-		review, _, _, e = s.sessions.Spawn(ports.WithCLAOOwner(s.ctx, id), ports.SpawnConfig{ProjectID: m.Request.ProjectID, Kind: domain.KindWorker, Harness: m.Request.Agent, RequestedMode: domain.SessionModeChat, CLAOMissionID: id + ":verifier", CLAOBaseSHA: m.ResultHead, CLAOReview: true, AgentConfig: ports.AgentConfig{Model: m.ResolvedModel, Permissions: domain.PermissionModeDefault}, Prompt: proof.VerifierPrompt, DisplayName: "验收 · " + m.Request.Objective})
+		review, _, _, e = s.sessions.Spawn(ports.WithCLAOOwner(s.ctx, id), ports.SpawnConfig{ProjectID: m.Request.ProjectID, Branch: "clao/" + id + "/verifier", Kind: domain.KindWorker, Harness: m.Request.Agent, RequestedMode: domain.SessionModeChat, CLAOMissionID: id + ":verifier", CLAOBaseSHA: m.ResultHead, CLAOReview: true, AgentConfig: ports.AgentConfig{Model: m.ResolvedModel, Permissions: domain.PermissionModeDefault}, Prompt: proof.VerifierPrompt, DisplayName: "验收 · " + m.Request.Objective})
 		return e
 	})
 	if err != nil {

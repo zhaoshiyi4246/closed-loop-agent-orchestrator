@@ -34,9 +34,9 @@ F05 已通过再次外部审计 PASS，[PR #36](https://github.com/zhaoshiyi4246
 
 当前迁移 [PR #46](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/46) 已提交、IN_REVIEW。`ao/` 基于 v0.12.12，原样导入 `81d2ea9`；实际开发入口为 [dev-clao.ps1](../ao/dev-clao.ps1)。Electron 原生界面/模型菜单 → AO HTTP/Manager/Chat/driver/workspace/SQLite；可选 CLAO service 在同一 daemon 内保存 Mission/operation/验收并独占自动跟进。纯 Python 子进程复用 F02/F03/Gate/Verifier 校验，不运行旧 Controller 或 Panel。
 
-已接线：原生项目与模型选项创建闭环、冻结干净单仓库 base、Worker 停止确认、确定性 Gate/范围、最多三次修复、固定结果及独立原生 Session 复核。原生详情展示 AC/分项验收/文件与结果位置；缺结果或读取失败不算 PASS。开发身份/数据/发现与官方 AO 分离，更新/云账户路径不接官方服务；旧 CLAO 配置、凭据、数据库不自动迁入。
+已接线：单 Worker、原生项目/模型新建入口、冻结干净单仓库 base、停止确认、Gate/范围/完整性、有界修复、固定结果及独立 Verifier。验收面板展示 AC/分项验收/文件与结果位置；项目页按 Mission 查询原请求，启动失败没有 Session 也可见。按不可变 owner 关联已发布 Session；未启动 FAILED 与真正 UNKNOWN 分开，后者仍阻止新闭环并可请求/重新确认停止。新尝试保留草稿但使用新请求身份与工作分支，不覆写旧记录或删除旧分支。开发身份/数据/发现与官方 AO 分离，旧配置/凭据/数据库不自动迁入。
 
-当前边界与开发步骤见 [ao/CLAO.md](../ao/CLAO.md)。代表 OpenCode ACP 离线完整路径已验证，Codex 隔离 Windows 账户被上游安全检查阻止；真实账户/模型、全执行器闭环准入未通过。旧版脏/普通目录来源快照、独立导出中心、历史导入、完整恢复和 Planner/Auditor/独立角色配置尚待迁移。M4 IN_PROGRESS，PR #45 已被新路线替代；历史 M0–M3 完成状态不代表这些新路径完成。
+当前边界与本机完整启动命令见 [ao/CLAO.md](../ao/CLAO.md)。代表 OpenCode ACP 离线路径已验证，Codex 隔离 Windows 账户仍被 `account_storage_unsafe` 阻止；真实账户/模型、全执行器闭环准入未通过。未接：Planner/Auditor 决策、独立角色配置、完整恢复、旧历史导入、独立导出及闭环运行图；旧版脏/普通目录来源快照也未迁移。M4 IN_PROGRESS，迁移 IN_REVIEW；PR #45 被替代，历史 M0–M3 完成状态不代表这些新路径完成。
 
 ### 保留的旧 clao 架构与历史实现
 

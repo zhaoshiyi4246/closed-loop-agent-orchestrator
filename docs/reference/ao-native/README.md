@@ -2,6 +2,35 @@
 
 2026-09-09，Windows。本页记录当前迁移分支的直接验证，不代表真实模型、负责人完整体验或发布验收。
 
+## PR #46 启动失败局部返修
+
+最终 Windows 定向：`test_ao_native.py -k 'failed_start or spawn_receipt_loss or opencode_pass or cancel or manual_accept or codex_uses_same'` **7 passed / 1 xfailed / 9 deselected，46.02s**；Codex xfailed 仍是账户安全阻塞，不算执行通过。原生 `NewTaskDialog` / `GlobalNewTaskDialog` **16 passed**；Go `./internal/service/claoloop` 通过。开发 daemon 构建、Electron/Forge/Vite 实际启动、`tsc --noEmit`、Python compileall、JS 语法、diff-check 与本地文档链接目标检查通过。
+
+- 真实 SQLite 定向覆盖：接收后、intent 前中断；Session 未发布；原生 ACK / 本地关联回执丢失；owner 查询失败；同 ID 重放与新尝试；UNKNOWN 阻止启动和确认停止。没有把缺少回执当作未执行。
+- 真实 daemon / Manager / Chat / Git / HTTP：ACP `session/new` 失败记 FAILED / CONFIRMED_FAILURE；解除故障后新尝试可通过真实 Gate/独立 Verifier。另一故障用隔离 SQLite trigger 拒绝 CONFIRMED_SUCCESS 回执写入：真实 Session 和初始回合已存在，UNKNOWN 按 owner 关联，不重复发指令，取消后确认停止。
+- 实际 Electron `CLAO_TEST_START_FAILURE=1` 通过：原生模型菜单浏览/搜索/点击、失败记录刷新后可见、查看旧请求、新尝试草稿/模型/范围保留、关闭重开、HTTP POST 回执丢失仍只提交一次、UNKNOWN 阻断与取消。截图已由 Codex 逐张查看，不等同负责人体验验收。
+- 直接发现并修复：AO 回滚删除 seed Session 后，其编号可能复用，但分支仍存在；新尝试改用 Mission ID 的 worker/verifier 分支，不删除旧分支。未改账户检查。
+- 首轮正常场景在原有 30 秒测试轮询内尚未完成，串行复查原断言通过，未提高等待上限或放宽判断。协议报错实际属于异步 turn 失败；回执丢失改在 SQLite 写入处重现。浏览器夹具按保留下来的当前选择限定菜单作用域，负例断言保留。
+
+本机完整开发启动命令见 [ao/CLAO.md](../../../ao/CLAO.md#启动)，已实际执行，使用已有 Node/npm/Python 与独立 `manual-profile` / `manual-data`，端口 7316。自动桌面检查另用临时目录和 7314，不写入官方 AO、旧 CLAO 或手动 profile。
+
+- [无 Session 的失败请求](startup-failure-visible.png)：刷新后仍可进入，保留原因和新尝试入口。
+- [新尝试验收通过](startup-new-attempt-pass.png)：新身份/原生 Session，不改旧请求。
+- [已有关联的 UNKNOWN](startup-unknown-linked.png)：可请求停止，不提供替换 Worker 捷径。
+
+返修浏览器复现（先运行开发入口，从仓库根执行）：
+
+```powershell
+$env:PATH = 'C:\Users\Lenovo\AppData\Local\Temp\clao-native-build-tools\go1.25.7\go\bin;' + $env:PATH
+$env:GOWORK = 'off'
+$env:GOTOOLCHAIN = 'go1.26.5'
+$env:CLAO_CORE_PYTHON = 'E:\Projects\closed-loop-agent-orchestrator\clao\.venv\Scripts\python.exe'
+$env:CLAO_TEST_START_FAILURE = '1'
+& 'C:\Users\Lenovo\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe' ao/frontend/scripts/test-clao-desktop.cjs
+```
+
+未接：Planner/Auditor 决策、独立角色配置、完整恢复、旧历史导入、独立导出、闭环运行图。M4 IN_PROGRESS、迁移 IN_REVIEW。NOT_RUN：全量、smoke、发行/安装器、真实账户/模型/套餐与负责人完整体验验收。
+
 ## 构建与运行
 
 - AO v0.12.12 原样导入 `81d2ea9`：3365 文件逐个 Git blob 对照源 ZIP 一致，25 个可执行模式保留，无嵌套 `.git`。原生 registry、模型目录与两个模型选择组件没有翻译或替换。
@@ -45,7 +74,7 @@ node ao/frontend/scripts/test-clao-desktop.cjs
 
 ## 明确未通过/未运行
 
-- **Codex 代表路径未准入**：AO v0.12.12 在隔离 Windows 账户目录报 `account_storage_unsafe` / `Codex account setup did not complete`。保留该场景并记为 xfailed，保持 UNKNOWN、不 materialize；没有绕过账户 ACL 或借用用户登录。这不影响已经验证的 OpenCode ACP 代表路径，但不能据此称全部执行器兼容。
+- **Codex 代表路径未准入**：AO v0.12.12 在隔离 Windows 账户目录报 `account_storage_unsafe` / `Codex account setup did not complete`。保留该场景并记为 xfailed，不 materialize；此次按 owner 事实区分未启动 FAILED 与 UNKNOWN，没有绕过账户 ACL 或借用用户登录。这不影响已经验证的 OpenCode ACP 代表路径，但不能据此称全部执行器兼容。
 - 较早一次过宽的 `TestBuild` 名称筛选带入上游 `TestBuildSourceHandoffRequestUsesCurrentNativeSessionContext`，在 Windows 原路径与 JSON 转义路径比较失败。该测试与函数未修改，仍保留；不把本次定向通过表述为上游全量通过。
 - 首次 HTTP 测试把派生构建命名 `ao.exe`，触发旧离线夹具的防真实 AO 保护，9 个 setup error；使用同一派生构建的 `clao-ao.exe` 副本完成隔离测试，未移除该保护。桌面脚本先后修正上游 BaseWindow API 与返回项目后新建任务的导航定位；最终实际交互通过。
 - **NOT_RUN**：真实账户/登录/API Key/模型/套餐计费；全部执行器与角色组合；完整 GUI 体验；全量回归；smoke；安装器/发行打包/发布。旧功能迁移边界见 [开发说明](../../../ao/CLAO.md)，不由旧 M0–M3 历史完成状态推定。

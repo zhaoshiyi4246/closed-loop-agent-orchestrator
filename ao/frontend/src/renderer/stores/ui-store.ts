@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type { AcceptanceRequest } from "../components/CLAOAcceptance";
 import type { TerminalTarget } from "../types/terminal";
 import {
 	applyDocumentTheme,
@@ -85,7 +86,7 @@ export type UiState = {
 	// bumps on every request so a repeat press (even for the same project) still
 	// re-fires; the always-mounted GlobalNewTaskDialog consumes it. Selection
 	// still lives in the URL — this is a one-shot action, not persisted state.
-	newTaskRequest: { projectId: string; nonce: number } | null;
+	newTaskRequest: { projectId: string; nonce: number; acceptanceRequest?: AcceptanceRequest } | null;
 	// Bumps to ask the sidebar's create-project flow to open (the ⌘N fallback
 	// when no project is in scope).
 	createProjectNonce: number;
@@ -145,7 +146,7 @@ export type UiState = {
 	setOrchestratorStartupError: (projectId: string, message: string | null) => void;
 	showGlobalToast: (title: string, body?: string) => void;
 	clearGlobalToast: () => void;
-	requestNewTask: (projectId: string) => void;
+	requestNewTask: (projectId: string, acceptanceRequest?: AcceptanceRequest) => void;
 	requestCreateProject: () => void;
 	requestCreateProjectFromPath: (path: string) => void;
 	requestNewShellTerminal: () => void;
@@ -379,8 +380,8 @@ export const useUiStore = create<UiState>((set, get) => ({
 			globalToast: { title, body, nonce: (state.globalToast?.nonce ?? 0) + 1 },
 		})),
 	clearGlobalToast: () => set({ globalToast: null }),
-	requestNewTask: (projectId) =>
-		set((state) => ({ newTaskRequest: { projectId, nonce: (state.newTaskRequest?.nonce ?? 0) + 1 } })),
+	requestNewTask: (projectId, acceptanceRequest) =>
+		set((state) => ({ newTaskRequest: { projectId, acceptanceRequest, nonce: (state.newTaskRequest?.nonce ?? 0) + 1 } })),
 	requestCreateProject: () => set((state) => ({ createProjectNonce: state.createProjectNonce + 1 })),
 	requestCreateProjectFromPath: (path) =>
 		set((state) => ({ folderDropRequest: { path, nonce: (state.folderDropRequest?.nonce ?? 0) + 1 } })),

@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import shutil
 import socket
+import sqlite3
 import subprocess
 import sys
 import time
@@ -66,7 +67,8 @@ def native(tmp_path, native_engine):
                 "AO_PORT": str(port), "AO_ALLOWED_ORIGINS": f"http://127.0.0.1:{port}",
                 "AO_TELEMETRY_EVENTS": "off", "AO_TELEMETRY_REMOTE": "off", "AO_SENTRY_DSN": "",
                 "CLAO_CORE_PYTHON": sys.executable, "CLAO_CORE_ROOT": str(ROOT / "clao"),
-                "CLAO_FIXTURE_TRACE": str(tmp_path / "external.jsonl")})
+                "CLAO_FIXTURE_TRACE": str(tmp_path / "external.jsonl"),
+                "CLAO_FIXTURE_FAIL_START": str(tmp_path / "reject-start")})
     log_path = tmp_path / "daemon.log"
     log = log_path.open("wb")
     proc = subprocess.Popen([str(binary), "daemon"], env=env, cwd=AO / "frontend", stdout=log, stderr=subprocess.STDOUT)
@@ -146,6 +148,64 @@ def test_native_opencode_pass_and_frozen_result(native):
     assert all(op["state"] == "CONFIRMED_SUCCESS" for op in result["operations"])
 
 
+def test_native_failed_start_is_visible_and_new_attempt_does_not_replay(native):
+    submit, api, nonce, source, base, temp = native
+    marker = temp / "reject-start"
+    marker.write_text("controlled external failure")
+    first = submit("First attempt: fail before initial turn")
+    assert first["state"] == "FAILED", first
+    assert "controlled session/new failure" in first["reason"]
+    assert first["operations"][0]["state"] == "CONFIRMED_FAILURE"
+    assert not first.get("sessionId")
+    status, rows = api("/api/v1/clao/missions")
+    assert status == 200 and any(m["request"]["id"] == first["request"]["id"] for m in rows["missions"])
+    trace = (temp / "external.jsonl").read_text(encoding="utf-8")
+    assert '"kind":"prompt"' not in trace
+    marker.unlink()
+    assert api("/api/v1/clao/missions", first["request"], {"X-CLAO-Nonce": nonce})[1]["mission"] == first
+    edited = {**first["request"], "objective": "do not overwrite"}
+    assert api("/api/v1/clao/missions", edited, {"X-CLAO-Nonce": nonce})[0] == 400
+    second = submit("New attempt: create accepted output")
+    assert second["state"] == "DONE", second
+    assert second["request"]["id"] != first["request"]["id"]
+    assert api("/api/v1/clao/missions/" + first["request"]["id"])[1]["mission"] == first
+
+
+def test_native_spawn_receipt_loss_adopts_owner_and_requires_stop(native):
+    submit, api, nonce, source, base, temp = native
+    # Fail the local operation ACK write, after real native Session/turn creation.
+    # Reconciliation writes UNKNOWN and is deliberately not rejected by the trigger.
+    with sqlite3.connect(temp / 'isolated-home/native/data/ao.db') as db:
+        db.execute("""CREATE TRIGGER fixture_receipt_failure BEFORE UPDATE ON clao_missions
+          WHEN json_extract(NEW.document, '$.state') = 'SPAWNING'
+           AND json_extract(NEW.document, '$.operations[0].state') = 'CONFIRMED_SUCCESS'
+          BEGIN SELECT RAISE(ABORT, 'injected receipt write failure'); END""")
+    first = submit("WAIT_CANCEL preserve native ownership after receipt loss")
+    for _ in range(60):
+        first = api("/api/v1/clao/missions/" + first["request"]["id"])[1]["mission"]
+        if first.get("sessionId"):
+            break
+        time.sleep(.1)
+    assert first["state"] == "UNKNOWN" and first.get("sessionId"), first
+    assert first["operations"][0]["state"] == "UNKNOWN"
+    assert "injected receipt write failure" in first["reason"]
+    assert not first.get("resultHead")
+    assert api("/api/v1/clao/missions", first["request"], {"X-CLAO-Nonce": nonce})[0] == 202
+    next_request = {**first["request"], "id": first["request"]["id"] + "-new"}
+    assert api("/api/v1/clao/missions", next_request, {"X-CLAO-Nonce": nonce})[0] == 400
+    assert (temp / "external.jsonl").read_text(encoding="utf-8").count('"kind":"waiting"') == 1
+    status, receipt = api("/api/v1/clao/missions/" + first["request"]["id"] + "/cancel", {}, {"X-CLAO-Nonce": nonce})
+    assert status == 202 and receipt["mission"]["cancelRequested"]
+    for _ in range(60):
+        result = api("/api/v1/clao/missions/" + first["request"]["id"])[1]["mission"]
+        if result["state"] == "CANCELLED":
+            break
+        time.sleep(.1)
+    assert result["state"] == "CANCELLED", result
+    assert result["sessionId"] == first["sessionId"]
+    assert len([op for op in result["operations"] if op["kind"] == "spawn"]) == 1
+
+
 def test_native_gate_failure_sends_only_one_repair(native):
     submit, api, nonce, source, base, temp = native
     result = submit("FAIL_GATE always keep the failure visible", repairs=1)
@@ -208,7 +268,7 @@ def test_native_approval_is_once_and_native_retry_cannot_bypass_owner(native):
 def test_native_codex_uses_same_acceptance_service(native):
     submit, api, nonce, source, base, temp = native
     result = submit('Create accepted output using the Codex protocol', agent='codex')
-    if result['state'] == 'UNKNOWN' and 'Codex account setup did not complete' in result['reason']:
+    if result['state'] in {'UNKNOWN', 'FAILED'} and 'Codex account setup did not complete' in result['reason']:
         assert not result.get('resultHead') and not result['evidence']
         pytest.xfail('AO v0.12.12 Windows account_storage_unsafe in isolated profile; native account checks remain enforced')
     assert result['state'] == 'DONE', result

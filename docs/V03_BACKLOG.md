@@ -18,7 +18,9 @@
 - 状态：IN_REVIEW；[PR #46](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/46) 已提交；独立分支 `codex/ao-native-closed-loop`。M4 保持 IN_PROGRESS；M0–M3 的 COMPLETE 与 P01/P02 工程 DONE 是旧底座历史，不等于迁移验收。
 - AO v0.12.12 / `84fb37ce5aa947ceb9b19b0c2435b242ac92ce26` 原样导入在独立提交 `81d2ea9`；后续增量可单独审计。原生模型/账号/Session/终端能力保留，交付不再以登记 27 个入口为指标。
 - 实际入口、控制权、当前支持及未迁移能力见 [ao/CLAO.md](../ao/CLAO.md)，直接验证与截图见 [原生证据](reference/ao-native/README.md)。真实模型/账户/套餐未运行；Codex 隔离账户安全阻塞单列，不假称全执行器兼容。
-- 停止条件：可运行开发构建与闭环定向检查后提交独立迁移 PR，等待审计，不合并，不切换正式默认入口。P01/P02 联合真实评测继续暂缓，P03 不开始。
+- PR #46 局部返修：项目页直接查询持久 Mission，启动失败无 Session 也可查看原因和原请求；原生 owner 关联回执丢失保持 UNKNOWN/停止入口，已确认未启动记 FAILED 并允许新尝试。新提交身份与分支不复用旧请求，保留草稿；不放宽 `account_storage_unsafe`。本次定向故障/桌面证据及准确启动命令见上述入口。
+- 已接：单 Worker、Gate/范围/完整性、有界修复、独立 Verifier、原生新建入口与验收面板。未接：Planner/Auditor 决策、独立角色配置、完整恢复、旧历史导入、独立导出及闭环运行图。
+- 停止条件：更新原迁移 PR #46 后等待再次审计，不合并，不切换正式默认入口。P01/P02 联合真实评测继续暂缓，P03 不开始。
 
 ### 原发现映射（历史）
 
