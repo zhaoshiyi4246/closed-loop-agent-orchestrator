@@ -377,7 +377,7 @@ Windows / CPython 3.12.7 / 产品 venv（Scripts 前置 PATH，`src` 与产品�
 
 ## V03-P02｜Kimi语义后端与切换评测
 
-- 状态：整卡 **IN_PROGRESS**，工程与离线验证切片 **IN_REVIEW**。base `6aefa5f5d2c0aeebcc99b115cf282a181efb73b5`，分支 `codex/v03-p02-kimi-semantic`。本轮国内通用服务工程接入、GLM/Codex 兼容及离线验证；两家真实 API、角色准入与切换质量/延迟评测待集中验证，测试要求与费用/外发授权不变。
+- 状态：整卡 **IN_PROGRESS**，工程与离线验证切片 **IN_REVIEW**；[PR #44](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/44) 已提交，等待审计，不自行合并。base `6aefa5f5d2c0aeebcc99b115cf282a181efb73b5`，分支 `codex/v03-p02-kimi-semantic`。本轮国内通用服务工程接入、GLM/Codex 兼容及离线验证；两家真实 API、角色准入与切换质量/延迟评测待集中验证，测试要求与费用/外发授权不变。
 - 对应：A11。依赖：P01的薄transport/本地校验契约。
 - 工作：核对官方Kimi当前API和具体model；实现供应商参数差异，不复制整套角色/Controller；设置页明确数据发送、凭据和支持角色。
 - 必测：与P01相同的协议/错误/安全矩阵；固定任务profile切换；Codex/GLM/Kimi回归；不支持参数保存前拒绝；requested/confirmed模型区分。

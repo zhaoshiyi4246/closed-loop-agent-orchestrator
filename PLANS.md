@@ -7,7 +7,7 @@
 ## 当前唯一执行指针
 
 - 当前阶段：**M4 IN_PROGRESS**；M0 / M1 / M2 / M3 保持 COMPLETE。
-- 当前唯一实施任务：**V03-P02 — Kimi 语义后端与切换评测**，工程切片 IN_REVIEW，待审计；已完成国内通用服务工程接入与离线验证，真实 API/角色准入与质量/延迟评测待集中授权验证。
+- 当前唯一实施任务：**V03-P02 — Kimi 语义后端与切换评测**，工程切片 IN_REVIEW，[PR #44](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/44) 待审计；已完成国内通用服务工程接入与离线验证，真实 API/角色准入与质量/延迟评测待集中授权验证。
 - P02 分支接入 Moonshot 国内通用 `kimi-k3`，复用原传输/角色校验与模型页；凭据及外发许可按实际服务隔离，旧 GLM/Codex 配置兼容、当前快照冻结。最终 Windows P02/浏览器定向 65 passed，Codex/Worker 停止兼容 41 passed；实际 Edge 截图自查及首轮修正见 P02 卡。仅外部边界使用替身，真实模型仍 NOT_RUN，P02 整卡与 M4 不标完成；不开始 P03。
 - 最近完成：**P01 工程实现与离线验证切片 DONE**；[PR #43](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/43) 再次外部审计 PASS，外发确认归属问题已解决，2026-09-09 已 rebase merge 到 main `d1738b5337aecdfbc063fd284fb1e7bfa6fe7fcc`，合入 tree 与已审计 head `c629890d6fa3e740ffaa48a3117961f59dbe4988` 一致。P01 整卡 IN_PROGRESS，剩余为实际 GLM 服务/角色准入，非本次代码返修；U01 / U02 / U03 保持 DONE。
 - P01 工程已接通 BigModel 通用 `glm-4.7`、三个语义角色独立绑定、Windows 系统凭据和任务外发确认；复用原角色协议/Controller，有界重试与取消不改变 Worker UNKNOWN。Windows P01/安全引用导出定向 54 passed；Panel/草稿归属与兼容复查 31 passed；其余 R01/Codex 证据与夹具修正见 P01 卡，不累计为全量。真实模型及准入未运行，M4 未完成；本轮 P02 工程实现待审计。
