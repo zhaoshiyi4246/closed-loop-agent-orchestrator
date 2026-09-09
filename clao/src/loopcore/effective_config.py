@@ -63,7 +63,7 @@ for _key in ("strip_ansi", "normalize_timestamps", "normalize_ids", "normalize_p
     FIELDS["fingerprint." + _key] = (True, "bool", None, "Fingerprinter")
 FIELDS["fingerprint.max_length"] = (200, "count", 1, "Fingerprinter")
 LEGACY_FIELDS = frozenset(FIELDS)
-FIELDS["model_profiles"] = ([], "profiles", None, "BigModel semantic HTTP transport")
+FIELDS["model_profiles"] = ([], "profiles", None, "BigModel / Kimi semantic HTTP transport")
 for _role in ("planner", "auditor", "verifier"):
     FIELDS[f"roles.{_role}.profile"] = ("codex", "profile", None, "semantic role transport selection")
 

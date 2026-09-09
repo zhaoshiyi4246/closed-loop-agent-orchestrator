@@ -679,7 +679,7 @@ def main() -> int:
                 "dry_run": True,
                 "planner_provider": (type(planner).__name__
                                      if planner is not None else None),
-                "planner_service": ('bigmodel_general' if getattr(planner, 'transport', None) is not None else 'codex') if planner else None,
+                "planner_service": (planner.transport.profile['service'] if getattr(planner, 'transport', None) is not None else 'codex') if planner else None,
                 "model": planner.model if planner is not None else None,
                 "subtask_count": len(plan.subtasks),
                 "plan": plan.to_dict(),

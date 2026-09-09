@@ -49,6 +49,7 @@ from loopcore.effective_config import (load_config as read_config, resolve_confi
                                        save_defaults, restore_snapshot, FIELDS)
 from loopcore.state_store import StateStore  # noqa: E402
 from loopcore import results  # noqa: E402
+from loopcore.model_profiles import checked_consent, SERVICE  # noqa: E402
 
 PORT = int(os.environ.get("PANEL_PORT", "7100"))
 
@@ -858,15 +859,17 @@ class Handler(BaseHTTPRequestHandler):
             if path == '/api/credentials':
                 from loopcore.credentials import credentials
                 action = body.get('action')
-                if action not in ('save', 'delete') or set(body) != ({'action', 'ref', 'value'} if action == 'save' else {'action', 'ref'}):
-                    raise ClientError('凭据操作仅接受 action、ref 及保存时的 value')
+                fields = {'action', 'ref', 'value'} if action == 'save' else {'action', 'ref'}
+                if action not in ('save', 'delete') or set(body) not in (fields, fields | {'service'}):
+                    raise ClientError('凭据操作仅接受 service、action、ref 及保存时的 value')
                 # No credential values in responses, diagnostics, task records or defaults.
-                vault = credentials()
+                service = body.get('service', SERVICE)  # P01 requests remain BigModel-only.
+                vault = credentials(service)
                 if action == 'save':
                     vault.save(body['ref'], body['value'])
                 else:
                     vault.delete(body['ref'])
-                self._json({'ok': True, 'status': 'saved' if action == 'save' else 'deleted'})
+                self._json({'ok': True, 'service': service, 'status': 'saved' if action == 'save' else 'deleted'})
                 return
             if path in ('/api/result/export', '/api/result/open'):
                 if set(body) != {'mission_id'}:
@@ -999,7 +1002,7 @@ class Handler(BaseHTTPRequestHandler):
             "user_instruction": body.get("user_instruction") or "",
             "worker_harness": "codex",
             "budgets": dict(cfg['budgets'], max_subtasks=max_subtasks),
-            "external_service_consent": 'bigmodel_general' if body.get('external_service_consent') == 'bigmodel_general' else None,
+            "external_service_consent": checked_consent(body.get('external_service_consent')),
         }
         from loopcore.model_profiles import check_start
         check_start(cfg, mission)
@@ -1060,7 +1063,7 @@ class Handler(BaseHTTPRequestHandler):
         finally:
             store.close()
         cfg = restore_snapshot(body['config_snapshot']) if 'config_snapshot' in body else PANEL.defaults()
-        mission['external_service_consent'] = 'bigmodel_general' if body.get('external_service_consent') == 'bigmodel_general' else None
+        mission['external_service_consent'] = checked_consent(body.get('external_service_consent'))
         mission['budgets'] = copy.deepcopy(cfg['budgets'])
         from loopcore.model_profiles import check_start
         check_start(cfg, mission)

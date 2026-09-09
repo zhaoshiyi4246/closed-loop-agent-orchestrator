@@ -114,7 +114,7 @@ def protocol_call(call, validate, *, max_attempts=2, retry_categories=None, retr
     three pure transport attempts, at most six mixed protocol/transport calls
     in a consecutive failed step episode. Protocol exhaustion halts immediately.
     A valid semantic FAIL returns immediately and is never refreshed into PASS.
-    BigModel supplies a total budget (1..3) including transient HTTP errors;
+    The semantic HTTP transport supplies a total budget (1..3) including transient HTTP errors;
     its transport does not retry underneath this boundary.
     """
     from .execution_control import checkpoint

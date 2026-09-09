@@ -1,4 +1,4 @@
-"""BigModel general Chat Completions, non-streaming glm-4.7 only.
+"""Shared non-streaming Chat Completions for the two explicit service contracts.
 
 One call per attempt. The existing role protocol boundary owns the *entire*
 retry budget. No redirects, fallback, tools, child environment or prompt logs.
@@ -11,11 +11,12 @@ import re
 import socket
 import threading
 import time
+from urllib.parse import urlsplit
 
 from . import credentials
 from .diagnostics import model_attempt
 from .execution_control import checkpoint
-from .model_profiles import validate_profiles, SERVICE
+from .model_profiles import validate_profiles, SERVICE, LABELS
 from .structured import (ProtocolError, ContractConfigurationError, parse_json,
                          check_schema, schema_validator, evidence_part, require_complete)
 
@@ -24,6 +25,8 @@ class BigModelTransport:
     def __init__(self, profile):
         validate_profiles([profile])
         self.profile = copy.deepcopy(profile)
+        self.service = profile['service']
+        self.label = LABELS[self.service]
         self.retry_options = dict(max_attempts=profile['max_attempts'],
             retry_delay_seconds=profile['retry_delay_seconds'],
             retry_categories={'NETWORK', 'TIMEOUT', 'RATE_LIMIT', 'JSON_PARSE',
@@ -38,17 +41,18 @@ class BigModelTransport:
             raise ContractConfigurationError('semantic JSON schema unavailable') from None
         schema_validator(schema)
         # JSON mode is a transport capability, not a substitute for our schemas.
+        parameters = (dict(thinking={'type': p['thinking']}, temperature=p['temperature'], max_tokens=p['max_tokens'])
+                      if self.service == SERVICE else dict(reasoning_effort=p['reasoning_effort'], max_completion_tokens=p['max_completion_tokens']))
         body = json.dumps(dict(model=p['model'], stream=False,
             messages=[{'role': 'system', 'content': 'Return only a JSON object matching this schema:\n' + json.dumps(schema)},
                       {'role': 'user', 'content': prompt}],
-            response_format={'type': 'json_object'}, thinking={'type': p['thinking']},
-            temperature=p['temperature'], max_tokens=p['max_tokens']), ensure_ascii=False).encode('utf-8')
-        with model_attempt(p['model'], transport='bigmodel_https') as fact:
+            response_format={'type': 'json_object'}, **parameters), ensure_ascii=False).encode('utf-8')
+        with model_attempt(p['model'], transport='bigmodel_https' if self.service == SERVICE else 'moonshot_https') as fact:
             if fact is not None:
-                fact.update(provider=SERVICE, profile_id=p['id'], confirmed_model_source=None)
+                fact.update(provider=self.service, profile_id=p['id'], confirmed_model_source=None)
             checkpoint()
             try:
-                key = credentials.credentials().read(p['credential_ref'])
+                key = credentials.credentials(self.service).read(p['credential_ref'])
             except credentials.CredentialError:
                 raise ProtocolError('AUTH', 'Windows credential unavailable; configure the selected reference') from None
             if not key:
@@ -59,7 +63,7 @@ class BigModelTransport:
                 category = ('AUTH' if status in (401, 403) else 'RATE_LIMIT' if status == 429 else
                             'TIMEOUT' if status == 408 else 'NETWORK' if 500 <= status <= 599 else 'CAPABILITY')
                 # Do not retain provider bodies, headers or echoed inputs.
-                raise ProtocolError(category, 'BigModel HTTP status %d; response body withheld' % status)
+                raise ProtocolError(category, self.label+' HTTP status %d; response body withheld' % status)
             if key.encode() in raw:
                 raise ProtocolError('CAPABILITY', 'response contains credential material; withheld')
             try:
@@ -106,7 +110,8 @@ class BigModelTransport:
     def _exchange(self, body, key):
         """Interruptible wait; discard late results, never claim remote compute stopped."""
         timeout = self.profile['timeout_seconds']
-        conn = http.client.HTTPSConnection('open.bigmodel.cn', timeout=timeout)
+        endpoint = urlsplit(self.profile['endpoint'])  # validated exact service URL
+        conn = http.client.HTTPSConnection(endpoint.hostname, timeout=timeout)
         done = threading.Event()
         answer = []
         abandoned = threading.Event()
@@ -118,7 +123,7 @@ class BigModelTransport:
                 conn.connect()
                 if abandoned.is_set():
                     return
-                conn.request('POST', '/api/paas/v4/chat/completions', body,
+                conn.request('POST', endpoint.path, body,
                              {'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json'})
                 response = conn.getresponse()
                 raw = response.read(2 * 1024 * 1024 + 1)
@@ -127,22 +132,22 @@ class BigModelTransport:
                 else:
                     answer.append((response.status, raw))
             except (TimeoutError, socket.timeout):
-                answer.append(ProtocolError('TIMEOUT', 'BigModel response timeout; remote computation may continue'))
+                answer.append(ProtocolError('TIMEOUT', self.label+' response timeout; remote computation may continue'))
             except Exception:
-                answer.append(ProtocolError('NETWORK', 'BigModel transport failed; remote computation may continue'))
+                answer.append(ProtocolError('NETWORK', self.label+' transport failed; remote computation may continue'))
             finally:
                 conn.close()
                 done.set()
 
         checkpoint()
-        thread = threading.Thread(target=request, daemon=True, name='clao-bigmodel-request')
+        thread = threading.Thread(target=request, daemon=True, name='clao-semantic-request')
         thread.start()
         end = time.monotonic() + timeout
         try:
             while not done.wait(0.05):
                 checkpoint()
                 if time.monotonic() >= end:
-                    raise ProtocolError('TIMEOUT', 'BigModel response timeout; remote computation may continue')
+                    raise ProtocolError('TIMEOUT', self.label+' response timeout; remote computation may continue')
             checkpoint()
             if not answer:
                 raise ProtocolError('NETWORK', 'request did not return a result')

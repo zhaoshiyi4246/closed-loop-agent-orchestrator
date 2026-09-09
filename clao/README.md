@@ -90,7 +90,7 @@ U01 的 PR #39 已通过本轮外部代码与产品整改审计并 rebase 合入
 正常启动只读取真实任务；没有记录时显示空态。旧 `preview` 参数不改变数据来源，
 正式服务不提供样例资源。主层使用少量中文状态，断连单独提示，Gate 读取失败在证据卡
 中保留；原始状态和完整诊断可展开查看。“重新执行”会创建关联的新执行记录，不重跑旧终态。
-U02 首切片已接入本地项目与真实 App Server 生产适配；[PR #40](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/40) 再次外部审计 PASS、已 rebase 合入（首切片 DONE）。“完整任务旅程与 GUI 数据接线”的 [PR #41](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/41) 代码与返修再次外部审计 PASS、已 rebase 合入；本切片及 U02 整卡 DONE；V03-U03 — 结果中心与独立导出的 [PR #42](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/42) 再次外部审计 PASS 并已 rebase 合入（DONE）。M0/M1/M2 保持 COMPLETE，M3 COMPLETE 表示阶段开发和代码审计完成；M4 IN_PROGRESS；P01 工程与离线验证切片的 [PR #43](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/43) 再次外部审计 PASS、已 rebase 合入（切片 DONE）；P01 整卡 IN_PROGRESS，真实 GLM 服务与角色准入待两家工程接入后集中验证；唯一下一实施任务 P02 TODO，尚未开始。运行证据仍为协议替身/离线集成、Windows/浏览器定向验证及 Codex 截图自查；外部代码与返修审计不代表负责人已完成完整 GUI 体验验收。U02 的 200% 检查为等效布局/CSS zoom，非原生浏览器缩放验收。真实 Codex 模型任务、全量与安装/发布验证仍 NOT_RUN；任意进程重连、模型扩展与 Q01 安装/发布兼容性未完成；U03 结果中心/固定版本补丁包及历史下载已合入，文件类型支持不变；包不含完整基线/项目依赖，敏感检测仅为有限规则。M3 COMPLETE 不代表完整 GUI 体验或发布验收完成；闭环运行视图仍仅为未授权候选。
+U02 首切片已接入本地项目与真实 App Server 生产适配；[PR #40](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/40) 再次外部审计 PASS、已 rebase 合入（首切片 DONE）。“完整任务旅程与 GUI 数据接线”的 [PR #41](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/41) 代码与返修再次外部审计 PASS、已 rebase 合入；本切片及 U02 整卡 DONE；V03-U03 — 结果中心与独立导出的 [PR #42](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/42) 再次外部审计 PASS 并已 rebase 合入（DONE）。M0/M1/M2 保持 COMPLETE，M3 COMPLETE 表示阶段开发和代码审计完成；M4 IN_PROGRESS；P01 工程与离线验证切片的 [PR #43](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/43) 再次外部审计 PASS、已 rebase 合入（切片 DONE）；P01 整卡 IN_PROGRESS，真实 GLM 服务与角色准入待两家工程接入后集中验证；当前唯一实施任务 P02 工程切片 IN_REVIEW，加入 Kimi 国内通用服务及三种服务兼容，待审计；两家真实准入与切换评测待集中验证。运行证据仍为协议替身/离线集成、Windows/浏览器定向验证及 Codex 截图自查；外部代码与返修审计不代表负责人已完成完整 GUI 体验验收。U02 的 200% 检查为等效布局/CSS zoom，非原生浏览器缩放验收。真实 Codex 模型任务、全量与安装/发布验证仍 NOT_RUN；任意进程重连、模型扩展与 Q01 安装/发布兼容性未完成；U03 结果中心/固定版本补丁包及历史下载已合入，文件类型支持不变；包不含完整基线/项目依赖，敏感检测仅为有限规则。M3 COMPLETE 不代表完整 GUI 体验或发布验收完成；闭环运行视图仍仅为未授权候选。
 
 视觉参考：[Framework7 分组列表](https://framework7.io/docs/list-view)、
 [Konsta iOS 列表](https://konstaui.com/react/list)；没有引入这些框架。
@@ -273,35 +273,48 @@ Playwright 时不能视作浏览器通过。`U01_SCREENSHOTS` 可指定截图输
 ## GLM 语义角色配置（P01 工程切片）
 
 Worker 仍使用本地 Codex App Server。Planner（分解和异常规划）、Auditor、Mission Verifier
-各自选择 Codex CLI 或 BigModel 通用 Chat Completions；Observer/Gate 不使用模型。
-默认全为 Codex，不需要 GLM Key；Kimi 尚未实现。P01 工程与离线验证切片已审计合入（DONE），整卡 IN_PROGRESS，剩余为真实服务/角色准入。配置已保存、离线验证和代码审计通过均不等于真实请求或全部角色准入已通过；真实 API 测试继续保留，待两家工程接入完成后按明确授权集中进行。
+各自选择 Codex CLI、BigModel 通用或 Kimi 国内通用 Chat Completions；Observer/Gate 不使用模型。
+默认全为 Codex，不需要外部 Key。P01 工程切片已审计合入（DONE）；P02 的 Kimi 工程切片 IN_REVIEW、待审计。两家真实服务/角色准入及切换质量、延迟评测待集中验证，P01 整卡及 M4 保持 IN_PROGRESS。配置保存、离线验证和代码审计均不等于真实请求或全部角色准入通过。
 
-1. 在“模型”页添加连接，填写连接名称和凭据引用。当前工程目标仅支持
-   `https://open.bigmodel.cn/api/paas/v4/chat/completions`、`glm-4.7`，不支持 Z.AI、Coding 套餐或自定义域。
-2. 在“凭据”区填写相同引用，保存/替换测试或已获授权的 Key。使用当前 Windows 用户的系统凭据存储，
-   不回显 Key；不可用时明确失败，不写明文备用文件。删除凭据会使此后使用该引用的调用失败。
+1. 在“模型”页选择服务、添加连接，填写连接名称和凭据引用。工程目标仅支持
+   BigModel `https://open.bigmodel.cn/api/paas/v4/chat/completions` / `glm-4.7`，
+   Kimi 国内 `https://api.moonshot.cn/v1/chat/completions` / `kimi-k3`。
+   不支持国际域、第三方中转、Coding 套餐或自定义域，不跨域试 Key。
+2. 在“凭据”区选择对应服务并填写相同引用，保存/替换测试或已获授权的 Key。使用当前 Windows 用户的系统凭据存储，
+   不回显 Key；不可用时明确失败，不写明文备用文件。同名引用按服务隔离，删除只影响该服务/引用。
+   旧 GLM 存储位置不变、不自动迁移；编辑或删除连接配置不自动删除凭据。
 3. 分别保存三个语义角色的默认连接；新任务确认页仍可单独选择。本次任务固定参数和引用；
    修改默认值只影响之后创建的任务。Key 值不进入快照；替换/删除同一引用会影响后续读取该凭据的调用。
-4. 选择 GLM 的任务启动前必须确认：所选角色的目标、规划上下文、代码差异、Gate/验收证据
-   将发送给 BigModel，可能计费。重新执行使用重新确认的默认快照和外发许可；恢复沿用原快照/许可。
+4. 使用外部角色的任务启动前，确认页逐项列出角色与服务；一次确认覆盖列出的 BigModel / Kimi 组合。
+   所选角色的目标、规划上下文、代码差异、Gate/验收证据可能外发并计费。
+   新任务须重新确认；项目、外发角色或连接变化使旧确认失效，同一未提交草稿普通切页/关闭重开/SSE 保留。
+   重新执行使用重新确认的默认快照和许可；恢复沿用原快照/许可，旧 GLM 许可不能授权 Kimi。
    保存/读取配置及凭据状态只进行本地检查，不发模型请求。当前没有额外真实连接测试按钮。
 
 配置使用既有 `config/default.yaml`：`model_profiles` 是无密钥连接列表，
 `roles.planner/auditor/verifier.profile` 引用连接名称，`codex` 为原 CLI。
-原 `roles.<role>.model/timeout_seconds` 仅在该角色选择 Codex 时消费；GLM 使用连接内的值。
+原 `roles.<role>.model/timeout_seconds` 仅在该角色选择 Codex 时消费；GLM/Kimi 使用连接内的值。
 省略新键的旧配置仍默认 Codex；v1 历史快照原样校验/保留，新任务用 v2 快照固定连接。
 `roles.worker.model` 旧别名仍迁移到 `worker.model`，重复冲突仍明确拒绝。
 
 | 连接键 | 当前边界与消费者 |
 |---|---|
 | `id` / `credential_ref` | 小写字母开头，后接小写字母/数字/下划线/连字符，总长 1–48；最多 12 个连接 |
-| `service` / `endpoint` / `model` | `bigmodel_general` / 上述固定 HTTPS 地址 / `glm-4.7` |
+| `service` / `endpoint` / `model` | `bigmodel_general` / GLM 固定地址 / `glm-4.7`；或 `moonshot_cn` / Kimi 固定地址 / `kimi-k3` |
 | `timeout_seconds` | 每次 HTTP 调用 (0, 600] 秒，保留小数 |
 | `max_attempts` | 一次角色调用含首次共 1–3 次；HTTP 与本地 JSON/Schema/关联校验共用预算 |
 | `retry_delay_seconds` | 重试等待 [0, 30] 秒，支持小数、可取消 |
-| `max_tokens` | 整数 1–131072；达到输出上限记 TRUNCATED，不用片段作完整证据 |
-| `temperature` | [0, 1]，最多两位小数 |
-| `thinking` | `enabled` / `disabled`；不透传 Codex reasoning effort |
+| `max_tokens`（GLM） | 整数 1–131072；达到输出上限记 TRUNCATED，不用片段作完整证据 |
+| `temperature`（GLM） | [0, 1]，最多两位小数 |
+| `thinking`（GLM） | `enabled` / `disabled`；不透传 Codex reasoning effort |
+| `reasoning_effort`（Kimi） | `low` / `high` / `max`，页面初值 max；K3 始终思考，不支持 thinking 开关 |
+| `max_completion_tokens`（Kimi） | 整数 1–1048576，包含思考与正文；页面初值 8192；不使用已弃用 max_tokens |
+
+Kimi K3 的采样由服务固定（temperature=1.0、top_p=0.95、n=1、presence/frequency penalty=0），
+请求省略这些参数，配置不提供伪可调入口；GLM 参数保持原值，不互相透传。
+两家均非流式 `response_format: {"type":"json_object"}`，system 消息提供现有 JSON Schema，随后仍作完整本地校验。
+保留原完整证据上限（角色 prompt 64000 字符、HTTP 回复 2 MiB）；超限明确拒绝/标 TRUNCATED，
+较大的输出预算不表示取消本地完整性限制。
 
 未知/多余字段、未保存的角色连接、非法数值和跨服务地址会整份拒绝，不部分生效。
 只解析 `choices[0].message.content`；思考内容不作为结果，工具调用不执行。
@@ -317,4 +330,12 @@ AUTH/能力错误/拒绝/截断不重试；429、网络/超时和结构化错误
 [JSON 输出](https://docs.bigmodel.cn/cn/guide/capabilities/struct-output)、
 [思考模式](https://docs.bigmodel.cn/cn/guide/capabilities/thinking)。这是公开协议与离线实现范围，非真实模型通过证据。
 
-CLI 使用相同默认文件与角色绑定。授权实际外发的 Mission JSON 须含 `external_service_consent: "bigmodel_general"`；仅选择 Codex 时不需要。原有多子任务 planning dry-run 仍可能调用 Planner，不能把它当成不发模型的配置检查。
+Kimi 工程契约核对日 2026-09-09：[模型列表](https://platform.kimi.com/docs/models)、
+[K3 参数](https://platform.kimi.com/docs/guide/kimi-k3-quickstart)、
+[Chat API](https://platform.kimi.com/docs/api/chat)、[JSON Mode](https://platform.kimi.com/docs/guide/response_format)。
+仅选择明确支持的 kimi-k3，不承诺账户已获权限或其他 Kimi 型号兼容，不升级 Codex/GLM 默认值。
+
+CLI 使用相同默认文件与角色绑定。Mission JSON 的 `external_service_consent` 为实际确认服务列表，
+如 `["bigmodel_general", "moonshot_cn"]`；纯 Kimi 为 `["moonshot_cn"]`。
+兼容旧字符串 `"bigmodel_general"`，但它只授权 GLM；缺少所选服务许可时，在产生 Worker/外发前拒绝。
+纯 Codex 不需要。原有多子任务 planning dry-run 仍可能调用 Planner，不能把它当成不发模型的配置检查。
