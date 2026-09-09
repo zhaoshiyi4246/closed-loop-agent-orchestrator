@@ -1,0 +1,43 @@
+const {chromium}=require('playwright');
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
+const [origin,project,out]=process.argv.slice(2);
+(async()=>{
+ const browser=await chromium.launch({channel:'msedge',headless:true});
+ try{
+  const page=await browser.newPage({viewport:{width:1366,height:768}}),errors=[];
+  page.on('pageerror',e=>errors.push(e.message));fs.mkdirSync(out,{recursive:true});await page.goto(origin);
+  await page.waitForFunction(()=>LIVE?.default_config);await page.locator('[data-view="models"]').first().click();
+  await page.waitForFunction(()=>loadConnections.values && !loadConnections.pending);
+  await page.locator('#connectionEditor > summary').click();await page.selectOption('#profile_kind','executor');await page.selectOption('#profile_provider','tool_opencode');
+  assert.equal(await page.locator('#profile_provider option').count(),27);
+  assert(!(await page.locator('#profile_key').isVisible()));
+  await page.click('#startNativeLogin');await page.waitForFunction(()=>!PENDING.has('native-login'));
+  assert((await page.locator('#nativeLoginStatus').innerText()).includes('原生窗口'));
+  await page.click('#checkNativeLogin');await page.waitForFunction(()=>!PENDING.has('native-login'));
+  assert(!(await page.locator('#nativeLoginStatus').innerText()).includes('已登录'));
+  await page.fill('#profile_label','原生 OpenCode 中文');await page.click('#openModelPicker');
+  await page.waitForFunction(()=>MODEL_CATALOG?.status==='ready');
+  assert.equal(await page.locator('#modelOptions button').count(),2);
+  await page.fill('#modelSearch','second');await page.locator('#modelOptions [data-model-id="provider/second"]').click();
+  await page.waitForFunction(()=>document.getElementById('saveProfile').dataset.blocked!=='1');
+  await page.click('#openModelPicker');assert.equal(await page.inputValue('#profile_model'),'provider/second');
+  await page.screenshot({path:path.join(out,'m4-native-model-menu.png'),fullPage:false});
+  await page.keyboard.press('Escape');
+  await page.setViewportSize({width:390,height:844});await page.click('#openModelPicker');
+  assert.equal(await page.inputValue('#profile_model'),'provider/second');
+  assert(await page.locator('#modelPicker').evaluate(n=>{const r=n.getBoundingClientRect();return r.left>=0 && r.right<=innerWidth && r.top>=0 && r.bottom<=innerHeight;}));
+  await page.keyboard.press('Escape');await page.setViewportSize({width:1366,height:768});
+  await page.click('#saveProfile');await page.waitForFunction(()=>!PENDING.has('model-config') && !loadConnections.pending);
+  const profile=await page.evaluate(()=>loadConnections.values.model_profiles.at(-1));assert.equal(profile.model,'provider/second');assert.equal(profile.service,'native_opencode');
+  assert.equal(await page.locator('#default_profile_worker option[value="'+profile.id+'"]').count(),0);
+  assert.equal(await page.locator('#default_profile_verifier option[value="'+profile.id+'"]').count(),0);
+  await page.selectOption('#terminalProfile',profile.id);await page.selectOption('#terminalProject',project);await page.click('#terminalSource');
+  await page.waitForFunction(()=>TERMINAL_SOURCE);assert((await page.locator('#terminalSourceSummary').innerText()).includes('provider/second'));
+  await page.check('#terminalConsent');await page.click('#terminalLaunch');await page.waitForFunction(()=>!PENDING.has('native-terminal'));
+  assert((await page.locator('#terminalStatus').innerText()).includes('原生窗口已创建'));
+  await page.click('#terminalRefresh');assert(!(await page.evaluate(()=>LIVE.mission?.id)));
+  await page.locator('#connectionEditor > summary').click();await page.locator('#terminalStatus').scrollIntoViewIfNeeded();
+  await page.screenshot({path:path.join(out,'m4-native-terminal.png'),fullPage:false});
+  assert.deepEqual(errors,[]);console.log('Native browser PASS: 27 tools, login entry, model menu/search/click, frozen manual selection and isolated terminal receipt');
+ }finally{await browser.close();}
+})().catch(e=>{console.error(e);process.exitCode=1;});

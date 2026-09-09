@@ -1419,3 +1419,12 @@ body:has(dialog[open]) {
 #resultAC h3,#resultChanges h3 {margin-top:20px}
 #resultDiffText {max-height:440px;overflow:auto;white-space:pre}
 #resultExports button {margin:8px 8px 8px 0}
+/* Model menus keep the selected value separate from search and native defaults. */
+.model-field {display:flex;flex-direction:column;gap:8px;min-width:0}
+.model-field > button {text-align:left;min-height:44px;width:100%}
+.model-picker {position:fixed;z-index:60;background:var(--surface);box-shadow:0 8px 24px #0002;padding:12px;border:1px solid var(--line);border-radius:12px;min-width:0;max-height:min(430px,65vh);overflow:auto}
+#modelOptions {max-height:280px;overflow-y:auto;margin:8px 0}
+#modelOptions button {display:flex;flex-direction:column;align-items:flex-start;width:100%;text-align:left;min-height:48px;white-space:normal;overflow-wrap:anywhere;margin:3px 0}
+#modelOptions [aria-selected="true"] {border-color:var(--blue);background:var(--blue-soft)}
+#modelOptions small {font-size:12px;opacity:.8}
+#customModel {font-size:14px}

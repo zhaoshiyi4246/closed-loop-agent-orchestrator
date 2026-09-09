@@ -81,7 +81,8 @@ class WindowsCredentials:
 def credentials(service=SERVICE):
     # Keep P01's exact target for GLM; no migration/enumeration/fallback across services.
     namespaces={SERVICE:'CLAO/BigModel', KIMI_SERVICE:'CLAO/MoonshotCN',
-                'bigmodel_coding':'CLAO/BigModelCoding', 'codex_api':'CLAO/CodexAPI'}
+                'bigmodel_coding':'CLAO/BigModelCoding', 'codex_api':'CLAO/CodexAPI',
+                'claude_api':'CLAO/ClaudeAPI'}
     if not isinstance(service,str) or service not in namespaces:
         raise CredentialError('不支持的凭据服务')
     return WindowsCredentials(namespaces[service])

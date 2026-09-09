@@ -170,8 +170,8 @@ def role_options(cfg, role):
     profile = selected(cfg, role)
     if profile is None:
         return dict(model=cfg['roles'][role]['model'], timeout=cfg['roles'][role]['timeout_seconds'])
-    from .model_profiles import CODING_SERVICE, CODEX_API, CODEX_ACCOUNT
-    if profile['service'] in (CODING_SERVICE, CODEX_API, CODEX_ACCOUNT):
+    from .model_profiles import NATIVE_SERVICES
+    if profile['service'] in NATIVE_SERVICES:
         from .native_models import NativeSemanticTransport
         return dict(model=profile['model'], timeout=profile['timeout_seconds'], transport=NativeSemanticTransport(profile))
     return dict(model=profile['model'], timeout=profile['timeout_seconds'], transport=BigModelTransport(profile))

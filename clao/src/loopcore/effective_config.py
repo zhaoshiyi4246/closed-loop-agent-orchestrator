@@ -193,7 +193,11 @@ def resolve_config(values=None, *, overrides=None, source="explicit input"):
     names = {p["id"] for p in values["model_profiles"]} | {"codex"}
     if any(values["roles"][r]["profile"] not in names for r in ("planner", "auditor", "verifier")):
         raise ConfigError("role profile does not name a saved connection")
-    from .model_profiles import selected, CODEX_ACCOUNT, CODEX_API
+    from .model_profiles import selected, CODEX_ACCOUNT, CODEX_API, TERMINAL_SERVICES
+    for role in ('planner','auditor','verifier'):
+        profile = selected(values, role)
+        if profile and profile['service'] in TERMINAL_SERVICES:
+            raise ConfigError('原生终端连接仅供手动执行，不能分配为自动语义角色')
     worker = selected(values, 'worker')
     if worker and worker['service'] not in (CODEX_ACCOUNT, CODEX_API):
         raise ConfigError('Worker requires the Codex executor; semantic API/Claude connections cannot control a Worker')

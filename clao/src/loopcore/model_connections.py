@@ -11,16 +11,19 @@ import urllib.request
 
 from .model_profiles import (ENDPOINTS, LABELS, NEW_KEYS, MODEL_ID, validate_profiles,
                              CODEX_API, CODEX_ACCOUNT, CODING_SERVICE,
-                             SERVICE, KIMI_SERVICE)
+                             SERVICE, KIMI_SERVICE, CLAUDE_ACCOUNT, CLAUDE_API, NATIVE_ACCOUNTS, NATIVE_DEFAULTS, TERMINAL_SERVICES)
 from .effective_config import resolve_config
 
 SERVICES = [dict(id=s, label=LABELS[s], endpoint=ENDPOINTS[s],
-                 default_model=('glm-5.3' if s in (SERVICE, CODING_SERVICE) else
-                                'kimi-k3' if s == KIMI_SERVICE else 'gpt-5.6-sol'),
-                 billing=('subscription' if s in (CODEX_ACCOUNT, CODING_SERVICE) else 'api'),
-                 executor=('claude_code' if s == CODING_SERVICE else 'codex' if s in (CODEX_API, CODEX_ACCOUNT) else 'chat_completions'),
+                 recommended_model=('glm-5.3' if s in (SERVICE, CODING_SERVICE) else
+                                'kimi-k3' if s == KIMI_SERVICE else 'sonnet' if s in (CLAUDE_ACCOUNT, CLAUDE_API) else 'gpt-5.6-sol'),
+                 billing=('native_account' if s in NATIVE_ACCOUNTS else 'subscription' if s == CODING_SERVICE else 'api'),
+                 executor=('claude_code' if s in (CODING_SERVICE, CLAUDE_ACCOUNT, CLAUDE_API) else 'codex' if s in (CODEX_API, CODEX_ACCOUNT) else 'chat_completions'),
                  roles=(['worker', 'planner', 'auditor', 'verifier'] if s in (CODEX_API, CODEX_ACCOUNT) else ['planner', 'auditor', 'verifier']))
-            for s in (CODEX_ACCOUNT, CODEX_API, SERVICE, CODING_SERVICE, KIMI_SERVICE)]
+            for s in (CODEX_ACCOUNT, CODEX_API, CLAUDE_ACCOUNT, CLAUDE_API, SERVICE, CODING_SERVICE, KIMI_SERVICE)]
+SERVICES += [dict(id=s, label=LABELS[s], endpoint=ENDPOINTS[s], recommended_model=None,
+                 billing='native_account', executor=name, roles=[], terminal=True)
+             for s,name in TERMINAL_SERVICES.items()]
 
 
 class CatalogUnavailable(ValueError):
@@ -60,16 +63,22 @@ def edit_connection(panel, body):
         # Changing a service needs a new key even when the visible name matches.
         value = body.get('key')
         new_key = value is not None and value != ''
-        if service == CODEX_ACCOUNT and new_key:
-            raise ValueError('账号登录使用官方 Codex，不接收账号 token')
+        if service in NATIVE_ACCOUNTS and new_key:
+            raise ValueError('原生认证由所选工具管理，不接收账号 token')
         same_service = previous and previous['service'] == service
-        ref = ('native' if service == CODEX_ACCOUNT else 'c-' + secrets.token_hex(12) if new_key
+        ref = ('native' if service in NATIVE_ACCOUNTS else 'c-' + secrets.token_hex(12) if new_key
                else previous['credential_ref'] if same_service else None)
         if ref is None:
             raise ValueError('请为所选服务填写 API Key')
         profile = {k: body[k] for k in NEW_KEYS if k in body}
         profile.update(id=identity or 'c-' + secrets.token_hex(12), credential_ref=ref, endpoint=ENDPOINTS[service])
         validate_profiles([profile])
+        if service in TERMINAL_SERVICES and profile['model'] and (previous is None or not same_service or previous['model']!=profile['model']):
+            from .native_catalog import CUSTOM_DIRECT
+            if TERMINAL_SERVICES[service] not in CUSTOM_DIRECT:
+                catalog=panel.model_catalogs.draft(service)
+                if catalog['status']!='ready' or profile['model'] not in {m['id'] for m in catalog['models']}:
+                    raise ValueError('此执行器需要从原生目录选择；自定义型号须先在原生工具中配置并刷新')
         profiles = [profile if p['id'] == identity else p for p in profiles]
         if previous is None:
             profiles.append(profile)
@@ -109,14 +118,59 @@ class ModelCatalogs:
         with self.lock:
             entry = copy.deepcopy(self.cache.get(self.fingerprint(profile)))
         if entry:
-            for model in entry['models']:
-                model['is_default'] = model['id'] == profile['model']
             entry['stale'] = entry.get('status') == 'read_error' or time.time() - (entry.get('fetched_at') or 0) > 600
             return entry
-        model = profile['model']
-        return dict(models=[dict(id=model, label=model, is_default=True)], source='configured',
+        return dict(models=[], source='not_checked',
                     status='not_checked', fetched_at=None, stale=True, error=None,
                     custom_model=True, connection_status='configured')
+
+    def draft(self, service, secret=None):
+        """Discover before saving a connection; secret lives only in this call.
+
+        Draft results are not cached server-side and never create a credential
+        reference or a model profile. Saved catalogs use their existing ref.
+        """
+        if service not in ENDPOINTS:
+            raise ValueError('不支持的服务')
+        profile = dict(service=service, endpoint=ENDPOINTS[service], credential_ref=None, model='')
+        try:
+            return self._entry(profile, secret)
+        except Exception as exc:
+            return self._failure(self.read(profile), exc)
+
+    @staticmethod
+    def _failure(prior, exc):
+        return dict(prior, status='read_error', stale=True,
+                    connection_status=exc.status if isinstance(exc, CatalogUnavailable) else 'failed',
+                    error=str(exc) if isinstance(exc, CatalogUnavailable) else
+                    '目录读取失败；保留当前选择，请检查连接后重试。')
+
+    def _entry(self, profile, secret=None):
+        models, source, connected = self._discover(profile, secret)
+        rows, seen = [], set()
+        for value in models:
+            row = dict(id=value, label=value) if isinstance(value, str) else value
+            if not isinstance(row, dict) or not isinstance(row.get('id'), str) or not MODEL_ID.fullmatch(row['id']) or row['id'] in seen:
+                continue
+            seen.add(row['id'])
+            # Only documented public metadata, never arbitrary server objects.
+            normalized = {k: row[k] for k in ('id', 'label', 'description', 'provider')
+                          if isinstance(row.get(k), str) and len(row[k]) <= 1000}
+            normalized['is_default'] = row.get('is_default') is True
+            normalized['label'] = normalized.get('label') or row['id']
+            rows.append(normalized)
+        if models and not rows:
+            raise ValueError('无法识别模型目录')
+        if len(rows) > 2000:
+            raise ValueError('模型目录过大')
+        from .native_catalog import CUSTOM_DIRECT, CUSTOM_CONFIGURED
+        executor = TERMINAL_SERVICES.get(profile['service'])
+        return dict(models=rows, source=source, status='ready' if rows else 'empty',
+                    fetched_at=time.time(), stale=False, error=None,
+                    custom_model=executor is None or executor in CUSTOM_DIRECT | CUSTOM_CONFIGURED,
+                    custom_requires_configuration=executor in CUSTOM_CONFIGURED,
+                    executor_default=profile['service'] in NATIVE_DEFAULTS,
+                    connection_status='connected' if connected else 'configured')
 
     def refresh(self, profile):
         key = self.fingerprint(profile)
@@ -128,24 +182,23 @@ class ModelCatalogs:
             if self.cache.get(key) is not initial_entry:
                 return prior
             try:
-                models, source, connected = self._discover(profile)
-                ids = list(dict.fromkeys(m for m in models if isinstance(m, str) and MODEL_ID.fullmatch(m)))
-                if not ids:
-                    raise ValueError('服务没有提供可识别的模型目录')
-                entry = dict(models=[dict(id=m, label=m, is_default=m == profile['model']) for m in ids[:2000]],
-                             source=source, status='ready', fetched_at=time.time(), stale=False, error=None,
-                             custom_model=True, connection_status='connected' if connected else 'configured')
+                entry = self._entry(profile)
             except Exception as exc:
                 # Supplier bodies and native output may echo auth; do not expose.
-                entry = dict(prior, status='read_error', stale=True,
-                             connection_status=exc.status if isinstance(exc, CatalogUnavailable) else 'failed',
-                             error=str(exc) if isinstance(exc, CatalogUnavailable) else
-                             '目录刷新失败；保留上次列表，可重试或填写模型 ID。请检查连接、登录和工具。')
+                entry = self._failure(prior, exc)
             self.cache[key] = entry
             return copy.deepcopy(entry)
 
-    def _discover(self, profile):
+    def _discover(self, profile, secret=None):
         service = profile['service']
+        if service in TERMINAL_SERVICES:
+            from .native_catalog import discover
+            models, source = discover(TERMINAL_SERVICES[service])
+            return models, source, False
+        if service in (CLAUDE_ACCOUNT, CLAUDE_API):
+            from .native_catalog import discover
+            models, source = discover('claude-code')
+            return models, source, False
         if service in (SERVICE, CODING_SERVICE):
             url = ('https://docs.bigmodel.cn/cn/guide/start/model-overview.md' if service == SERVICE else
                    'https://docs.bigmodel.cn/cn/coding-plan/latest-model.md')
@@ -156,7 +209,9 @@ class ModelCatalogs:
         if service == KIMI_SERVICE:
             import http.client
             from .native_models import key_for
-            key = key_for(profile)
+            key = secret or (key_for(profile) if profile['credential_ref'] else None)
+            if not key:
+                raise CatalogUnavailable('请先填写 Kimi API Key，再读取账号模型目录。', 'login_required')
             conn = http.client.HTTPSConnection('api.moonshot.cn', timeout=20)
             try:
                 conn.request('GET', '/v1/models', headers={'Authorization': 'Bearer ' + key})
@@ -167,7 +222,7 @@ class ModelCatalogs:
                 data = json.loads(raw)
                 if key in json.dumps(data):
                     raise ValueError('catalog contains credential material')
-                return [m['id'] for m in data['data']], 'Moonshot GET /v1/models', True
+                return [dict(id=m['id'], label=m['id'], provider=m.get('owned_by')) for m in data['data']], 'Moonshot GET /v1/models', True
             finally:
                 conn.close()
         from .codex_backend import StdioClient
@@ -179,14 +234,22 @@ class ModelCatalogs:
             client = StdioClient(executable, directory, config=client_config(profile))
             try:
                 client.initialize()
-                authenticate_client(client, profile)
+                if service == CODEX_API and secret:
+                    if client.request('account/login/start', {'type': 'apiKey', 'apiKey': secret}).get('type') != 'apiKey':
+                        raise CatalogUnavailable('Codex 未确认 API 认证方式', 'login_required')
+                elif service == CODEX_API and not profile['credential_ref']:
+                    raise CatalogUnavailable('请先填写 OpenAI API Key，再读取模型目录。', 'login_required')
+                else:
+                    authenticate_client(client, profile)
                 account = client.request('account/read', {'refreshToken': False})
                 if (account.get('account') or {}).get('type') != ('apiKey' if service == CODEX_API else 'chatgpt'):
                     raise CatalogUnavailable('需要登录所选 Codex 账号；请使用官方 codex login，未自动切换账号。', 'login_required')
                 models, cursor = [], None
                 for _ in range(20):
                     page = client.request('model/list', {'cursor': cursor, 'limit': 100})
-                    models.extend(m['model'] for m in page['data'])
+                    models.extend(dict(id=m['model'], label=m.get('displayName', m['model']),
+                                       description=m.get('description'), is_default=m.get('isDefault', False))
+                                  for m in page['data'])
                     cursor = page.get('nextCursor')
                     if cursor is None:
                         return models, 'Codex 0.150.1 model/list', True

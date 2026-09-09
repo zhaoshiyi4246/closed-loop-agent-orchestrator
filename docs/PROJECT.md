@@ -1,6 +1,6 @@
 # CLAO 当前项目事实
 
-更新：2026-09-09（F01–F05、R01/R02、U01/U02/U03 均 DONE；PR #43 / #44 工程审计 PASS 并已合入，P01/P02 工程切片 DONE、整卡 IN_PROGRESS；M0–M3 保持 COMPLETE，M4 IN_PROGRESS；M4 AO 对齐重构首切片 IN_REVIEW；原联合真实服务/角色与质量评测暂缓，等待后续权限、材料、预算授权）。本文件只记录已实现事实与已知限制；v0.3 的设计见 [V03_PLAN.md](V03_PLAN.md)。真实模型、完整 GUI 体验、全量、安装与发布验收尚未完成，已发布版本仍为 v0.2。
+更新：2026-09-09（F01–F05、R01/R02、U01/U02/U03 均 DONE；PR #43 / #44 工程审计 PASS 并已合入，P01/P02 工程切片 DONE、整卡 IN_PROGRESS；M0–M3 保持 COMPLETE，M4 IN_PROGRESS；M4 AO 对齐重构 PR #45 返修待审计；原联合真实服务/角色与质量评测暂缓，等待后续权限、材料、预算授权）。本文件只记录已实现事实与已知限制；v0.3 的设计见 [V03_PLAN.md](V03_PLAN.md)。真实模型、完整 GUI 体验、全量、安装与发布验收尚未完成，已发布版本仍为 v0.2。
 
 ## 1. 版本与基线
 
@@ -9,7 +9,7 @@
 | 产品 | CLAO / Closed-Loop Agent Orchestrator |
 | 已发布版本 | v0.2，Windows本地比赛版 |
 | 已发布源码 | 4d3e8e6b5e70bab868b2eef0d28c7742dea044ba |
-| 开发目标 | v0.3：F01–F05、R01/R02、U01/U02/U03 已审计合入 main（DONE）；M0/M1/M2/M3 COMPLETE，M4 IN_PROGRESS；P01/P02 工程切片 DONE、整卡 IN_PROGRESS；M4 AO 对齐重构首切片 IN_REVIEW；原联合真实服务/角色与质量评测暂缓，等待后续权限、材料、预算授权|
+| 开发目标 | v0.3：F01–F05、R01/R02、U01/U02/U03 已审计合入 main（DONE）；M0/M1/M2/M3 COMPLETE，M4 IN_PROGRESS；P01/P02 工程切片 DONE、整卡 IN_PROGRESS；M4 AO 对齐重构 PR #45 返修待审计；原联合真实服务/角色与质量评测暂缓，等待后续权限、材料、预算授权|
 | 主仓库 | zhaoshiyi4246/closed-loop-agent-orchestrator |
 | 产品源码路径 | `clao/`，当前唯一正式产品，内部 Python 包为 `src/loopcore/` |
 | 发布工具 | `packaging/build-release.ps1` 与 `packaging/release-manifest.txt` |
@@ -248,7 +248,7 @@ CSP 脚本 nonce 要求不变。12 个本地 Lucide 符号及完整 ISC/Feather 
 
 定向 Windows/Edge 证据及截图索引见 [U01 卡](V03_BACKLOG.md#v03-u01iphone风格界面骨架与状态夹具)。
 已有 Windows/浏览器验证与实际截图沿用，截图由 Codex 自查；本次外部代码与产品整改审计通过，不宣称外部逐张截图验收。合并收尾未重新运行测试或模型，仅做文档与差异检查。
-M0/M1/M2/M3 COMPLETE；U01/U02/U03 均 DONE，U02 两个切片保持 DONE；M4 IN_PROGRESS，P01/P02 工程切片 DONE、整卡 IN_PROGRESS；M4 AO 对齐重构首切片 IN_REVIEW；原联合真实服务/角色与质量评测暂缓，等待后续权限、材料、预算授权。
+M0/M1/M2/M3 COMPLETE；U01/U02/U03 均 DONE，U02 两个切片保持 DONE；M4 IN_PROGRESS，P01/P02 工程切片 DONE、整卡 IN_PROGRESS；M4 AO 对齐重构 PR #45 返修待审计；原联合真实服务/角色与质量评测暂缓，等待后续权限、材料、预算授权。
 
 ## 4. 已验证外部前提
 
@@ -293,16 +293,22 @@ AGENTS=规则；PROJECT=事实；PLANS=当前指针；V03_PLAN=目标设计；V0
 
 以后本文件仅按已合入代码或明确标注待审计的分支实现与验收更新，不复制完整PR流水账；旧治理文件的目标性措辞不再凌驾于本文件和v0.3批准设计。
 
-## M4 首切片：AO 对齐的连接、目录与原生语义执行
+## M4：AO 对齐的连接、目录与分层执行
 
-P01/P02 原工程 PR #43/#44 已审计合入（DONE），新目标首切片 IN_REVIEW、M4 IN_PROGRESS。原联合实测暂缓；全量 AO 入口及分组在设计 D11/7.6，目录可选不代表全部迁移。
+P01/P02 原工程 PR #43/#44 已审计合入（DONE），PR #45 返修待审计、M4 IN_PROGRESS。原联合实测暂缓；全量 AO 入口及分组在设计 D11/7.6，目录可选不代表全部迁移。
 
 - 模型页一个连接表单：内部生成 id/ref；高级参数折叠；同名名称不覆盖其它连接/服务；新表单更换 Key 分配新引用，冻结历史继续可用，旧 Kimi/GLM 位置和字典原样兼容。
-- 五条实际路径：原生 Codex ChatGPT/API（Worker 与语义角色）、BigModel 标准 API（含 GLM-5.3，始终 thinking）、官方 Claude Code GLM Coding Plan（仅三语义角色）、现有 Kimi 国内 API。参数按型号选择，不把旧单型号参数套给任意 ID。
+- 自动语义路径：原生 Codex ChatGPT/API（Worker 与语义角色）、BigModel 标准 API（含 GLM-5.3，始终 thinking）、官方 Claude Code GLM Coding Plan（仅三语义角色）、Claude 原生账号/API 与现有 Kimi 国内 API。参数按型号选择，不把旧单型号参数套给任意 ID。
 - 公开/原生目录只读：GLM 官方公开文档、Kimi GET models、Codex model/list；有缓存和失败状态，无 Worker/额外模型请求，不热改任务。标准 API 与套餐分开授权/凭据，不换服务；实际回复仍经原角色校验/Controller/Gate/Verifier。
 - v3 新快照冻结 worker.profile 与连接；v1/v2 恢复不补新字段。API Worker 内存登录，Key 不在 Worker/Gate 环境；原生语义只把 Key 交给明确选择的进程，禁用工具/扩展或环境继承，不改全局配置。旧 AO 是历史/显式兼容，不新增 AO 强制依赖。
 - 正式任务入口的离线验证使用原 Controller/Git/SQLite/Gate/结果导出，只在 HTTP/原生进程边界替身；未改变停止 UNKNOWN、审批硬限制、源目录不写回或固定结果导出。测试结果与截图分类见 P01 卡。
 
-本机核对 Codex 0.150.1 的公开协议；Claude Code 要求 2.1.205+ 的 2.1.x，本机未安装，因此没有本机真实 Claude/套餐实测。原生错误缺确切分类时保留 CAPABILITY/未知，不把 CLI 成功视为计费证明；未知模型/用量/费用不编造。国际/中转、Kimi Coding 与其余 AO 执行器未迁移。真实 Key/API/登录/套餐计费/效果、完整 GUI 体验、全量/安装/发布验证均未运行，未创建 tag/Release。
+本机核对 Codex 0.150.1 的公开协议；Claude Code 要求 2.1.205+ 的 2.1.x，本机未安装，因此没有本机真实 Claude/套餐实测。原生错误缺确切分类时保留 CAPABILITY/未知，不把 CLI 成功视为计费证明；未知模型/用量/费用不编造。国际/中转 API 不在当前服务配置范围；Kimi 等 27 个 AO 注册执行器有手动原生终端接线，非 Codex 自动 Worker 尚未迁移，不把终端等同完整闭环。真实 Key/API/登录/套餐计费/效果、完整 GUI 体验、全量/安装/发布验证均未运行，未创建 tag/Release。
+
+新增实际行为：模型菜单可展开/搜索/点击/键盘取消，当前值不因浏览列表清空；新建连接保存前可查询目录，原生自动模型保存“不覆盖”。原生连接与标准 API 分组选择，Kimi API 与 Kimi 工具使用不同标识。认证由原生窗口处理；公开状态不能确认时保持 unknown，不从已保存/窗口退出推断登录。
+
+原生终端在 runtime/native-terminals 的私有来源与工作目录执行；现有 StateStore 保存 intent/冻结选择/窗口创建结果，同一操作 UNKNOWN 不重发。原生终端不分配自动 Worker/语义角色，不产生任务 PASS 或自动交付；已有 Controller/审批/Gate/导出路径不变。非 Codex 结构化执行桥尚未实现；具体契约限制与剩余工程分开记录在设计 7.6。
+
+CLI/Panel 从 linked worktree 启动时通过 Git 公共 common-dir 定位主工作目录的 clao/config/default.yaml，CLAO_CONFIG 可显式指定另一配置；普通安装目录仍使用自身配置。读取和保存用同一入口，不复制/迁移已有连接和真实 Key。当前配置来源可从连接查询看到。
 
 具体字段、认证隔离、支持参数、目录刷新及本地查看方法见[模型连接与角色](../clao/README.md#模型连接与角色)。

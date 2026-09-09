@@ -10,6 +10,12 @@ sys.stdout.reconfigure(encoding='utf-8')
 if '--version' in sys.argv:
     print('2.1.205 (Claude Code)')
     raise SystemExit(0)
+if '--help' in sys.argv:
+    print('--safe-mode --bare --tools --json-schema')
+    raise SystemExit(0)
+if sys.argv[1:]==['auth','status']:
+    print(json.dumps({'loggedIn':True,'authMethod':'claude.ai'}))
+    raise SystemExit(0)
 prompt = sys.stdin.read()
 trace = Path(os.environ['CLAO_TEST_NATIVE_TRACE'])
 with trace.open('a', encoding='utf-8') as stream:
@@ -36,6 +42,11 @@ if 'exec' in sys.argv:
 else:
     assert sys.argv[sys.argv.index('--tools') + 1] == ''
     assert sys.argv[sys.argv.index('--setting-sources') + 1] == ''
-    assert '--no-session-persistence' in sys.argv and '--bare' in sys.argv
+    assert '--no-session-persistence' in sys.argv
+    if '--safe-mode' in sys.argv:
+        assert '--bare' not in sys.argv and not os.environ.get('ANTHROPIC_API_KEY') and not os.environ.get('ANTHROPIC_AUTH_TOKEN')
+        assert json.loads(sys.argv[sys.argv.index('--settings')+1])['disableAllHooks'] is True
+    else:
+        assert '--bare' in sys.argv and (os.environ.get('ANTHROPIC_API_KEY') or os.environ.get('ANTHROPIC_AUTH_TOKEN'))
     assert '--max-turns' in sys.argv and sys.argv[sys.argv.index('--max-turns') + 1] == '1'
     print(json.dumps(response))

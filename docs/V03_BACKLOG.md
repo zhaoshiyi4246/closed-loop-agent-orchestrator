@@ -377,13 +377,20 @@ Windows / CPython 3.12.7 / 产品 venv（Scripts 前置 PATH，`src` 与产品�
 
 P01 工程收尾（2026-09-09，历史）：仅完成 PR #43 rebase merge、背景文档与本地 main 同步，保持已审计产品实现不变。沿用既有 Windows/浏览器/离线证据，本轮只检查文档链接与差异；未重跑测试、构建、smoke 或真实模型，未读取真实 Key、未创建 tag/Release。M0–M3 COMPLETE，M4 IN_PROGRESS；下一实施任务 P02 TODO，本轮停止，不开始 Kimi。
 
-### D11 / M4 AO 对齐首切片（2026-09-09）
+### D11 / M4 AO 对齐迁移与 PR #45 返修（2026-09-09）
 
-- 基线 `e5cc79aa7e15f618316d0206e759e443a41c8679`；分支 `codex/m4-ao-model-connections`，首切片 **IN_REVIEW**，提交独立 PR 等待审计。M4 IN_PROGRESS；P01/P02 原工程 DONE 不变，原联合真实测试暂缓，尚未迁移入口见设计 7.6，不开始后续组。
+- 基线 `e5cc79aa7e15f618316d0206e759e443a41c8679`；分支 `codex/m4-ao-model-connections`，[PR #45](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/45) 返修 **IN_REVIEW**。负责人将目标扩大到完整 AO 基准迁移，并明确允许分层的手动原生终端。M4 IN_PROGRESS；P01/P02 原工程 DONE 不变，联合真实测试暂缓。本 PR 未完成非 Codex 自动 Worker 桥，分层与剩余范围见设计 7.6，不标整体完成。
+- 本机只读定位：AO daemon、安装资源、卸载登记与快捷方式存在，快捷方式目标的桌面主程序缺失；真实 `.ao` 数据目录存在。未发现足以归因的删除/卸载证据，原因尚未确定；本轮没有修复/移动/清理这些位置。检查时 7100 没有监听进程，不能追认旧 Panel 工作目录。主工作目录配置存在 `kimi-live`，PR worktree 默认无此连接；现修正 linked worktree 默认来源为 Git common-dir 对应主工作目录，显式 `CLAO_CONFIG` 优先，不迁移/改写原配置或凭据。
+- 返修产品：27 个注册入口具备原生目录/配置解析、模型选择和固定终端启动映射；26 个有固定登录入口，Aider 提供官方配置说明。原生终端另用现有 StateStore operation 记录和私有项目快照，未知窗口 ACK 不重发；不创建 Mission、不计 Gate/验收成功。Codex 仍为自动 Worker，新增 Claude 原生账号/API 的四种语义调用，其他结构化桥未实现。公开 auth fact 不足时显示未知，不移植私有认证 DB 探测。
+- 模型交互：真正展开的可搜索/点击菜单，保存前可查询，当前选择与原生默认分列；键盘选择/取消、目录失败重试、编辑/连续新任务与外发归属保留。空原生 model 不传参数，刷新不改冻结值；API/套餐/账号各自处理，不继承无关 Key。原生 Kimi 与国内 Kimi API 身份分开，已有连接/凭据不被覆盖。原生终端不显示不消费的超时/重试设置。
+- 本次 Windows 定向：原 venv / CPython 3.12.7，`pytest tests/test_m4_connections.py tests/test_m4_native_entries.py -q --tb=short` → **88 passed / 134.10s**。逐入口目录/原生配置/固定启动映射、隔离 WinCred、真实 Git/SQLite/HTTP 与四类语义消费者；外部 HTTP/进程替身不等于真实账号或模型。
+- 最后兼容检查：原生浏览器 + F04 安全文本/nonce/在途写入 + U02 interrupt 非停止事实/人工硬规则/红 Gate → **18 passed / 40.07s**；补中文 linked worktree 配置定位、连接变更后拒绝旧终端确认与窄屏菜单后，仅相关三节点复查 **3 passed / 15.40s**。集合重叠不累计。compileall 与产品/开发 JS 语法通过；截图实际展开、搜索、点击、取消并自查。初次检查发现原生 Kimi/API 选项重名、终端来源路由错误及非法 ID 返回 500，均已修正并保留回归。
+- 当前截图：[API 模型菜单](assets/m4-models/m4-connection-editor.png)、[原生模型菜单](assets/m4-models/m4-native-model-menu.png)、[原生终端回执](assets/m4-models/m4-native-terminal.png)、[窄屏深色](assets/m4-models/m4-connections-narrow-dark.png)。不提供产品预览，复现命令见产品说明；本轮截图为 Codex 自查，非负责人体验验收。下面计数为首次提交历史，未重新运行大集合。
+- 本次静态/文档收尾：compileall、三份 JS 语法、diff-check、93 个本地文档路径 / 20 个锚点通过；AO 完整 LICENSE 与固定来源一致，现有发布映射增加该许可证、源码前缀覆盖薄 helper，开发浏览器脚本不进入运行资源。未执行发行构建；主目录用户配置 SHA-256 与定位前一致。
 - 产品：合并连接与凭据表单，内部生成引用、同名连接隔离、默认折叠高级参数。Codex 当前账号/API 接到原生 Worker 与语义执行；GLM-5.3 标准 API 接到 Planner 两入口/Auditor/Verifier；GLM Coding Plan 通过官方 Claude Code 的无工具结构化执行，独立域与 Key，拒绝走自建 Chat Completions。旧 Kimi/GLM 连接与系统存储保留；v3 新快照、v1/v2 原样恢复。新表单更换 Key 分配新引用，目录刷新不热改任务，外发确认仍绑定项目/角色/连接与实际服务。
 - 目录：Codex 公开 model/list、Kimi GET models、BigModel 标准/套餐公开文档；缓存、刷新失败与自定义 ID，型号选择不等于参数/角色准入。GLM-5.3 thinking 不可关闭；未定义型号参数时采用最小 JSON 协议，拒绝套旧参数，不取消 Schema/AC/完整性校验。
-- Windows / CPython 3.12.7 / 原产品 venv，Scripts 前置 PATH，隔离工作树产品目录和 src 为 PYTHONPATH，开发 Node/Playwright/Edge：`pytest tests/test_m4_connections.py tests/test_p01_panel.py tests/test_codex_planner.py tests/test_codex_auditor.py tests/test_codex_verifier.py tests/test_f04_panel_boundaries.py::test_real_browser_text_rendering_nonce_and_pending_writes tests/test_u02_local_execution.py::test_failed_or_unknown_worker_cannot_become_mission_success tests/test_u02_local_execution.py::test_interrupt_ack_is_not_stop_fact tests/test_u02_local_execution.py::test_green_worker_with_red_real_gate_is_not_done tests/test_u02_local_execution.py::test_audit_hard_rules_cannot_be_overridden_at_submit -q --tb=short` → **91 passed / 174.78s**。
-- M4 最终 `pytest tests/test_m4_connections.py -q --tb=short` → **22 passed / 67.04s**；其中正式 HTTP → 原角色/Controller/Git/StateStore/Gate/Verifier → 固定结果导出三条路径，仅外部 HTTP/进程被替换，原目录未写回，包无 Key。四种实际语义调用覆盖原生账号/API/套餐及 GLM-5.3；真实 WinCred 使用随机隔离命名空间与假 Key，finally 清理；公开模型目录未创建 Worker。此前 M4 + 新 UI 的 P01 浏览器兼容复查 **23 passed / 48.13s**，集合重叠不累计。
+- 首次提交的历史验证（不是本次重跑）：Windows / CPython 3.12.7 / 原产品 venv，M4/P01/角色/Panel/Worker 定向集合 **91 passed / 174.78s**。
+- 首次提交最终 `pytest tests/test_m4_connections.py -q --tb=short` → **22 passed / 67.04s**；其中正式 HTTP → 原角色/Controller/Git/StateStore/Gate/Verifier → 固定结果导出三条路径，仅外部 HTTP/进程被替换，原目录未写回，包无 Key。四种实际语义调用覆盖原生账号/API/套餐及 GLM-5.3；真实 WinCred 使用随机隔离命名空间与假 Key，finally 清理；公开模型目录未创建 Worker。此前 M4 + 新 UI 的 P01 浏览器兼容复查 **23 passed / 48.13s**，集合重叠不累计。
 - 最后补齐已保存连接的缓存目录读取、异步目录归属与表单宽度后，实际 Edge M4 浏览器节点 **1 passed / 15.26s**，包含缓存重开、自定义模型、统一认证表单、同名连接、冻结/外发确认和正式任务结果；四张截图重新生成并自查。compileall、产品/开发 JS 语法、diff-check、6 个现有文档的 **87 个本地路径 / 20 个锚点**检查通过；原 manifest 的 src/panel/tests 前缀覆盖新增文件，未增加运行依赖或执行发行构建。
 - 首轮 P01/P02/M4 集中检查 111 passed / 5 failed：新完整旅程凭据夹具未覆盖原生读取、旧 BigModel 文案/浏览器入口需适配；补齐隔离系统存储并修正已结束 Worker 不应强求 interrupt 的断言，改查 CONFIRMED 停止事实。其后 R01/Panel 集合 81 passed / 2 failed：Windows 粗时钟导致连续刷新误复用、旧浏览器 summary 选择器重复；以缓存对象代次判并发，选择正确表单后通过上述复查。保留原正常/禁止/未知断言；没有将替身、源码或 HTTP 200 写成真实模型验收。
 - 实际 Edge 截图（Codex 自查）：[模型页](assets/m4-models/m4-connections-light.png)、[统一连接编辑](assets/m4-models/m4-connection-editor.png)、[任务确认](assets/m4-models/m4-confirmation.png)、[窄屏深色](assets/m4-models/m4-connections-narrow-dark.png)。正常启动及离线复现见[产品说明](../clao/README.md#模型连接与角色)。没有产品演示模式；截图不等同负责人体验审计。
@@ -391,7 +398,7 @@ P01 工程收尾（2026-09-09，历史）：仅完成 PR #43 rebase merge、背�
 
 ## V03-P02｜Kimi语义后端与切换评测
 
-**D11 当前授权**：原工程 DONE 保留，真实测试暂缓；Kimi 连接/系统凭据与 v1/v2 历史原样兼容。当前唯一实施指针为 P01 卡内的 AO 对齐首切片，P02/M4 整体 IN_PROGRESS，未开始原生 Kimi Coding 工具迁移。以下为 PR #44 历史范围与证据。
+**D11 当前授权**：原工程 DONE 保留，真实测试暂缓；Kimi 连接/系统凭据与 v1/v2 历史原样兼容。当前唯一实施指针为 P01 卡内的 PR #45 AO 对齐返修，P02/M4 整体 IN_PROGRESS。原生 Kimi 已接入目录/登录入口/手动终端，自动 Worker 桥仍未实现。以下为 PR #44 历史范围与证据。
 
 - 状态：整卡 **IN_PROGRESS**，工程接入与离线验证切片 **DONE**；[PR #44](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/44) 外部工程审计 PASS，无返修阻塞项，2026-09-09 已 rebase 合入 main `c112e25d332a284e857c9b2b0d3bd1ad32856485`，与已审计 head `d140e5d14e152ad1a64a4643bcbb1b775bac4a38` 的 tree 一致。base `6aefa5f5d2c0aeebcc99b115cf282a181efb73b5`，分支 `codex/v03-p02-kimi-semantic`。本轮国内通用服务工程接入、GLM/Codex 兼容及离线验证；两家真实 API、角色准入与切换质量/延迟评测待集中验证，测试要求与费用/外发授权不变。
 - 对应：A11。依赖：P01的薄transport/本地校验契约。

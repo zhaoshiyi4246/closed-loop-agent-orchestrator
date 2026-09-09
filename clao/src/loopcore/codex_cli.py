@@ -90,11 +90,12 @@ def run_codex_json(
             "--skip-git-repo-check",
             "--ephemeral",
             "--sandbox", "read-only",
-            "--model", model,
             "--output-schema", str(transport_schema_path),
             "--output-last-message", str(output_path),
             "-",
         ]
+        if model:
+            command[2:2] = ['--model', model]
         native_kwargs = {}
         secret = None
         if connection is not None:

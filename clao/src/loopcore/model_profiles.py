@@ -12,6 +12,8 @@ ENDPOINT = 'https://open.bigmodel.cn/api/paas/v4/chat/completions'
 SERVICE = 'bigmodel_general'
 CODEX_API = 'codex_api'
 CODEX_ACCOUNT = 'codex_account'
+CLAUDE_ACCOUNT = 'claude_account'
+CLAUDE_API = 'claude_api'
 CODING_SERVICE = 'bigmodel_coding'
 CODING_ENDPOINT = 'https://open.bigmodel.cn/api/anthropic'
 KIMI_SERVICE = 'moonshot_cn'
@@ -19,9 +21,22 @@ KIMI_ENDPOINT = 'https://api.moonshot.cn/v1/chat/completions'
 KIMI_MODEL = 'kimi-k3'
 ENDPOINTS = {SERVICE: ENDPOINT, KIMI_SERVICE: KIMI_ENDPOINT,
              CODING_SERVICE: CODING_ENDPOINT, CODEX_API: 'https://api.openai.com/v1',
-             CODEX_ACCOUNT: 'codex://chatgpt'}
+             CODEX_ACCOUNT: 'codex://chatgpt', CLAUDE_ACCOUNT: 'claude://native',
+             CLAUDE_API: 'https://api.anthropic.com'}
 LABELS = {SERVICE: 'BigModel · GLM API', KIMI_SERVICE: 'Kimi · 国内 API',
-          CODING_SERVICE: 'GLM · Coding Plan', CODEX_API: 'Codex · API', CODEX_ACCOUNT: 'Codex · ChatGPT 账号'}
+          CODING_SERVICE: 'GLM · Coding Plan', CODEX_API: 'Codex · API', CODEX_ACCOUNT: 'Codex · ChatGPT 账号',
+          CLAUDE_ACCOUNT: 'Claude Code · 账号', CLAUDE_API: 'Claude Code · API'}
+NATIVE_ACCOUNTS = (CODEX_ACCOUNT, CLAUDE_ACCOUNT)
+NATIVE_SERVICES = (CODEX_API, CODEX_ACCOUNT, CLAUDE_ACCOUNT, CLAUDE_API, CODING_SERVICE)
+NATIVE_DEFAULTS = (CODEX_API, CODEX_ACCOUNT, CLAUDE_ACCOUNT, CLAUDE_API)
+AO_EXECUTORS = ('claude-code','codex','opencode','grok','cursor','qwen','copilot','kimi','muse','droid','amp','agy','crush','aider','goose','auggie','continue','devin','omp','cline','kiro','kilocode','vibe','pi','kimchi','prime-agent','autohand')
+# Native terminal connections are deliberately not semantic/Worker providers.
+TERMINAL_SERVICES = {'native_'+name.replace('-', '_'): name for name in AO_EXECUTORS
+                     if name not in ('codex', 'claude-code')}
+ENDPOINTS.update({s:'native://'+name for s,name in TERMINAL_SERVICES.items()})
+LABELS.update({s:name for s,name in TERMINAL_SERVICES.items()})
+NATIVE_ACCOUNTS += tuple(TERMINAL_SERVICES)
+NATIVE_DEFAULTS += tuple(TERMINAL_SERVICES)
 ROLES = ('planner', 'auditor', 'verifier')
 REFERENCE = re.compile(r'[a-z][a-z0-9_-]{0,47}')
 KEYS = {'id', 'service', 'endpoint', 'model', 'credential_ref', 'timeout_seconds',
@@ -56,8 +71,8 @@ def request_parameters(profile):
 
 
 def validate_profiles(profiles):
-    if not isinstance(profiles, list) or len(profiles) > 12:
-        raise ValueError('model_profiles must be a list with at most 12 connections')
+    if not isinstance(profiles, list) or len(profiles) > 64:
+        raise ValueError('model_profiles must be a list with at most 64 connections')
     ids = set()
     for p in profiles:
         if not isinstance(p, dict) or not isinstance(p.get('service'), str) or p['service'] not in ENDPOINTS:
@@ -71,7 +86,8 @@ def validate_profiles(profiles):
         ids.add(p['id'])
         if p['endpoint'] != ENDPOINTS[p['service']]:
             raise ValueError('service endpoint mismatch; international, proxy and Coding endpoints are not interchangeable')
-        if not isinstance(p['model'], str) or not MODEL_ID.fullmatch(p['model']):
+        native_default = modern and p['service'] in NATIVE_DEFAULTS and p['model'] == ''
+        if not native_default and (not isinstance(p['model'], str) or not MODEL_ID.fullmatch(p['model'])):
             raise ValueError('invalid model ID')
         if modern and (not isinstance(p['label'], str) or not p['label'].strip() or len(p['label']) > 80
                        or any(ord(c) < 32 for c in p['label'])):
@@ -80,8 +96,10 @@ def validate_profiles(profiles):
         supported = parameter_defaults(p['service'], p['model'])
         if not isinstance(params, dict) or set(params) != set(supported):
             raise ValueError('model parameters unsupported; use this model\'s declared parameters, or none for a custom model')
-        if p['service'] in (CODEX_API, CODEX_ACCOUNT, CODING_SERVICE) and (p['max_attempts'] != 1 or p['retry_delay_seconds'] != 0):
+        if p['service'] in (*NATIVE_SERVICES, *TERMINAL_SERVICES) and (p['max_attempts'] != 1 or p['retry_delay_seconds'] != 0):
             raise ValueError('native executors own request retries; CLAO max_attempts must be 1 and retry delay 0')
+        if p['service'] == 'native_amp' and p['model'] not in ('', 'low', 'medium', 'high', 'ultra'):
+            raise ValueError('Amp selects a mode, not an arbitrary model ID')
         if 'thinking' in params and (params['thinking'] not in ('enabled', 'disabled') or
                                     p['model'] == 'glm-5.3' and params['thinking'] != 'enabled'):
             raise ValueError('GLM-5.3 requires enabled thinking; invalid thinking setting')
@@ -122,7 +140,7 @@ def external_roles(cfg):
 
 def worker_model(cfg):
     p = selected(cfg, 'worker')
-    return p['model'] if p else cfg['worker']['model']
+    return (p['model'] or None) if p else cfg['worker']['model']
 
 
 def consent_services(value):
@@ -151,11 +169,11 @@ def check_start(cfg, mission):
         raise ValueError('请先确认：所选角色将向 '+ '、'.join(LABELS[s] for s in sorted(missing)) +'发送任务、代码差异与验收证据，可能计费')
     for role in (*ROLES, 'worker'):
         p = selected(cfg, role)
-        if p is None or p['service'] == CODEX_ACCOUNT:
+        if p is None or p['service'] in NATIVE_ACCOUNTS:
             continue
         if not credentials(p['service']).configured(p['credential_ref']):
             raise ValueError(role+' 的 '+LABELS[p['service']]+'凭据未配置；请在模型页保存对应服务的凭据')
-        if p['service'] == CODING_SERVICE:
+        if p['service'] in (CODING_SERVICE, CLAUDE_API):
             from .native_models import claude_executable
             claude_executable()
 
@@ -167,7 +185,7 @@ def connection_status(cfg):
         row={k:p[k] for k in ('id','service','endpoint','model','credential_ref')}
         row['label'] = p.get('label', p['id'])
         try:
-            row['credential_status']=('native' if p['service'] == CODEX_ACCOUNT else
+            row['credential_status']=('native' if p['service'] in NATIVE_ACCOUNTS else
                                       'configured' if credentials(p['service']).configured(p['credential_ref']) else 'missing')
         except CredentialError:
             row['credential_status']='unavailable'

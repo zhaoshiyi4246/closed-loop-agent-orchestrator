@@ -90,7 +90,7 @@ U01 的 PR #39 已通过本轮外部代码与产品整改审计并 rebase 合入
 正常启动只读取真实任务；没有记录时显示空态。旧 `preview` 参数不改变数据来源，
 正式服务不提供样例资源。主层使用少量中文状态，断连单独提示，Gate 读取失败在证据卡
 中保留；原始状态和完整诊断可展开查看。“重新执行”会创建关联的新执行记录，不重跑旧终态。
-U02 首切片已接入本地项目与真实 App Server 生产适配；[PR #40](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/40) 再次外部审计 PASS、已 rebase 合入（首切片 DONE）。“完整任务旅程与 GUI 数据接线”的 [PR #41](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/41) 代码与返修再次外部审计 PASS、已 rebase 合入；本切片及 U02 整卡 DONE；V03-U03 — 结果中心与独立导出的 [PR #42](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/42) 再次外部审计 PASS 并已 rebase 合入（DONE）。M0/M1/M2 保持 COMPLETE，M3 COMPLETE 表示阶段开发和代码审计完成；M4 IN_PROGRESS；P01 工程与离线验证切片的 [PR #43](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/43) 再次外部审计 PASS、已 rebase 合入（切片 DONE）；P02 工程接入与离线验证切片的 [PR #44](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/44) 工程审计 PASS、已 rebase 合入（DONE）；P01/P02 整卡及 M4 保持 IN_PROGRESS。M4 AO 对齐重构首切片 IN_REVIEW；原联合真实服务/角色与质量评测暂缓，等待后续权限、材料、预算授权。运行证据仍为协议替身/离线集成、Windows/浏览器定向验证及 Codex 截图自查；外部代码与返修审计不代表负责人已完成完整 GUI 体验验收。U02 的 200% 检查为等效布局/CSS zoom，非原生浏览器缩放验收。真实 Codex 模型任务、全量与安装/发布验证仍 NOT_RUN；任意进程重连、模型扩展与 Q01 安装/发布兼容性未完成；U03 结果中心/固定版本补丁包及历史下载已合入，文件类型支持不变；包不含完整基线/项目依赖，敏感检测仅为有限规则。M3 COMPLETE 不代表完整 GUI 体验或发布验收完成；闭环运行视图仍仅为未授权候选。
+U02 首切片已接入本地项目与真实 App Server 生产适配；[PR #40](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/40) 再次外部审计 PASS、已 rebase 合入（首切片 DONE）。“完整任务旅程与 GUI 数据接线”的 [PR #41](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/41) 代码与返修再次外部审计 PASS、已 rebase 合入；本切片及 U02 整卡 DONE；V03-U03 — 结果中心与独立导出的 [PR #42](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/42) 再次外部审计 PASS 并已 rebase 合入（DONE）。M0/M1/M2 保持 COMPLETE，M3 COMPLETE 表示阶段开发和代码审计完成；M4 IN_PROGRESS；P01 工程与离线验证切片的 [PR #43](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/43) 再次外部审计 PASS、已 rebase 合入（切片 DONE）；P02 工程接入与离线验证切片的 [PR #44](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/44) 工程审计 PASS、已 rebase 合入（DONE）；P01/P02 整卡及 M4 保持 IN_PROGRESS。M4 AO 对齐重构 PR #45 返修待审计；原联合真实服务/角色与质量评测暂缓，等待后续权限、材料、预算授权。运行证据仍为协议替身/离线集成、Windows/浏览器定向验证及 Codex 截图自查；外部代码与返修审计不代表负责人已完成完整 GUI 体验验收。U02 的 200% 检查为等效布局/CSS zoom，非原生浏览器缩放验收。真实 Codex 模型任务、全量与安装/发布验证仍 NOT_RUN；任意进程重连、模型扩展与 Q01 安装/发布兼容性未完成；U03 结果中心/固定版本补丁包及历史下载已合入，文件类型支持不变；包不含完整基线/项目依赖，敏感检测仅为有限规则。M3 COMPLETE 不代表完整 GUI 体验或发布验收完成；闭环运行视图仍仅为未授权候选。
 
 视觉参考：[Framework7 分组列表](https://framework7.io/docs/list-view)、
 [Konsta iOS 列表](https://konstaui.com/react/list)；没有引入这些框架。
@@ -278,18 +278,29 @@ Playwright 时不能视作浏览器通过。`U01_SCREENSHOTS` 可指定截图输
 |---|---|---|
 | Codex · ChatGPT 账号 | 官方 Codex 当前登录；App Server / codex exec | Worker、Planner、Auditor、Mission Verifier |
 | Codex · 按量 API | 官方 App Server 内存 API 登录；语义角色使用官方 codex exec 的本次 API Key | 同上 |
+| Claude Code · 原生账号 / Anthropic API | 官方 Claude Code 结构化语义输出，账号与 API 分离 | 三个语义角色 |
 | BigModel · GLM API | 国内标准 Chat Completions；包含 GLM-5.3 和原 GLM-4.7 参数能力 | 三个语义角色，Planner 两类调用 |
 | GLM · Coding Plan | 官方 Claude Code，官方 `https://open.bigmodel.cn/api/anthropic` | 三个语义角色；不是编码 Worker |
 | Kimi · 国内 API | 原 Moonshot 国内 Chat Completions；保留 K3 参数及历史连接 | 三个语义角色 |
 
-默认仍是已有 Codex，不自动改用户模型。Observer/Gate 无模型；国际服务、第三方中转及 Kimi Coding 工具未接入。GLM 套餐不走 CLAO 自建 HTTP；不把按量 API Key 当作套餐权限。
+默认仍是已有 Codex，不自动改用户模型。Observer/Gate 无模型；国际服务、第三方中转 API 未接入；Kimi 原生工具使用下述手动终端入口。GLM 套餐不走 CLAO 自建 HTTP；不把按量 API Key 当作套餐权限。
 
-1. 添加连接，选择上述方式。Codex 账号沿用官方 `codex login`，页面提供登录说明；CLAO 不登录/退出账户，不复制登录 token。API 和套餐 Key 只存 Windows 当前用户系统凭据，无明文 fallback，不回显。
-2. 搜索或直接填写模型 ID。已保存连接可刷新目录：Codex 使用 App Server `model/list`，Kimi 使用同服务 `GET /v1/models`，GLM 使用官方公开标准/套餐目录。列表在 Panel 内缓存 10 分钟，过期或刷新失败保留旧列表并说明错误；不自动改默认模型或 Mission，不创建 Worker 或额外模型请求。公开 GLM 目录可读只表示型号公开，不能证明 Key/额度可用。目录刷新可能访问所选服务，因此本轮自动验证仅用替身。
+1. 添加连接，选择上述方式。原生账号可打开对应官方登录窗口，授权步骤由用户完成；CLAO 不自动登录/退出账户，不复制登录 token。API 和套餐 Key 只存 Windows 当前用户系统凭据，无明文 fallback，不回显。
+2. 打开模型菜单，搜索并点击选择；支持键盘上下选择、Enter 确认与 Escape 取消。新建连接保存前也可读取目录；需要认证的目录在填写必要 Key 后读取，不先创建临时连接。自定义 ID 为次级入口，按工具能力提供。连接可刷新目录：Codex 使用 App Server `model/list`，Kimi 使用同服务 `GET /v1/models`，GLM 使用官方公开标准/套餐目录。列表在 Panel 内缓存 10 分钟，过期或刷新失败保留旧列表并说明错误；不自动改默认模型或 Mission，不创建 Worker 或额外模型请求。公开 GLM 目录可读只表示型号公开，不能证明 Key/额度可用。目录刷新可能访问所选服务，因此本轮自动验证仅用替身。
 3. 分配 Worker 和各语义角色；新任务确认页可修改此次绑定。选择连接时使用连接内模型，原 `worker.model` 或 `roles.<role>.model` 仅在选择原默认 Codex 时消费，不能同时覆盖连接值。
 4. 确认页列明实际外发角色、服务与冻结配置。BigModel 标准、GLM 套餐、Kimi 分开授权；旧 GLM 单项许可不覆盖套餐/Kimi。新任务重新确认；项目、角色、服务、连接/Key 引用变更使旧确认失效。同一未提交草稿切页/关闭重开/SSE 保留；默认变化不热改当前草稿/任务。
 
 本机执行协议基线为 **Codex 0.150.1**（实际版本、help 与公开 JSON schema 核对），未升级环境。GLM Coding Plan 适配要求 **Claude Code 2.1.205+ 的 2.1.x**，因官方该版本起严格验证 `--json-schema`；安装入口在模型页，不自动安装。本机尚未安装 Claude Code，原生生产命令已实现，调用和故障仅由受控进程验证，不能据此宣称该组合已使用套餐额度。Claude 的 `--bare`、空工具列表、禁用 MCP/扩展配置、临时目录和 `--no-session-persistence` 限定为语义输出；只读正式 `structured_output`，不执行其工具/修复循环，也不从普通文本拼造结果。
+
+### 原生账号与手动终端
+
+Claude Code 原生账号和 Anthropic API 可用于 Planner 两类调用、Auditor、Mission Verifier；严格结构化结果仍由原 Controller 校验。账号路径需工具支持 `--safe-mode`（先检查 help），保留官方认证并禁用工具、MCP、hooks 和任务设置；`--bare` 不读取 OAuth/系统钥匙串，因此仅用于 API/GLM 套餐路径，不用于账号订阅。未具备能力时明确失败，不自动升级/改认证。
+
+模型页的“原生执行器”包含 AO v0.12.12 注册的 27 个工具，使用各自目录与固定原生登录入口；Aider 无登录命令，提供官方配置说明。检测使用 PATH，未找到时请核对安装位置。不能确认的登录状态显示未知，窗口打开不等于已登录。原生配置型自定义型号需要先在工具内配置；Amp 的 low/medium/high/ultra 是运行模式。终端连接不提供未消费的请求超时/重试表单；原生工具控制自己的执行与权限。
+
+原生连接保存后，在“原生终端”选择连接、已有本地项目、确认来源与外发范围，打开其实际 Windows 原生窗口。仍复用 CLAO 的过滤来源快照，工具在私有工作目录中运行，使用原生工具权限；此入口由用户手动操作，不受 CLAO 自动审批/验收驱动，不冒充自动 Worker。窗口状态、项目、选择模型与路径可查询；未确认启动不重发。账户由各工具官方机制管理，不复制 token 或向终端注入 CLAO 托管 Key。
+
+选择“不覆盖”会保存空 model，并在启动时省略模型参数/配置覆盖；当前选择、目录报告的默认与产品推荐分开。原生默认最终解析和工具后续手动切换可能无法确认，不伪造实际模型。终端退出不是任务 PASS，不自动提交、合并或导出；非 Codex 的完整结构化 Worker 桥仍未实现，不能用终端接线计为已完成。详情见设计 7.6 的逐入口对照。
 
 ### 型号与参数
 
@@ -309,12 +320,12 @@ HTTP 每次 timeout (0,600] 秒，保留小数；总尝试 1–3，重试等待 
 
 ### 配置与历史兼容
 
-CLI/Panel 共用 `config/default.yaml`。`model_profiles` 保存无密钥连接，`worker.profile` 与 `roles.planner/auditor/verifier.profile` 选择连接；保留 `codex` 兼容原方式。新 Mission 使用 v3 快照，v1/v2 原样校验/恢复，不补造历史字段。新 UI 使用 `label`、内部 id/ref 和 parameters；旧 GLM/Kimi 字典仍原样读取。未知字段、非法参数与服务/地址冲突整份拒绝，保存失败不会部分更新。
+CLI/Panel 共用一个默认配置入口：普通目录使用 `config/default.yaml`；Git linked worktree 默认使用主工作目录的 `clao/config/default.yaml`，避免把工作树空配置当成原连接丢失；`CLAO_CONFIG` 可显式指定已有配置文件。不会复制、迁移或改写读取到的配置。`model_profiles` 保存无密钥连接，`worker.profile` 与 `roles.planner/auditor/verifier.profile` 选择连接；保留 `codex` 兼容原方式。新 Mission 使用 v3 快照，v1/v2 原样校验/恢复，不补造历史字段。新 UI 使用 `label`、内部 id/ref 和 parameters；旧 GLM/Kimi 字典仍原样读取。未知字段、非法参数与服务/地址冲突整份拒绝，保存失败不会部分更新。
 
 原 `CLAO/BigModel`、`CLAO/MoonshotCN` 凭据位置不变；新增 API/套餐各用独立命名空间。新表单更换 Key 分配新引用，已冻结历史继续引用旧 Key；移除连接不自动删除旧凭据。旧受保护凭据 API 仍可按服务/引用明确替换或删除，执行该操作会影响引用它的旧任务，不自动迁移用户材料。普通用户不需要管理引用。缺凭据明确失败，不换服务。
 
 Key 不进入配置、SQLite、页面查询/localStorage、Prompt 或结果包。Codex Worker API Key 通过 ephemeral `account/login/start`，不放 Worker 命令环境；原生语义 Key 只在明确选择的对应进程内使用，禁用子工具/或命令环境继承，不传 Gate、其它服务或 AO。全局 Codex/AO 配置不改。显式 Worker 连接只支持本地 Codex，旧 AO 历史不能借该选项改变认证方式。
 
-官方依据：[GLM-5.3](https://docs.bigmodel.cn/cn/guide/models/text/glm-5.3)、[标准 JSON 输出](https://docs.bigmodel.cn/cn/guide/capabilities/struct-output)、[Coding Plan FAQ](https://docs.bigmodel.cn/cn/coding-plan/faq)、[Claude Code 套餐接入](https://docs.bigmodel.cn/cn/coding-plan/tool/claude)、[Claude CLI](https://code.claude.com/docs/en/cli-reference)、[Codex 认证](https://developers.openai.com/codex/auth/)、[Codex 非交互执行](https://developers.openai.com/codex/noninteractive/)、[Kimi K3](https://platform.kimi.com/docs/guide/kimi-k3-quickstart)、[Kimi JSON](https://platform.kimi.com/docs/guide/response_format)。AO 参考版本、27 入口及未迁移分组在既有 [设计 7.6](../docs/V03_PLAN.md#76-ao-v01212-入口与迁移分组)，未复制 AO 源码，不捆绑其执行器。
+官方依据：[GLM-5.3](https://docs.bigmodel.cn/cn/guide/models/text/glm-5.3)、[标准 JSON 输出](https://docs.bigmodel.cn/cn/guide/capabilities/struct-output)、[Coding Plan FAQ](https://docs.bigmodel.cn/cn/coding-plan/faq)、[Claude Code 套餐接入](https://docs.bigmodel.cn/cn/coding-plan/tool/claude)、[Claude CLI](https://code.claude.com/docs/en/cli-reference)、[Codex 认证](https://developers.openai.com/codex/auth/)、[Codex 非交互执行](https://developers.openai.com/codex/noninteractive/)、[Kimi K3](https://platform.kimi.com/docs/guide/kimi-k3-quickstart)、[Kimi JSON](https://platform.kimi.com/docs/guide/response_format)。AO 参考版本、27 入口及未迁移分组在既有 [设计 7.6](../docs/V03_PLAN.md#76-ao-v01212-入口与迁移分组)，Python 目录/认证/启动映射适配自该固定 AO 版本，完整 [Apache-2.0 许可](AO-LICENSE.txt) 随产品保存，不捆绑其执行器。
 
-当前 M4 首切片待审计。真实账号登录、API/套餐计费、模型效果与完整体验、全量/安装/发布验证均 NOT_RUN；P01/P02 原工程合入不代表新目标完成。正常本地查看：`启动CLAO.bat` → 模型。离线浏览器复现沿用开发 U01_NODE/NODE_PATH，执行 `pytest tests/test_m4_connections.py -k browser -q -s`；M4_SCREENSHOTS 指定截图目录，无产品预览入口。
+当前 PR #45 返修待审计，M4 未完成。真实账号登录、API/套餐计费、模型效果与完整体验、全量/安装/发布验证均 NOT_RUN；P01/P02 原工程合入不代表新目标完成。正常本地查看：`启动CLAO.bat` → 模型。离线浏览器复现沿用开发 U01_NODE/NODE_PATH，执行 `pytest tests/test_m4_connections.py tests/test_m4_native_entries.py -k browser -q -s`；M4_SCREENSHOTS 指定截图目录，无产品预览入口。自动测试只替换外部服务/进程，不启动用户真实工具登录或模型。

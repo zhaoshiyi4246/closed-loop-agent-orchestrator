@@ -125,6 +125,10 @@ class PanelState:
         self.readiness = {'status': 'unchecked', 'reason': '尚未检查执行环境', 'checked_at': None}
         from loopcore.model_connections import ModelCatalogs
         self.model_catalogs = ModelCatalogs()
+        from loopcore.native_auth import NativeLogins
+        self.native_logins = NativeLogins()
+        from loopcore.native_terminal import NativeTerminals
+        self.native_terminals = NativeTerminals()
 
     def check_environment(self):
         with self.lock:
@@ -284,7 +288,7 @@ class PanelState:
         if "auto_ff_master" in updates:
             raise RuntimeError("auto_ff_master is disabled in the competition runtime; remove deprecated option")
         with self.lock:
-            path = self.config_path or run_mission.ROOT / "config" / "default.yaml"
+            path = self.config_path or run_mission.default_config_path()
             saved = save_defaults(path, updates)
             return saved.snapshot()
 
@@ -802,6 +806,9 @@ class Handler(BaseHTTPRequestHandler):
         if path == '/api/model-connections':
             from loopcore.model_profiles import connection_status
             from loopcore.model_connections import SERVICES
+            from loopcore.native_auth import PLANS
+            from loopcore.native_catalog import REGISTRY, BINARY
+            import shutil
             cfg = PANEL.defaults()
             connections = connection_status(cfg)
             for row, profile in zip(connections, cfg.get('model_profiles', [])):
@@ -809,7 +816,18 @@ class Handler(BaseHTTPRequestHandler):
                 row['catalog_status'] = catalog['connection_status']
                 row['catalog_error'] = catalog['error']
             self._json({'ok': True, 'connections': connections, 'services': SERVICES,
-                        'revision': cfg.snapshot()['revision']})
+                        'revision': cfg.snapshot()['revision'],
+                        'executors': [dict(id=name, installed=bool(shutil.which(BINARY[name])),
+                            documentation=PLANS[name]['documentation'], login_supported=bool(PLANS[name]['argv'])) for name in REGISTRY],
+                        'config_source': str(PANEL.config_path or run_mission.default_config_path())})
+            return
+        if path == '/api/native-terminal':
+            q=self._query({'operation_id'})
+            try:
+                result=PANEL.native_terminals.read(ROOT,q['operation_id'])
+            except ValueError as exc:
+                raise ClientError(str(exc)) from None
+            self._json({'ok':True,'terminal':result})
             return
         if path == "/api/stream":
             self._sse()
@@ -871,6 +889,12 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({'ok': True, 'config': edit_connection(PANEL, body)})
                 return
             if path == '/api/model-catalog':
+                if set(body) in ({'service'}, {'service', 'key'}):
+                    key = body.get('key')
+                    if key is not None and (not isinstance(key, str) or not 1 <= len(key) <= 8192 or any(ord(c) < 32 for c in key)):
+                        raise ClientError('API Key 格式无效')
+                    self._json({'ok': True, 'catalog': PANEL.model_catalogs.draft(body['service'], key)})
+                    return
                 if set(body) != {'id', 'refresh'} or type(body['refresh']) is not bool:
                     raise ClientError('目录请求只接受连接 ID 与 refresh')
                 cfg = PANEL.defaults()
@@ -881,10 +905,21 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({'ok': True, 'catalog': query(profile)})
                 return
             if path == '/api/model-parameters':
-                from loopcore.model_profiles import parameter_defaults, ENDPOINTS, MODEL_ID
-                if set(body) != {'service', 'model'} or body['service'] not in ENDPOINTS or not isinstance(body['model'], str) or not MODEL_ID.fullmatch(body['model']):
+                from loopcore.model_profiles import parameter_defaults, ENDPOINTS, MODEL_ID, NATIVE_DEFAULTS
+                native_default = body.get('service') in NATIVE_DEFAULTS and body.get('model') == ''
+                if set(body) != {'service', 'model'} or body['service'] not in ENDPOINTS or not isinstance(body['model'], str) or not (MODEL_ID.fullmatch(body['model']) or native_default):
                     raise ClientError('服务或模型 ID 无效')
                 self._json({'ok': True, 'parameters': parameter_defaults(body['service'], body['model'])})
+                return
+            if path == '/api/native-auth':
+                from loopcore.native_auth import status
+                if set(body) != {'executor', 'action'} or body['action'] not in ('login', 'status'):
+                    raise ClientError('认证请求只接受执行器与登录/检查动作')
+                result = PANEL.native_logins.start(body['executor']) if body['action'] == 'login' else status(body['executor'])
+                self._json({'ok': True, 'authentication': result})
+                return
+            if path == '/api/native-terminal':
+                self._json({'ok':True,'terminal':PANEL.native_terminals.start(ROOT,PANEL.defaults(),body)})
                 return
             if path == '/api/credentials':
                 from loopcore.credentials import credentials

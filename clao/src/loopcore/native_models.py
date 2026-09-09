@@ -18,7 +18,7 @@ from .credentials import credentials, CredentialError
 from .diagnostics import model_attempt
 from .execution_control import checkpoint, run
 from .model_profiles import (validate_profiles, CODEX_API, CODEX_ACCOUNT,
-                             CODING_SERVICE, CODING_ENDPOINT)
+                             CODING_SERVICE, CODING_ENDPOINT, CLAUDE_ACCOUNT, CLAUDE_API)
 from .structured import (ProtocolError, ContractConfigurationError, parse_json,
                          check_schema, schema_validator, evidence_part, require_complete)
 
@@ -62,7 +62,7 @@ def client_config(profile):
 def claude_executable():
     executable = shutil.which('claude')
     if not executable:
-        raise ValueError('需要安装官方 Claude Code 才能使用 GLM Coding Plan；模型页提供安装说明')
+        raise ValueError('需要安装官方 Claude Code；模型页提供安装说明')
     return executable
 
 
@@ -92,7 +92,7 @@ class NativeSemanticTransport:
             from .codex_cli import run_codex_json
             return run_codex_json(prompt, schema_path, model=p['model'],
                                   timeout=p['timeout_seconds'], connection=p)
-        if p['service'] != CODING_SERVICE:
+        if p['service'] not in (CODING_SERVICE, CLAUDE_ACCOUNT, CLAUDE_API):
             raise ContractConfigurationError('unsupported native semantic connection')
         require_complete({'role_prompt': evidence_part(prompt, 64000)})
         try:
@@ -105,22 +105,44 @@ class NativeSemanticTransport:
         # Probe before obtaining the key. This process never sees credentials.
         check_claude(executable, env)
         checkpoint()
-        key = key_for(p)
+        key = None
+        if p['service'] == CLAUDE_ACCOUNT:
+            # --bare explicitly disables OAuth/keychain. Never pretend that a
+            # successful auth probe makes a bare invocation use the account.
+            help_result=run([executable,'--help'],capture_output=True,text=True,encoding='utf-8',
+                            errors='strict',env=env,timeout=15)
+            if help_result.returncode or '--safe-mode' not in help_result.stdout:
+                raise ProtocolError('CAPABILITY','此 Claude Code 缺少保留账号认证的 --safe-mode；请按官方说明准备受支持版本')
+            from .native_auth import status
+            auth=status('claude-code')
+            if auth['auth'] != 'connected' or auth.get('method')!='claude.ai':
+                raise ProtocolError('AUTH', '需要在 Claude Code 完成原生账号登录')
+            if os.environ.get('CLAUDE_CONFIG_DIR'):
+                env['CLAUDE_CONFIG_DIR'] = os.environ['CLAUDE_CONFIG_DIR']
+        else:
+            key = key_for(p)
         with tempfile.TemporaryDirectory(prefix='clao-claude-') as directory:
-            env.update(ANTHROPIC_AUTH_TOKEN=key, ANTHROPIC_BASE_URL=CODING_ENDPOINT,
-                       ANTHROPIC_DEFAULT_OPUS_MODEL=p['model'], ANTHROPIC_DEFAULT_SONNET_MODEL=p['model'],
-                       ANTHROPIC_DEFAULT_HAIKU_MODEL=p['model'], CLAUDE_CONFIG_DIR=directory,
-                       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC='1',
+            if p['service'] == CODING_SERVICE:
+                env.update(ANTHROPIC_AUTH_TOKEN=key, ANTHROPIC_BASE_URL=CODING_ENDPOINT,
+                           ANTHROPIC_DEFAULT_OPUS_MODEL=p['model'], ANTHROPIC_DEFAULT_SONNET_MODEL=p['model'],
+                           ANTHROPIC_DEFAULT_HAIKU_MODEL=p['model'], CLAUDE_CONFIG_DIR=directory)
+            elif p['service'] == CLAUDE_API:
+                env.update(ANTHROPIC_API_KEY=key, ANTHROPIC_BASE_URL='https://api.anthropic.com',CLAUDE_CONFIG_DIR=directory)
+            env.update(CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC='1',
                        CLAUDE_CODE_SKIP_PROMPT_HISTORY='1', DISABLE_AUTOUPDATER='1',
                        API_TIMEOUT_MS=str(math.ceil(p['timeout_seconds'] * 1000)))
-            command = [executable, '--bare', '--print', '--tools', '', '--disallowedTools', 'mcp__*',
+            command = [executable, '--safe-mode' if p['service']==CLAUDE_ACCOUNT else '--bare', '--print', '--tools', '', '--disallowedTools', 'mcp__*',
                        '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}',
                        '--setting-sources', '', '--no-session-persistence',
                        '--output-format', 'json', '--json-schema', json.dumps(schema),
-                       '--max-turns', '1', '--model', p['model']]
+                       '--max-turns', '1']
+            if p['service']==CLAUDE_ACCOUNT:
+                command.extend(['--settings', '{"disableAllHooks":true}'])
+            if p['model']:
+                command.extend(['--model', p['model']])
             with model_attempt(p['model'], transport='claude_code') as fact:
                 if fact is not None:
-                    fact.update(provider=CODING_SERVICE, profile_id=p['id'], confirmed_model_source=None)
+                    fact.update(provider=p['service'], profile_id=p['id'], confirmed_model_source=None)
                 try:
                     completed = run(command, input=prompt, cwd=directory, env=env, shell=False,
                                     capture_output=True, text=True, encoding='utf-8', errors='strict',
@@ -131,13 +153,14 @@ class NativeSemanticTransport:
                     raise ProtocolError('NETWORK', 'Claude Code 执行未确认；输出已隐藏') from None
                 finally:
                     env.pop('ANTHROPIC_AUTH_TOKEN', None)
+                    env.pop('ANTHROPIC_API_KEY', None)
                 checkpoint()
                 if completed.returncode:
                     raise ProtocolError('CAPABILITY', 'Claude Code 未成功返回；请检查工具、套餐权限与模型，未切换服务')
                 raw = completed.stdout
                 if len(raw.encode('utf-8')) > 2 * 1024 * 1024:
                     raise ProtocolError('TRUNCATED', 'native response exceeds complete response bound')
-                if key in raw:
+                if key and key in raw:
                     raise ProtocolError('CAPABILITY', 'response contains credential material; withheld')
                 envelope = parse_json(raw)
                 if not isinstance(envelope, dict) or envelope.get('type') != 'result':
@@ -147,7 +170,7 @@ class NativeSemanticTransport:
                 result = envelope.get('structured_output')
                 if not isinstance(result, dict):
                     raise ProtocolError('JSON_PARSE', 'Claude Code structured_output missing')
-                if key in json.dumps(result, ensure_ascii=False):
+                if key and key in json.dumps(result, ensure_ascii=False):
                     raise ProtocolError('CAPABILITY', 'response contains credential material; withheld')
                 check_schema(result, schema)
                 if fact is not None:

@@ -106,8 +106,37 @@ def setup_environment(*, ao_run_file: Path | str | None = None) -> None:
             os.environ.get("PATH", "")
 
 
+def default_config_path() -> Path:
+    """Explicit selection wins; linked checkouts share the original defaults.
+
+    Resolve Git's public common-dir fact, never copy or migrate credentials or
+    silently create an empty configuration in a development worktree.
+    Installed (non-Git) products retain their adjacent config file.
+    """
+    explicit = os.environ.get("CLAO_CONFIG")
+    if explicit:
+        path = Path(explicit).expanduser()
+        if not path.is_absolute() or not path.is_file():
+            raise ValueError("CLAO_CONFIG 必须指向存在的绝对配置文件路径")
+        return path.resolve()
+    repository = ROOT.parent
+    if (repository / '.git').is_file():
+        try:
+            result = subprocess.run(['git', '-C', str(repository), 'rev-parse',
+                                     '--path-format=absolute', '--git-common-dir'],
+                                    capture_output=True, text=True, encoding='utf-8', errors='strict', timeout=5, check=True)
+            common = Path(result.stdout.strip())
+            path = common.parent / 'clao' / 'config' / 'default.yaml'
+            if common.name != '.git' or not path.is_file():
+                raise ValueError('找不到原工作区配置；请通过 CLAO_CONFIG 明确选择')
+            return path.resolve()
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise ValueError('无法确定原工作区配置；请通过 CLAO_CONFIG 明确选择') from exc
+    return ROOT / 'config' / 'default.yaml'
+
+
 def load_config() -> dict:
-    return read_config(ROOT / "config" / "default.yaml")
+    return read_config(default_config_path())
 
 
 def _run_preflight_command(argv: list[str], *, cwd: Path | None = None):

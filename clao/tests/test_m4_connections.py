@@ -16,7 +16,7 @@ import run_mission
 from panel import server
 from loopcore import credentials, effective_config as config
 from loopcore.model_profiles import (SERVICE, KIMI_SERVICE, CODEX_API, CODEX_ACCOUNT,
-    CODING_SERVICE, ENDPOINTS, parameter_defaults, check_start)
+    CODING_SERVICE, CLAUDE_ACCOUNT, CLAUDE_API, NATIVE_SERVICES, NATIVE_ACCOUNTS, TERMINAL_SERVICES, ENDPOINTS, parameter_defaults, check_start)
 from loopcore.model_connections import ModelCatalogs
 from loopcore.native_models import NativeSemanticTransport
 from loopcore.execution_control import ExecutionControl, ExecutionCancelled
@@ -45,7 +45,7 @@ def pipeline(journey, services_http, monkeypatch):
 
 
 def modern(service=SERVICE, model='glm-5.3', **changes):
-    native = service in (CODEX_API, CODEX_ACCOUNT, CODING_SERVICE)
+    native = service in (*NATIVE_SERVICES, *TERMINAL_SERVICES)
     p = dict(id='m4-'+service, label='工作账号 中文 <tag> "', service=service, endpoint=ENDPOINTS[service],
              model=model, credential_ref='m4-key', parameters=parameter_defaults(service, model),
              timeout_seconds=5.125, max_attempts=1 if native else 2, retry_delay_seconds=0)
@@ -81,7 +81,7 @@ def edit(panel, service=SERVICE, model='glm-5.3', **changes):
     p = modern(service, model)
     body = {k: v for k, v in p.items() if k not in ('id', 'endpoint', 'credential_ref')}
     body.update(action='save', revision=panel.state.defaults().snapshot()['revision'])
-    if service != CODEX_ACCOUNT:
+    if service not in NATIVE_ACCOUNTS:
         body['key'] = 'm4-fake-'+service
     body.update(changes)
     return request(panel, 'POST', '/api/model-connections', body)
@@ -183,12 +183,14 @@ def native(engine, monkeypatch, tmp_path):
     def popen(argv,*args,**kwargs):
         if argv[0]==claude or argv[0]==engine.executable and 'exec' in argv:
             env=kwargs.get('env',{})
-            service=CODING_SERVICE if argv[0]==claude else CODEX_API if 'CODEX_API_KEY' in env else CODEX_ACCOUNT
-            if '--version' not in argv:
+            service=(CODING_SERVICE if 'ANTHROPIC_AUTH_TOKEN' in env else CLAUDE_API if 'ANTHROPIC_API_KEY' in env else CLAUDE_ACCOUNT) if argv[0]==claude else CODEX_API if 'CODEX_API_KEY' in env else CODEX_ACCOUNT
+            if '--version' not in argv and '--help' not in argv and argv[1:]!=['auth','status']:
                 assert all(k not in env for k in ('KIMI_API_KEY','GLM_API_KEY','UNRELATED_SECRET'))
                 assert 'm4-fake-' not in json.dumps(argv)
                 if service==CODING_SERVICE:
                     assert env['ANTHROPIC_AUTH_TOKEN']=='m4-fake-'+CODING_SERVICE and 'CODEX_API_KEY' not in env
+                elif service==CLAUDE_API:
+                    assert env['ANTHROPIC_API_KEY']=='m4-fake-'+CLAUDE_API and 'CODEX_API_KEY' not in env
                 elif service==CODEX_API:
                     assert env['CODEX_API_KEY']=='m4-fake-'+CODEX_API and 'ANTHROPIC_AUTH_TOKEN' not in env
                 else:
@@ -203,22 +205,39 @@ def native(engine, monkeypatch, tmp_path):
     return SimpleNamespace(response=response,trace=trace,calls=calls)
 
 
-@pytest.mark.parametrize('service',[CODING_SERVICE,CODEX_API,CODEX_ACCOUNT])
+@pytest.mark.parametrize('service',[CODING_SERVICE,CODEX_API,CODEX_ACCOUNT,CLAUDE_API,CLAUDE_ACCOUNT])
 def test_native_semantic_all_roles_and_no_key_leak(native,vaults,service,tmp_path):
-    if service!=CODEX_ACCOUNT:vaults(service).save('m4-key','m4-fake-'+service)
+    if service not in NATIVE_ACCOUNTS:vaults(service).save('m4-key','m4-fake-'+service)
     p=modern(service,'glm-5.3' if service==CODING_SERVICE else 'gpt-5.6-sol')
     planner,auditor,verifier=roles(settings(p))
     results=(_plan(),_action(),audit_result(),verify_result())
     operations=(lambda:planner.plan_decompose(MISSION,'DECOMP'),lambda:planner.plan(_audit(),{'task_id':'TASK-1'},'ACT-1'),
                 lambda:auditor.audit(_bundle(),'AUD-CODEX'),lambda:verifier.verify(_input(),'VERIFY-CODEX'))
     for reply,operation in zip(results,operations):
-        native.response['value']=dict(type='result',subtype='success',is_error=False,structured_output=reply) if service==CODING_SERVICE else reply
+        native.response['value']=dict(type='result',subtype='success',is_error=False,structured_output=reply) if service in (CODING_SERVICE,CLAUDE_API,CLAUDE_ACCOUNT) else reply
         assert operation()
     assert len(native.calls)==4
     assert all(argv[argv.index('--model')+1]==p['model'] for _,argv,_ in native.calls)
     assert 'm4-fake-' not in native.trace.read_text('utf-8')
     if service==CODING_SERVICE:
         assert all(env['ANTHROPIC_BASE_URL']==ENDPOINTS[CODING_SERVICE] for _,_,env in native.calls)
+
+
+@pytest.mark.parametrize('service',[CODEX_ACCOUNT,CLAUDE_ACCOUNT,CLAUDE_API])
+def test_native_model_default_is_omitted_not_current_or_recommended(native,vaults,service):
+    if service==CLAUDE_API:vaults(service).save('m4-key','m4-fake-'+service)
+    native.response['value']=verify_result() if service==CODEX_ACCOUNT else dict(type='result',subtype='success',is_error=False,structured_output=verify_result())
+    cfg=settings(modern(service,''));frozen=cfg.snapshot()
+    assert roles(cfg)[2].verify(_input(),'VERIFY-CODEX').verdict=='PASS'
+    assert len(native.calls)==1 and '--model' not in native.calls[0][1]
+    assert config.restore_snapshot(frozen)['model_profiles'][0]['model']==''
+
+
+def test_claude_account_does_not_accept_native_api_identity(native,monkeypatch):
+    monkeypatch.setattr('loopcore.native_auth.status',lambda _:dict(auth='connected',method='api_key'))
+    with pytest.raises(ProtocolError,match='账号登录'):
+        roles(settings(modern(CLAUDE_ACCOUNT,'')))[2].verify(_input(),'VERIFY-CODEX')
+    assert not native.calls
 
 
 @pytest.mark.parametrize('mode',['error','missing','bad-schema','cancel'])
@@ -303,8 +322,9 @@ def test_kimi_catalog_same_service_key_and_default_are_not_shared_between_profil
     assert result['status']=='ready' and result['connection_status']=='connected'
     assert [m['id'] for m in result['models']]==['kimi-k3','kimi-new-official']
     other=dict(p,model='kimi-new-official')
-    assert [m['id'] for m in catalogs.read(other)['models'] if m['is_default']]==['kimi-new-official']
-    assert [m['id'] for m in catalogs.read(p)['models'] if m['is_default']]==['kimi-k3']
+    # Current selection is not evidence of an executor/account default.
+    assert not any(m['is_default'] for m in catalogs.read(other)['models'])
+    assert catalogs.read(other)['models']==catalogs.read(p)['models']
     assert all(not node.calls for node in services_http.values())
 
 
@@ -317,7 +337,12 @@ def test_browser_unified_connections_and_real_journey(journey,services_http,vaul
     monkeypatch.setitem(KEYS,SERVICE,KEY)
     old=kimi_profile();vaults(KIMI_SERVICE).save(old['credential_ref'],'m4-fake-kimi-retained')
     journey.state.set_config({'model_profiles':[old]})
-    monkeypatch.setattr('loopcore.model_connections.public_document',lambda url:'# Models\nGLM-5.3\nGLM-custom-official')
+    catalog_calls=[]
+    def catalog_document(url):
+        catalog_calls.append(url)
+        if len(catalog_calls)==3:raise OSError('isolated catalog unavailable')
+        return '# Models\nGLM-5.3\nGLM-custom-official'
+    monkeypatch.setattr('loopcore.model_connections.public_document',catalog_document)
     a=form(journey,tmp_path/'项目 A');b=form(journey,tmp_path/'项目 B')
     output=Path(os.environ.get('M4_SCREENSHOTS',str(tmp_path/'shots')))
     script=Path(__file__).resolve().parents[2]/'dev/panel/m4-connections.cjs'
