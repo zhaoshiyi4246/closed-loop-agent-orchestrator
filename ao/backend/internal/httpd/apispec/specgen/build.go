@@ -146,6 +146,7 @@ func schemaName(_ reflect.Type, defaultName string) string {
 // the drift test fails until the spec is regenerated, which flags the gap.
 var schemaNames = map[string]string{ //nolint:gosec // Public OpenAPI type names include reset-credit contracts; no credential value is stored here.
 	"ClaoloopRequest": "CLAORequest", "ClaoloopMission": "CLAOMission", "ClaoloopCriterion": "CLAOCriterion",
+	"ClaoloopCheckpoint": "CLAOCheckpoint", "ClaoloopRecoveryStatus": "CLAORecoveryStatus", "ClaoloopDirective": "CLAODirective", "ClaoloopDirectiveRequest": "CLAODirectiveRequest", "ClaoloopConsumption": "CLAOConsumption", "ControllersCLAODirectiveResponse": "CLAODirectiveResponse",
 	"ClaoloopEvidence": "CLAOEvidence", "ClaoloopOperation": "CLAOOperation",
 	"ClaoloopRoleChoice": "CLAORoleChoice", "ClaoloopFrozenRole": "CLAOFrozenRole", "ClaoloopRoleCall": "CLAORoleCall", "ClaoloopDecision": "CLAODecision",
 	"ControllersCLAONonceResponse": "CLAONonceResponse", "ControllersCLAOMissionResponse": "CLAOMissionResponse",
@@ -2437,6 +2438,8 @@ func claoOperations() []operation {
 		{method: http.MethodGet, path: "/api/v1/clao/missions", id: "listCLAOMissions", tag: "clao", summary: "Read acceptance facts", resps: []respUnit{{200, controllers.CLAOMissionListResponse{}}}},
 		{method: http.MethodPost, path: "/api/v1/clao/missions", id: "createCLAOMission", tag: "clao", summary: "Create acceptance-driven native session", reqBody: claoloop.Request{}, resps: []respUnit{{202, controllers.CLAOMissionResponse{}}}},
 		{method: http.MethodGet, path: "/api/v1/clao/missions/{id}", id: "getCLAOMission", tag: "clao", summary: "Read one acceptance task", pathParams: []any{controllers.CLAOIDParam{}}, resps: []respUnit{{200, controllers.CLAOMissionResponse{}}}},
+		{method: http.MethodPost, path: "/api/v1/clao/missions/{id}/continue", id: "continueCLAOMission", tag: "clao", summary: "Continue confirmed original progress", pathParams: []any{controllers.CLAOIDParam{}}, reqBody: struct{}{}, resps: []respUnit{{202, controllers.CLAOMissionResponse{}}}},
+		{method: http.MethodPost, path: "/api/v1/clao/missions/{id}/directives", id: "postCLAODirective", tag: "clao", summary: "Receive a scoped instruction before delivery", pathParams: []any{controllers.CLAOIDParam{}}, reqBody: claoloop.DirectiveRequest{}, resps: []respUnit{{202, controllers.CLAODirectiveResponse{}}, {409, controllers.CLAODirectiveResponse{}}}},
 		{method: http.MethodPost, path: "/api/v1/clao/missions/{id}/cancel", id: "cancelCLAOMission", tag: "clao", summary: "Durably request cancellation", pathParams: []any{controllers.CLAOIDParam{}}, reqBody: struct{}{}, resps: []respUnit{{202, controllers.CLAOMissionResponse{}}}},
 	}
 }

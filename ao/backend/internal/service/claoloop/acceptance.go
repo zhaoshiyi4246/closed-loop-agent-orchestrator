@@ -112,3 +112,19 @@ func (a PythonAcceptance) Role(ctx context.Context, m Mission, role string, data
 	}
 	return a.run(ctx, req)
 }
+
+func (a PythonAcceptance) recoveryRequest(m Mission) map[string]any {
+	return map[string]any{"workspace": m.Workspace, "base": m.Base, "expectedHead": m.ResultHead,
+		"task": map[string]any{"task_id": m.Request.ID, "project_id": m.Request.ProjectID, "objective": m.Request.Objective, "allowed_paths": m.Request.AllowedPaths, "forbidden_paths": m.Request.ForbiddenPaths, "acceptance_criteria": m.Request.Criteria, "gate_commands": m.Request.GateCommands}}
+}
+func (a PythonAcceptance) Probe(ctx context.Context, m Mission) (Evidence, error) {
+	req := a.recoveryRequest(m)
+	req["readOnly"] = true
+	return a.run(ctx, req)
+}
+func (a PythonAcceptance) PrepareVerification(ctx context.Context, m Mission, proof Evidence) (Evidence, error) {
+	req := a.recoveryRequest(m)
+	req["prepareVerification"] = true
+	req["proof"] = proof
+	return a.run(ctx, req)
+}

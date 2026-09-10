@@ -84,6 +84,25 @@ def native(tmp_path, native_engine):
         except urllib.error.HTTPError as exc:
             return exc.code, json.load(exc)
 
+    def restart():
+        nonlocal proc
+        previous_pid = proc.pid
+        proc.terminate()
+        proc.wait(timeout=10)
+        proc = subprocess.Popen([str(binary), "daemon"], env=env, cwd=AO / "frontend", stdout=log, stderr=subprocess.STDOUT)
+        assert proc.pid != previous_pid
+        for _ in range(150):
+            if proc.poll() is not None:
+                pytest.fail(log_path.read_text("utf-8", errors="replace")[-8000:])
+            try:
+                if api("/api/v1/clao/session")[0] == 200:
+                    return api("/api/v1/clao/session")[1]["nonce"]
+            except OSError:
+                pass
+            time.sleep(.1)
+        pytest.fail("restarted daemon unavailable")
+    api.restart = restart
+
     try:
         for _ in range(100):
             if proc.poll() is not None:
@@ -116,7 +135,7 @@ def native(tmp_path, native_engine):
                 assert status == 200, result
                 if on_running and result["mission"].get("sessionId"):
                     on_running(result["mission"])
-                if result["mission"]["state"] in {"DONE", "FAILED", "UNKNOWN", "CANCELLED", "HUMAN"}:
+                if result["mission"]["state"] in {"DONE", "FAILED", "UNKNOWN", "CANCELLED", "HUMAN", "PAUSED"}:
                     return result["mission"]
                 time.sleep(.15)
             pytest.fail("mission did not settle: " + json.dumps(result) + "\n" + log_path.read_text("utf-8", errors="replace")[-8000:])

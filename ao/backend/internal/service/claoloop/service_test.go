@@ -308,6 +308,53 @@ func TestCLAOCancelReceiptFailureHasNoStopSideEffect(t *testing.T) {
 	}
 }
 
+func TestCLAOCancelDuringFailedContinueKeepsSchedulingOwner(t *testing.T) {
+	st := sqlitetest.MustOpen(t)
+	ctx := context.Background()
+	req := contract()
+	if err := st.UpsertProject(ctx, domain.ProjectRecord{ID: string(req.ProjectID), Path: t.TempDir(), RegisteredAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.CreateCLAOMission(ctx, record(Mission{Request: req, State: "PAUSED", Revision: 1})); err != nil {
+		t.Fatal(err)
+	}
+	svc := New(ctx, st, nil, absentController{}, nil, slog.Default())
+	// Continue has reserved its local owner and is doing read-only validation.
+	svc.running[req.ID] = true
+	if _, err := svc.Cancel(ctx, req.ID); err != nil {
+		t.Fatal(err)
+	}
+	svc.releaseOwner(req.ID, false) // validation fails; the cancel must not be stranded
+	for deadline := time.Now().Add(time.Second); time.Now().Before(deadline); {
+		m, err := svc.Get(ctx, req.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if m.State == "CANCELLED" {
+			return
+		}
+		time.Sleep(time.Millisecond * 5)
+	}
+	t.Fatal("accepted cancel lost when Continue released its owner")
+}
+
+func TestCLAODirectiveConsumersPreserveConfirmedPrimaryAndSeparateMirror(t *testing.T) {
+	m := Mission{Directives: []Directive{{DirectiveRequest: DirectiveRequest{ID: "note-identity", Target: "auditor"}, State: "received"}}}
+	markConsumption(&m, RoleCall{ID: "first", Role: "auditor", State: "STARTING", DirectiveIDs: []string{"note-identity"}})
+	if m.Directives[0].State != "received" {
+		t.Fatal("prepared input is not external delivery")
+	}
+	markConsumption(&m, RoleCall{ID: "mirror", Role: "planner", State: "RECEIVED", DirectiveIDs: []string{"note-identity"}})
+	if m.Directives[0].State != "received" {
+		t.Fatal("mirror claimed primary consumption")
+	}
+	markConsumption(&m, RoleCall{ID: "first", Role: "auditor", State: "RECEIVED", DirectiveIDs: []string{"note-identity"}})
+	markConsumption(&m, RoleCall{ID: "later", Role: "auditor", State: "UNKNOWN", DirectiveIDs: []string{"note-identity"}})
+	if m.Directives[0].State != "applied" || len(m.Directives[0].Consumers) != 3 {
+		t.Fatal("later unknown overwrote prior confirmed input")
+	}
+}
+
 func TestCLAORoleRecoveryReattachesImmutableOwnerAndNeverDispatches(t *testing.T) {
 	dir := t.TempDir()
 	st, err := sqlitetest.Open(dir)

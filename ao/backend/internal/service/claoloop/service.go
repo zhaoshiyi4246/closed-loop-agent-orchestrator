@@ -25,6 +25,7 @@ type Criterion struct {
 	Description string `json:"description"`
 }
 type Request struct {
+	ParentID       string                `json:"parentId,omitempty"`
 	Roles          map[string]RoleChoice `json:"roles,omitempty"`
 	MaxReplans     int                   `json:"maxReplans"`
 	ID             string                `json:"id"`
@@ -40,11 +41,12 @@ type Request struct {
 	GateTimeout    float64               `json:"gateTimeout"`
 }
 type Operation struct {
-	ID     string `json:"id"`
-	Kind   string `json:"kind"`
-	Target string `json:"target"`
-	State  string `json:"state"`
-	Reason string `json:"reason,omitempty"`
+	ID        string `json:"id"`
+	Kind      string `json:"kind"`
+	Target    string `json:"target"`
+	State     string `json:"state"`
+	Reason    string `json:"reason,omitempty"`
+	MessageID string `json:"messageId,omitempty"`
 }
 type Evidence struct {
 	RolePrompt     string          `json:"rolePrompt,omitempty"`
@@ -63,6 +65,10 @@ type Evidence struct {
 	Verification   json.RawMessage `json:"verification,omitempty"`
 }
 type Mission struct {
+	SourcePath        string                `json:"sourcePath,omitempty"`
+	Checkpoint        *Checkpoint           `json:"checkpoint,omitempty"`
+	Directives        []Directive           `json:"directives,omitempty"`
+	Recovery          *RecoveryStatus       `json:"recovery,omitempty"`
 	Roles             map[string]FrozenRole `json:"roles,omitempty"`
 	RoleCalls         []RoleCall            `json:"roleCalls,omitempty"`
 	Decisions         []Decision            `json:"decisions,omitempty"`
@@ -120,6 +126,7 @@ type Service struct {
 	log         *slog.Logger
 	ctx         context.Context
 	mu          sync.Mutex // only record transactions and launch admission, never external calls
+	dispatchMu  sync.Mutex // closes Worker intake before stopping/acceptance
 	running     map[string]bool
 	Poll        time.Duration
 	TurnTimeout time.Duration
@@ -278,7 +285,13 @@ func (s *Service) Create(ctx context.Context, r Request) (Mission, error) {
 	if err != nil {
 		return Mission{}, err
 	}
-	m := Mission{Roles: roles, RoleCalls: []RoleCall{}, Decisions: []Decision{}, Request: r, State: "SPAWNING", Reason: "准备原生 Session", Base: base, Revision: 1, Operations: []Operation{}, Evidence: []Evidence{}, UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano)}
+	if r.ParentID != "" {
+		parent, e := s.Get(ctx, r.ParentID)
+		if e != nil || !finalState(parent.State) || parent.Request.ProjectID != r.ProjectID {
+			return Mission{}, errors.New("新尝试必须关联同项目已结束的原任务")
+		}
+	}
+	m := Mission{SourcePath: p.Path, Checkpoint: &Checkpoint{Stage: "worker", Proof: -1}, Roles: roles, RoleCalls: []RoleCall{}, Decisions: []Decision{}, Request: r, State: "SPAWNING", Reason: "准备原生 Session", Base: base, Revision: 1, Operations: []Operation{}, Evidence: []Evidence{}, UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano)}
 	if err = s.store.CreateCLAOMission(ctx, record(m)); err != nil {
 		return Mission{}, err
 	}
@@ -458,55 +471,6 @@ func (s *Service) cancelStopped(id string) error {
 	return err
 }
 
-// Recovery observes native rows; it never restarts an ambiguous operation.
-func (s *Service) Recover() error {
-	rows, err := s.List(s.ctx)
-	if err != nil {
-		return err
-	}
-	for _, m := range rows {
-		if m.State == "DONE" || m.State == "FAILED" || m.State == "CANCELLED" || m.State == "HUMAN" {
-			continue
-		}
-		owned, err := s.ownedSessions(m.Request.ID)
-		if err != nil {
-			return err
-		}
-		_, err = s.mutate(m.Request.ID, func(v *Mission) error {
-			v.State = "UNKNOWN"
-			v.Reason = "运行被中断，外部结果需确认；不会自动重发"
-			for _, r := range owned {
-				associateSession(v, r)
-			}
-			for i := range v.RoleCalls {
-				if v.RoleCalls[i].State == "STARTING" || v.RoleCalls[i].State == "RUNNING" {
-					v.RoleCalls[i].State = "UNKNOWN"
-					v.RoleCalls[i].Error = "运行被中断；不会自动重发"
-				}
-			}
-
-			for i := range v.Operations {
-				if v.Operations[i].State == "IN_FLIGHT" {
-					v.Operations[i].State = "UNKNOWN"
-				}
-			}
-			noDispatch := len(v.Operations) == 0 || len(v.Operations) == 1 && v.Operations[0].Kind == "spawn" && v.Operations[0].State != "CONFIRMED_SUCCESS"
-			if len(owned) == 0 && v.SessionID == "" && v.VerifierSessionID == "" && v.ResultHead == "" && noDispatch {
-				v.State = "FAILED"
-				v.Reason = "启动在原生 Session 创建前中断；没有启动 Worker"
-				if len(v.Operations) > 0 {
-					v.Operations[0].State = "CONFIRMED_FAILURE"
-					v.Operations[0].Reason += "; native owner query: no Session was published"
-				}
-			}
-			return nil
-		})
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
 func (s *Service) phase(id, state, reason string) (Mission, error) {
 	return s.mutate(id, func(m *Mission) error { m.State = state; m.Reason = reason; return nil })
 }
@@ -514,17 +478,38 @@ func (s *Service) phase(id, state, reason string) (Mission, error) {
 var errCancelled = errors.New("cancel_requested")
 
 func (s *Service) operation(id, kind, target string, call func() error) error {
+	return s.namedOperation(id, "", kind, target, "", call)
+}
+func (s *Service) namedOperation(id, key, kind, target, messageID string, call func() error) error {
 	var index int
+	already := false
 	_, err := s.mutate(id, func(m *Mission) error {
 		if m.CancelRequested && kind != "stop" {
 			return errCancelled
 		}
+		if key != "" {
+			for _, op := range m.Operations {
+				if op.ID == key {
+					if op.State != "CONFIRMED_SUCCESS" {
+						return errors.New("原操作结果尚未确认，不重复执行：" + op.Kind)
+					}
+					already = true
+					return nil
+				}
+			}
+		}
 		index = len(m.Operations)
-		m.Operations = append(m.Operations, Operation{ID: fmt.Sprintf("%s:%d", id, index), Kind: kind, Target: target, State: "IN_FLIGHT"})
+		if key == "" {
+			key = fmt.Sprintf("%s:%d", id, index)
+		}
+		m.Operations = append(m.Operations, Operation{ID: key, Kind: kind, Target: target, MessageID: messageID, State: "IN_FLIGHT"})
 		return nil
 	})
 	if err != nil {
 		return err
+	}
+	if already {
+		return nil
 	}
 	callErr := call()
 	_, err = s.mutate(id, func(m *Mission) error {
@@ -577,6 +562,11 @@ func (s *Service) waitTurn(id string, sid domain.SessionID, after string) (chats
 		if m.CancelRequested {
 			return chatsvc.Snapshot{}, errCancelled
 		}
+		if len(m.Directives) > 0 {
+			if err = s.reconcileDirectives(id); err != nil {
+				return chatsvc.Snapshot{}, err
+			}
+		}
 		snap, err := s.chat.Snapshot(s.ctx, sid)
 		if err != nil {
 			return snap, err
@@ -612,9 +602,14 @@ func (s *Service) waitTurn(id string, sid domain.SessionID, after string) (chats
 	}
 }
 func (s *Service) run(id string) {
-	defer func() { s.mu.Lock(); delete(s.running, id); s.mu.Unlock() }()
+	cancelHandled := false
+	defer func() { s.releaseOwner(id, cancelHandled) }()
 	if err := s.execute(id); err != nil {
+		if s.ctx.Err() != nil {
+			return
+		}
 		if errors.Is(err, errCancelled) {
+			cancelHandled = true
 			if stopErr := s.cancelStopped(id); stopErr == nil {
 				return
 			} else {
@@ -633,270 +628,24 @@ func (s *Service) run(id string) {
 				return
 			}
 		}
-		if e == nil && !m.Terminal() {
-			// Failed local evidence/contract work is not an ambiguous external
-			// dispatch. Only close after every immutable owner is confirmed stopped.
-			state := "UNKNOWN"
-			owned, readErr := s.ownedSessions(id)
-			stopped := readErr == nil
-			for _, rec := range owned {
-				stopped = stopped && rec.Activity.State == domain.ActivityExited && !s.chat.HasLiveChatController(rec.ID)
-			}
-			uncertain := false
+		if e == nil && !finalState(m.State) {
+			state := "PAUSED"
 			for _, op := range m.Operations {
 				if op.State == "UNKNOWN" || op.State == "IN_FLIGHT" {
-					uncertain = true
+					state = "UNKNOWN"
 				}
 			}
-			if stopped && !uncertain {
-				state = "FAILED"
+			if m.Checkpoint != nil && m.Checkpoint.LocalState != "" {
+				state = "UNKNOWN"
 			}
-			_, _ = s.phase(id, state, err.Error())
-		}
-	}
-}
-func (s *Service) execute(id string) error {
-	m, err := s.Get(s.ctx, id)
-	if err != nil {
-		return err
-	}
-	worker, err := s.spawnWorker(id, m, "")
-	if err != nil {
-		return err
-	}
-	m, err = s.Get(s.ctx, id)
-	if err != nil {
-		return err
-	}
-	if worker.Metadata.DiffBaseSHA != m.Base {
-		if err = s.stopped(id, worker.ID); err != nil {
-			return err
-		}
-		_, err = s.phase(id, "FAILED", "AO workspace base differs from frozen source")
-		return err
-	}
-	lastTurn := ""
-	for {
-		snap, waitErr := s.waitTurn(id, worker.ID, lastTurn)
-		if _, err = s.phase(id, "STOPPING", "等待 AO 确认 Worker 停止"); err != nil {
-			return err
-		}
-		if err = s.stopped(id, worker.ID); err != nil {
-			return err
-		}
-		m, err = s.Get(s.ctx, id)
-		if err != nil {
-			return err
-		}
-		if m.CancelRequested {
-			_, err = s.phase(id, "CANCELLED", "Worker 已确认停止")
-			return err
-		}
-		if len(snap.Turns) > 0 {
-			lastTurn = snap.Turns[len(snap.Turns)-1].ID
-		}
-		if _, err = s.phase(id, "GATE", "执行 Gate、完整性与范围验收"); err != nil {
-			return err
-		}
-		proof, e := s.acceptance.Check(s.ctx, m, false, "", "")
-		if e != nil {
-			return e
-		}
-		m, err = s.mutate(id, func(v *Mission) error { v.Evidence = append(v.Evidence, proof); return nil })
-		if err != nil {
-			return err
-		}
-		if m.CancelRequested {
-			_, err = s.phase(id, "CANCELLED", "Worker 已停止，取消验收")
-			return err
-		}
-		if !proof.OK || waitErr != nil {
-			if proof.ReadError != "" || !proof.ScopeOK || !gateIntegrity(proof) {
-				_, err = s.phase(id, "FAILED", "确定性范围/完整性或取证失败，模型不能覆盖")
-				return err
-			}
-			if m.Repairs+m.Replans >= m.Request.MaxRepairs {
-				return s.human(id, "修复预算耗尽；Gate 或执行仍未通过")
-			}
-			executionError := ""
-			if waitErr != nil {
-				executionError = waitErr.Error()
-			}
-			action, incident, e := s.diagnose(id, m, proof, executionError)
-			if e != nil {
-				return e
-			}
-			if action == nil {
+			_, _ = s.mutate(id, func(v *Mission) error {
+				v.State = state
+				v.Reason = err.Error()
+				v.Recovery = &RecoveryStatus{Reason: err.Error()}
 				return nil
-			}
-			m, err = s.Get(s.ctx, id)
-			if err != nil {
-				return err
-			}
-			if m.CancelRequested {
-				return errCancelled
-			}
-			next, _ := action["action"].(string)
-			reason, _ := action["reason"].(string)
-			if err = s.decisionUpdate(id, incident, "EXECUTING", ""); err != nil {
-				return err
-			}
-			switch next {
-			case "HUMAN":
-				if err = s.decisionUpdate(id, incident, "HUMAN", reason); err != nil {
-					return err
-				}
-				return s.human(id, reason)
-			case "CONTINUE", "CANDIDATE_DONE":
-				// CONTINUE observes without restarting. The current Worker has already
-				// stopped; recheck its evidence once. Candidate completion is also only
-				// a deterministic check, never a terminal override or a model retry loop.
-				checked, e := s.acceptance.Check(s.ctx, m, false, "", "")
-				if e != nil {
-					return e
-				}
-				if _, err = s.mutate(id, func(v *Mission) error { v.Evidence = append(v.Evidence, checked); return nil }); err != nil {
-					return err
-				}
-				if err = s.decisionUpdate(id, incident, "APPLIED", "仅重新读取/执行确定性验收，未向 Worker 发指令"); err != nil {
-					return err
-				}
-				if !checked.OK || waitErr != nil {
-					return s.human(id, next+" 未解除已有 Gate/执行失败；停止无进展循环")
-				}
-				proof = checked
-			case "REPLAN_SPAWN":
-				if m.Replans >= m.Request.MaxReplans {
-					if err = s.decisionUpdate(id, incident, "BLOCKED", "重新规划预算耗尽"); err != nil {
-						return err
-					}
-					return s.human(id, "重新规划预算耗尽")
-				}
-				if err = s.stopped(id, worker.ID); err != nil {
-					return err
-				}
-				m, err = s.mutate(id, func(v *Mission) error { v.Replans++; v.State = "REPLANNING"; v.Reason = reason; return nil })
-				if err != nil {
-					return err
-				}
-				replacement, _ := action["replacement_task_spec"].(map[string]any)
-				plan, _ := replacement["objective"].(string)
-				worker, err = s.spawnWorker(id, m, plan)
-				if err != nil {
-					return err
-				}
-				if err = s.decisionUpdate(id, incident, "APPLIED", "旧 Worker 已停止；从冻结 base 创建独立替代 Worker "+string(worker.ID)); err != nil {
-					return err
-				}
-				lastTurn = ""
-				continue
-			case "SEND_LOCAL_FIX":
-				m, err = s.mutate(id, func(v *Mission) error { v.Repairs++; v.State = "REPAIRING"; v.Reason = reason; return nil })
-				if err != nil {
-					return err
-				}
-				if err = s.checkAccount(m.choice("worker")); err != nil {
-					return s.human(id, err.Error())
-				}
-				if err = s.operation(id, "resume", string(worker.ID), func() error {
-					_, e := s.sessions.ResumeAgentWithMode(ports.WithCLAOOwner(s.ctx, id), worker.ID)
-					return e
-				}); err != nil {
-					return err
-				}
-				message, _ := action["message"].(string)
-				if err = s.operation(id, "repair_send", string(worker.ID), func() error {
-					_, e := s.chat.Send(ports.WithCLAOOwner(s.ctx, id), worker.ID, ports.ChatUserMessage{Text: "在原目标/AC/Gate/范围不变的约束内处理本次局部修复：\n" + message, ClientMessageID: incident + ":fix", Origin: domain.MessageOriginAutomation})
-					return e
-				}); err != nil {
-					return err
-				}
-				if err = s.decisionUpdate(id, incident, "APPLIED", "已向当前 Worker 提交一次局部修复"); err != nil {
-					return err
-				}
-				if _, err = s.phase(id, "RUNNING", "Worker 修复中"); err != nil {
-					return err
-				}
-				continue
-			default:
-				return s.human(id, "未支持的 Planner 动作")
-			}
+			})
 		}
-
-		if _, err = s.phase(id, "MATERIALIZING", "固定验收产物；不写回原项目"); err != nil {
-			return err
-		}
-		frozen, e := s.acceptance.Check(s.ctx, m, true, proof.Digest, "")
-		if e != nil {
-			return e
-		}
-		if !frozen.OK || frozen.ResultHead == "" {
-			return errors.New("failed to freeze accepted artifact: " + frozen.ReadError)
-		}
-		m, err = s.mutate(id, func(v *Mission) error {
-			v.ResultHead = frozen.ResultHead
-			public := frozen
-			public.VerifierPrompt = ""
-			v.Evidence = append(v.Evidence, public)
-			v.State = "VERIFYING"
-			v.Reason = "独立原生 Session 进行结构化复核"
-			return nil
-		})
-		if err != nil {
-			return err
-		}
-		return s.verify(id, m, frozen)
 	}
-}
-func (s *Service) verify(id string, m Mission, proof Evidence) error {
-	if proof.VerifierPrompt == "" {
-		return errors.New("complete verifier evidence unavailable")
-	}
-	text, err := s.semantic(id, "verifier", id+":verify", "", proof.VerifierPrompt)
-	if err != nil {
-		current, e := s.Get(s.ctx, id)
-		if e != nil || errors.Is(err, errCancelled) || current.State == "UNKNOWN" {
-			return err
-		}
-		if len(current.Operations) > 0 && strings.HasPrefix(current.Operations[len(current.Operations)-1].Kind, "spawn") {
-			return err
-		}
-		_, e = s.phase(id, "FAILED", "Verifier 复核失败："+err.Error())
-		return e
-	}
-	m, err = s.Get(s.ctx, id)
-	if err != nil {
-		return err
-	}
-	final, e := s.acceptance.Check(s.ctx, m, false, "", text)
-	if e != nil {
-		return e
-	}
-	m, err = s.mutate(id, func(v *Mission) error {
-		v.Evidence = append(v.Evidence, final)
-		for i := range v.RoleCalls {
-			if v.RoleCalls[i].Role == "verifier" {
-				v.RoleCalls[i].Result = final.Verification
-				v.RoleCalls[i].State = "VALIDATED"
-				if final.ReadError != "" {
-					v.RoleCalls[i].State = "PROTOCOL_ERROR"
-					v.RoleCalls[i].Error = final.ReadError
-				}
-			}
-		}
-		if v.CancelRequested {
-			v.State = "CANCELLED"
-			v.Reason = "已停止"
-		} else if final.OK {
-			v.State = "DONE"
-			v.Reason = "最终 Gate、范围及独立 Verifier PASS"
-		} else {
-			v.State = "FAILED"
-			v.Reason = "最终验收未通过：" + final.ReadError
-		}
-		return nil
-	})
-	return err
 }
 func workerPrompt(m Mission) string {
 	b, _ := json.Marshal(m.Request)
@@ -926,13 +675,20 @@ func (s *Service) spawnWorker(id string, m Mission, plan string) (domain.Session
 	if plan != "" {
 		prompt += "\n执行方案调整（不能覆盖上述原任务契约）：\n" + plan
 	}
-	err := s.operation(id, kind, owner, func() error {
+	err := s.namedOperation(id, owner+":spawn", kind, owner, "", func() error {
 		var e error
 		worker, _, _, e = s.sessions.Spawn(ports.WithCLAOOwner(s.ctx, id), ports.SpawnConfig{ProjectID: m.Request.ProjectID, Branch: "clao/" + id + "/" + suffix, Kind: domain.KindWorker, Harness: choice.Agent, RequestedMode: domain.SessionModeChat, CLAOMissionID: owner, CLAOBaseSHA: m.Base, AgentConfig: ports.AgentConfig{Model: choice.Model, Permissions: domain.PermissionModeDefault}, Prompt: prompt, DisplayName: "闭环 · " + m.Request.Objective})
 		return e
 	})
 	if err != nil {
 		return worker, err
+	}
+	if worker.ID == "" {
+		var e error
+		worker, e = s.findOwner(owner)
+		if e != nil {
+			return worker, e
+		}
 	}
 	_, err = s.mutate(id, func(v *Mission) error {
 		v.SessionID = worker.ID

@@ -73,6 +73,30 @@ def evaluate(request):
             # targets. Reuse the stricter F02 command boundary as well.
             approvals._codex_command(command, spec.gate_commands, root, cwd, forbidden)
         return {"ok": True}
+    if request.get("readOnly") or request.get("prepareVerification"):
+        # Recovery must not run a Gate (which is arbitrary user-authorized
+        # shell work), commit, or alter the real index merely to check inputs.
+        if wt._snapshot_git(str(root), "rev-parse", "--verify", base + "^{commit}").decode().strip() != base:
+            raise ValueError("frozen source object unavailable")
+        wt._snapshot_git(str(root), "merge-base", "--is-ancestor", base, "HEAD")
+        snapshot = wt.git_state_snapshot(str(root))
+        if request.get("expectedHead") and (wt._current_head(str(root)) != request["expectedHead"] or not snapshot.clean):
+            raise ValueError("recorded result HEAD or working content changed")
+        result = {"ok": True, "digest": snapshot.digest}
+        if request.get("prepareVerification"):
+            proof = request["proof"]
+            if not request.get("expectedHead") or proof.get("resultHead") != request["expectedHead"] or not proof.get("ok"):
+                raise ValueError("frozen result/acceptance association missing")
+            inp = VerifierInput(task_spec=spec.to_dict(), diff=wt.git_diff_text(str(root), base, limit=None),
+                                gate_output=json.dumps(proof["records"], ensure_ascii=False), changed_paths=proof["paths"])
+            inp.validate_evidence()
+            result["verifierPrompt"] = (PROMPT_DIR / "verifier.md").read_text("utf-8") + "\n" + json.dumps({
+                "verify_id": spec.task_id + ":verify", "task_id": spec.task_id,
+                "verifier_input": json.loads(inp.to_prompt_text()),
+                "schema": json.loads((SCHEMA_DIR / "verifier-result.schema.json").read_text("utf-8")),
+                "instruction": "Read-only independent review. Do not modify files or run tools. Output ONLY the VerifierResult JSON; no markdown fences."
+            }, ensure_ascii=False)
+        return result
     changed = wt.changed_paths(str(root), base)
     if changed is None:
         raise ValueError("Git evidence unavailable")

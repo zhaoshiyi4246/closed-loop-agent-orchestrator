@@ -91,6 +91,14 @@ func (s *Service) Steer(
 	if _, err := s.requireChatSession(ctx, id); err != nil {
 		return SteerResult{}, err
 	}
+	rec, e := s.requireChatSession(ctx, id)
+	if e != nil {
+		return SteerResult{}, e
+	}
+	if e = ports.RequireCLAOOwner(ctx, rec.Metadata.CLAOMissionID); e != nil {
+		return SteerResult{}, e
+	}
+
 	controller, err := s.Controller(id)
 	if err != nil {
 		return SteerResult{}, err
@@ -111,6 +119,14 @@ func (s *Service) PromoteQueuedTurn(
 	if _, err := s.requireChatSession(ctx, id); err != nil {
 		return PromoteQueuedTurnResult{}, err
 	}
+	rec, e := s.requireChatSession(ctx, id)
+	if e != nil {
+		return PromoteQueuedTurnResult{}, e
+	}
+	if e = ports.RequireCLAOOwner(ctx, rec.Metadata.CLAOMissionID); e != nil {
+		return PromoteQueuedTurnResult{}, e
+	}
+
 	controller, err := s.Controller(id)
 	if err != nil {
 		return PromoteQueuedTurnResult{}, err

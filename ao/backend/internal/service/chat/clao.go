@@ -68,3 +68,7 @@ func (s *Service) ReportedModel(id domain.SessionID) (string, string) {
 	}
 	return "", ""
 }
+
+func (s *Service) SetCLAODirective(handler func(context.Context, domain.SessionRecord, ports.ChatUserMessage) (domain.ConversationTurn, error)) {
+	s.claoDirective = handler
+}

@@ -1,6 +1,6 @@
 # CLAO v0.3 任务与验收台账
 
-版本：0.3-plan-r1 · 2026-09-06。状态：已批准 / IN EFFECT。DOC-00、F01–F05、R01 / R02 已完成（DONE），M0 / M1 / M2 为 `COMPLETE`；U01 / U02 / U03 均已审计合入（`DONE`），U02 两个切片保持 `DONE`；M3 `COMPLETE` 表示本阶段开发与代码审计完成，完整体验与发布验收尚未完成；M4 `IN_PROGRESS`，P01/P02 工程切片均已审计合入（`DONE`），两张整卡保持 `IN_PROGRESS`；原生底座基础集成已完成，整体迁移仍 IN_PROGRESS；角色决策切片 DONE；唯一下一开发内容为 运行恢复与用户指令回执迁移（TODO，未开始），联合真实评测暂缓；其余功能卡状态见下表，原报告的发现不等于已复现或已修复。
+版本：0.3-plan-r1 · 2026-09-06。状态：已批准 / IN EFFECT。DOC-00、F01–F05、R01 / R02 已完成（DONE），M0 / M1 / M2 为 `COMPLETE`；U01 / U02 / U03 均已审计合入（`DONE`），U02 两个切片保持 `DONE`；M3 `COMPLETE` 表示本阶段开发与代码审计完成，完整体验与发布验收尚未完成；M4 `IN_PROGRESS`，P01/P02 工程切片均已审计合入（`DONE`），两张整卡保持 `IN_PROGRESS`；原生底座基础集成已完成，整体迁移仍 IN_PROGRESS；角色决策切片 DONE；当前唯一切片为 运行恢复与用户指令回执迁移（IN_REVIEW，等待审计），联合真实评测暂缓；其余功能卡状态见下表，原报告的发现不等于已复现或已修复。
 
 设计以 [V03_PLAN.md](V03_PLAN.md) 为准。当前唯一任务由根目录 [PLANS.md](../PLANS.md) 指定。本文件保存每张卡的详细状态和证据，PLANS 不重复整张台账。
 
@@ -20,8 +20,19 @@
 - 实际入口、控制权、当前支持及未迁移能力见 [ao/CLAO.md](../ao/CLAO.md)，直接验证与截图见 [原生证据](reference/ao-native/README.md)。真实模型/账户/套餐未运行；Codex 隔离账户安全阻塞单列，不假称全执行器兼容。
 - PR #46 局部返修：项目页直接查询持久 Mission，启动失败无 Session 也可查看原因和原请求；原生 owner 关联回执丢失保持 UNKNOWN/停止入口，已确认未启动记 FAILED 并允许新尝试。新提交身份与分支不复用旧请求，保留草稿；不放宽 `account_storage_unsafe`。本次定向故障/桌面证据及准确启动命令见上述入口。
 - 已接：原生项目/模型入口、单 Worker 的 Session/工作区接线、Gate/范围/完整性、有界修复、独立 Verifier、启动请求可见/失败处理及验收面板。
-- 当前唯一下一开发内容：**运行恢复与用户指令回执迁移，TODO**，本轮不开始。角色决策切片已审计合入（DONE）。另未迁移：完整恢复与用户指令回执、旧历史/连接导入、普通目录/未提交来源支持、独立导出与结果中心、闭环运行图及正式发布入口。P01/P02 联合真实评测继续暂缓，P03 不开始。
+- 当前唯一切片：**运行恢复与用户指令回执迁移，IN_REVIEW**，等待审计。角色决策切片已审计合入（DONE）。另未迁移：任意在途执行恢复、旧历史/连接导入、普通目录/未提交来源支持、独立导出与结果中心、闭环运行图及正式发布入口。P01/P02 联合真实评测继续暂缓，P03 不开始。
 - PR #46 收尾仅检查文档链接与差异，不重跑既有验证。沿用 Windows/离线集成与 Electron 检查、Codex 截图自查；本次为外部代码审计 PASS，负责人完整体验、真实账户/模型及发布验收尚未完成。`account_storage_unsafe` 保持待解决，xfailed 不是执行通过；保留空账户隔离开发入口，不切换正式发行入口。
+
+### 原生运行恢复与用户指令回执切片（2026-09-10）
+
+- 状态 **IN_REVIEW**；基线 main `157093b`，分支 `codex/ao-native-recovery-directives`。复用当前 AO Mission/Session/SQLite，迁移可确认阶段继续与 Worker/语义角色指令回执；不重放未知副作用，不回写终态。PR #46/#47 DONE，整体迁移/M4 IN_PROGRESS。
+- 产品接线：Mission 保存 checkpoint/输入摘要、正式角色响应、原生消息/回合身份和指令消费者；显式继续复用原阶段/Session/base/模型/预算。Gate/固定产物在途结果丢失或输入变化不重跑；原生未知动作不重发。角色输入冻结，Planner 镜像单列；原生 Chat 与新增表单共用接收边界，终态新尝试保存 parentId。详细阶段/限制与完整本机入口见 [ao/CLAO.md](../ao/CLAO.md#运行恢复与用户指令回执)。
+- Windows HTTP/Git/SQLite：`pytest clao/tests/test_ao_native_recovery.py` 的 **15 个直接回归**，连同两个兼容复核最终 **17 passed / 329.32s**。覆盖真实 daemon 终止/重启、Worker 完成/Gate 前、角色输入与已存决策、已恢复但尚未发送动作、固定产物/Verifier 已完成、发送与替换 ACK 丢失、停止/取消、输入变更拒绝和接收持久失败。引擎边界用协议替身，AO Manager/Chat/Store/Git 和 Python Gate 未替换。
+- 兼容选集：审批/禁止路径、取消语义角色、五动作、混用 Worker、冻结默认和普通 AO Chat。首轮 19 项中 17 passed、2 failed；发现零替换预算应保持 HUMAN（已修正），另一次普通 Session kill HTTP 连接重置而 daemon 记录 200；保留断言复核两项通过，不把首轮失败隐去或累计成全量。
+- Go：claoloop 包定向通过（含取消在恢复检查失败时仍有 owner、主消费与镜像/后续 UNKNOWN 分离）；Chat 的 Send/Steer/Queue 与 HTTP 受影响定向通过。API schema 生成及 TypeScript 检查通过；Python compileall、差异与文档链接检查通过。新增前端回执 + 原生创建测试 **17 passed**，包含 A/B 同文/异文草稿、原 Worker 目标与后续同文编辑保护。
+- 实际 Electron：开发构建、原生菜单展开/搜索/点击、同一数据 daemon 重启后继续原任务、专用输入与原生 Chat 交付、Planner 镜像及 A/B 历史切换/延迟响应通过；[继续原任务](reference/ao-native/recovery/continue-original.png)、[验收结果](reference/ao-native/recovery/continued-result.png)、[消费回执](reference/ao-native/recovery/directive-consumers.png) 已由 Codex 自查。脚本修正了重启后的原生弹层关闭和 Lexical combobox 定位；不是生成图或整套假 Controller。
+- 故障检查也修正了存储错误误落 HUMAN、动作恢复重复扣预算风险、恢复/取消 owner 交接和 Worker 新消息与停止的竞争窗口。角色 fixture 只从实际输入对象解析，支持追加指令后仍校验原 Schema；没有删失败用例或放松安全断言。
+- NOT_RUN：真实账号/Key/登录/模型/套餐、全量、smoke、发行构建/安装、完整体验/全执行器兼容。`account_storage_unsafe` 原样保留，xfailed 不算执行通过。历史缺 checkpoint 只读，任意未确认在途执行、旧数据导入、普通目录来源、独立导出/结果中心、运行图与正式入口仍待迁移。本 PR 等待外部审计，不开始下一任务。
 
 ### 原生 Planner/Auditor 与角色配置切片（2026-09-10）
 

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
+	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
 	"github.com/aoagents/agent-orchestrator/backend/internal/storage/sqlite/store"
 )
 
@@ -46,6 +47,14 @@ func (s *Service) EditQueuedTurn(
 	if _, err := s.requireChatSession(ctx, id); err != nil {
 		return err
 	}
+	rec, e := s.requireChatSession(ctx, id)
+	if e != nil {
+		return e
+	}
+	if e = ports.RequireCLAOOwner(ctx, rec.Metadata.CLAOMissionID); e != nil {
+		return e
+	}
+
 	controller, err := s.Controller(id)
 	if err != nil {
 		return err
@@ -62,6 +71,14 @@ func (s *Service) ReorderQueuedTurns(
 	if _, err := s.requireChatSession(ctx, id); err != nil {
 		return err
 	}
+	rec, e := s.requireChatSession(ctx, id)
+	if e != nil {
+		return e
+	}
+	if e = ports.RequireCLAOOwner(ctx, rec.Metadata.CLAOMissionID); e != nil {
+		return e
+	}
+
 	controller, err := s.Controller(id)
 	if err != nil {
 		return err

@@ -45,6 +45,7 @@ type Service struct {
 	onAccountChanged       func(domain.SessionID, string, domain.AgentHarness)
 	onCodexCapacityChanged func(domain.SessionID, string, ports.CodexCapacityObservation)
 	claoApprovalPolicy     func(context.Context, domain.SessionRecord, domain.ConversationActivity) error
+	claoDirective          func(context.Context, domain.SessionRecord, ports.ChatUserMessage) (domain.ConversationTurn, error)
 
 	mu           sync.RWMutex
 	controllers  map[domain.SessionID]*Controller
@@ -733,6 +734,12 @@ func (s *Service) Send(
 	rec, err := s.requireChatSession(ctx, id)
 	if err != nil {
 		return domain.ConversationTurn{}, err
+	}
+	if rec.Metadata.CLAOMissionID != "" && ports.RequireCLAOOwner(ctx, rec.Metadata.CLAOMissionID) != nil {
+		if msg.Origin != domain.MessageOriginHuman || s.claoDirective == nil {
+			return domain.ConversationTurn{}, errors.New("闭环消息必须经过任务回执边界")
+		}
+		return s.claoDirective(ctx, rec, msg)
 	}
 	if rec.Metadata.CLAOMissionID != "" && (msg.Origin != domain.MessageOriginHuman || ports.CLAOSemanticOwner(rec.Metadata.CLAOMissionID)) {
 		if err := ports.RequireCLAOOwner(ctx, rec.Metadata.CLAOMissionID); err != nil {
