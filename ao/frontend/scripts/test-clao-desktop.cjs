@@ -14,7 +14,7 @@ Object.assign(env, {
   CLAO_CORE_PYTHON: process.env.CLAO_CORE_PYTHON, CLAO_CORE_ROOT: path.join(root, 'clao'),
   HOME: home, USERPROFILE: home, APPDATA: path.join(home, 'appdata'), LOCALAPPDATA: path.join(home, 'local'),
   XDG_CONFIG_HOME: path.join(home, 'config'), XDG_DATA_HOME: path.join(home, 'share'),
-  CLAO_FIXTURE_FAIL_START: path.join(home, 'reject-start'), CLAO_FIXTURE_TRACE: path.join(home, 'external.jsonl'),
+  CLAO_FIXTURE_LONG_HOLD: '1', CLAO_FIXTURE_RELEASE_CONFIG: path.join(home, 'release-config'), CLAO_FIXTURE_FAIL_START: path.join(home, 'reject-start'), CLAO_FIXTURE_TRACE: path.join(home, 'external.jsonl'),
   PATH: engine + path.delimiter + path.dirname(process.env.CLAO_CORE_PYTHON) + path.delimiter + env.PATH,
 });
 const evidence = process.env.CLAO_SCREENSHOTS || path.join(home, 'screenshots');
@@ -24,9 +24,9 @@ fs.mkdirSync(evidence, { recursive: true });
   let foreignRequests = 0;
   const holder = foreign ? require('http').createServer((_req, res) => { foreignRequests++; res.end('{}'); }) : null;
   if (holder) await new Promise(resolve => holder.listen(Number(env.CLAO_NATIVE_PORT), '127.0.0.1', resolve));
-  const app = await _electron.launch({ executablePath: path.join(front, 'node_modules/electron/dist/electron.exe'), args: [front], cwd: front, env, timeout: 60000 });
+  let app = await _electron.launch({ executablePath: path.join(front, 'node_modules/electron/dist/electron.exe'), args: [front], cwd: front, env, timeout: 60000 });
   try {
-    const page = app.context().pages()[0] || await app.firstWindow();
+    let page = app.context().pages()[0] || await app.firstWindow();
     await page.waitForSelector('body'); await new Promise(r => setTimeout(r, 4000));
     if (foreign) {
       await new Promise(r => setTimeout(r, 7000));
@@ -86,6 +86,24 @@ fs.mkdirSync(evidence, { recursive: true });
     await page.getByPlaceholder('Search models…').fill('second');
     await page.getByRole('menu').getByText('test/second', { exact: true }).click();
     if (!(await page.getByRole('button', { name: 'Model', exact: true }).innerText()).includes('test/second')) throw Error('native model pick not retained');
+    if (process.env.CLAO_TEST_RECOVERY === '1') {
+      await require('./test-clao-recovery.cjs')({getPage:()=>page,base,home,env,evidence,start,open,git,sourceHead,sourceIndex,
+        restart:async()=>{
+          const old=JSON.parse(fs.readFileSync(path.join(home,'running.json'),'utf8')).pid;
+          await app.close();
+          try {process.kill(old,0);process.kill(old);} catch {}
+          await new Promise(r=>setTimeout(r,1500));
+          app=await _electron.launch({executablePath:path.join(front,'node_modules/electron/dist/electron.exe'),args:[front],cwd:front,env,timeout:60000});
+          page=app.context().pages()[0]||await app.firstWindow();
+          await page.getByText('原生闭环验证',{exact:true}).first().waitFor({timeout:30000});
+          await page.keyboard.press('Escape');
+          await page.getByText('原生闭环验证',{exact:true}).first().click({timeout:30000});
+          await app.evaluate(({BaseWindow})=>BaseWindow.getAllWindows()[0].setSize(1440,900));
+          const next=JSON.parse(fs.readFileSync(path.join(home,'running.json'),'utf8')).pid;
+          if(old===next)throw Error('daemon did not restart');
+        }});
+      return;
+    }
     if (process.env.CLAO_TEST_START_FAILURE === '1') {
       const missions = async () => (await (await fetch(base + '/api/v1/clao/missions')).json()).missions;
       fs.writeFileSync(env.CLAO_FIXTURE_FAIL_START, 'controlled external failure');

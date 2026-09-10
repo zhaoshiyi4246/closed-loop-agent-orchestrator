@@ -78,3 +78,8 @@ node ao/frontend/scripts/test-clao-desktop.cjs
 - 较早一次过宽的 `TestBuild` 名称筛选带入上游 `TestBuildSourceHandoffRequestUsesCurrentNativeSessionContext`，在 Windows 原路径与 JSON 转义路径比较失败。该测试与函数未修改，仍保留；不把本次定向通过表述为上游全量通过。
 - 首次 HTTP 测试把派生构建命名 `ao.exe`，触发旧离线夹具的防真实 AO 保护，9 个 setup error；使用同一派生构建的 `clao-ao.exe` 副本完成隔离测试，未移除该保护。桌面脚本先后修正上游 BaseWindow API 与返回项目后新建任务的导航定位；最终实际交互通过。
 - **NOT_RUN**：真实账户/登录/API Key/模型/套餐计费；全部执行器与角色组合；完整 GUI 体验；全量回归；smoke；安装器/发行打包/发布。旧功能迁移边界见 [开发说明](../../../ao/CLAO.md)，不由旧 M0–M3 历史完成状态推定。
+
+
+## 运行恢复与指令回执（待审计）
+
+本切片实际 Electron 中关闭并重启独立 daemon，从原请求继续验收；同一 Mission/Session 没有重建 Worker。补充输入、原生 Chat、A/B 历史查看和延迟回执经过实际 UI。截图：[继续原任务](recovery/continue-original.png)、[继续后结果](recovery/continued-result.png)、[主目标与 Planner 镜像](recovery/directive-consumers.png)。已查看截图；不代替负责人体验验收。命令与恢复限制见 [开发入口](../../../ao/CLAO.md#运行恢复与用户指令回执)。测试曾修正重启后原生弹层的关闭步骤及 Lexical combobox 定位；没有用强制点击/假 Controller 制造通过。

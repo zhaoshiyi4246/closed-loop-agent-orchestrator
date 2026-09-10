@@ -402,18 +402,18 @@ export function SessionChatSurface({
 				// harness that cannot steer. The refusal check stays as a backstop: it
 				// covers the window before the controller reports, and it is the last word
 				// afterwards, since the capability is a property of the driver.
-				onSteer={can(renderSnapshot, "steer") && !commands.steerUnsupported ? commands.steer : undefined}
+				onSteer={!session.claoMissionId && can(renderSnapshot, "steer") && !commands.steerUnsupported ? commands.steer : undefined}
 				sendPending={commands.sendPending}
 				steerPending={commands.steerPending}
 				steerRefusal={commands.steerRefusal}
 				onPromoteQueuedTurn={
-					can(renderSnapshot, "steer") && !commands.steerUnsupported
+					!session.claoMissionId && can(renderSnapshot, "steer") && !commands.steerUnsupported
 						? commands.promoteQueuedTurn
 						: undefined
 				}
-				onEditQueuedTurn={commands.editQueuedTurn}
+				onEditQueuedTurn={session.claoMissionId ? undefined : commands.editQueuedTurn}
 				onCancelQueuedTurn={commands.cancelQueuedTurn}
-				onReorderQueuedTurns={commands.reorderQueuedTurns}
+				onReorderQueuedTurns={session.claoMissionId ? undefined : commands.reorderQueuedTurns}
 				promoteQueuedTurnPendingTurnId={commands.promoteQueuedTurnPendingTurnId}
 				cancelQueuedTurnPendingTurnId={commands.cancelQueuedTurnPendingTurnId}
 				editQueuedTurnPendingTurnId={commands.editQueuedTurnPendingTurnId}

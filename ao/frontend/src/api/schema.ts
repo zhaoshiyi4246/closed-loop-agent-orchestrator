@@ -516,6 +516,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/clao/missions/{id}/continue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Continue confirmed original progress */
+        post: operations["continueCLAOMission"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/clao/missions/{id}/directives": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Receive a scoped instruction before delivery */
+        post: operations["postCLAODirective"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/clao/session": {
         parameters: {
             query?: never;
@@ -2622,6 +2656,23 @@ export interface components {
             sessionId: string;
             transport: string;
         };
+        CLAOCheckpoint: {
+            afterTurn?: string;
+            digest?: string;
+            executionError?: string;
+            incident?: string;
+            localState?: string;
+            proof: number;
+            stage: string;
+        };
+        CLAOConsumption: {
+            callId: string;
+            mirror: boolean;
+            role: string;
+            sessionId?: string;
+            state: string;
+            turnId?: string;
+        };
         CLAOCriterion: {
             description: string;
             id: string;
@@ -2629,6 +2680,10 @@ export interface components {
         CLAODecision: {
             action?: string;
             auditId: string;
+            charged: boolean;
+            context?: {
+                [key: string]: unknown;
+            };
             evidenceIndex: number;
             id: string;
             outcome?: string;
@@ -2636,6 +2691,25 @@ export interface components {
             reason?: string;
             state: string;
             workerId: string;
+        };
+        CLAODirective: {
+            consumers?: components["schemas"]["CLAOConsumption"][];
+            id: string;
+            reason: string;
+            receivedAt: string;
+            sessionId?: string;
+            state: string;
+            target: string;
+            text: string;
+            turnId?: string;
+        };
+        CLAODirectiveRequest: {
+            id: string;
+            target: string;
+            text: string;
+        };
+        CLAODirectiveResponse: {
+            directive: components["schemas"]["CLAODirective"];
         };
         CLAOEvidence: {
             digest: string;
@@ -2662,10 +2736,13 @@ export interface components {
         CLAOMission: {
             base?: string;
             cancelRequested: boolean;
+            checkpoint?: components["schemas"]["CLAOCheckpoint"];
             decisions?: components["schemas"]["CLAODecision"][];
+            directives?: components["schemas"]["CLAODirective"][];
             evidence: components["schemas"]["CLAOEvidence"][];
             operations: components["schemas"]["CLAOOperation"][];
             reason: string;
+            recovery?: components["schemas"]["CLAORecoveryStatus"];
             repairs: number;
             replans: number;
             request: components["schemas"]["CLAORequest"];
@@ -2678,6 +2755,7 @@ export interface components {
                 [key: string]: components["schemas"]["CLAOFrozenRole"];
             };
             sessionId?: string;
+            sourcePath?: string;
             state: string;
             updatedAt: string;
             verifierSessionId?: string;
@@ -2695,9 +2773,15 @@ export interface components {
         CLAOOperation: {
             id: string;
             kind: string;
+            messageId?: string;
             reason?: string;
             state: string;
             target: string;
+        };
+        CLAORecoveryStatus: {
+            canContinue: boolean;
+            reason: string;
+            stage?: string;
         };
         CLAORequest: {
             agent: string;
@@ -2712,6 +2796,7 @@ export interface components {
             maxReplans: number;
             model: string;
             objective: string;
+            parentId?: string;
             projectId: string;
             roles?: {
                 [key: string]: components["schemas"]["CLAORoleChoice"];
@@ -2720,10 +2805,12 @@ export interface components {
         CLAORoleCall: {
             choice: components["schemas"]["CLAOFrozenRole"];
             confirmedModel?: string;
+            directiveIds?: string[];
             error?: string;
             finishedAt?: string;
             id: string;
             incidentId?: string;
+            inputDigest?: string;
             modelFactSource?: string;
             owner: string;
             resolvedModel?: string;
@@ -2732,6 +2819,8 @@ export interface components {
             sessionId?: string;
             startedAt: string;
             state: string;
+            text?: string;
+            turnId?: string;
         };
         CLAORoleChoice: {
             agent: string;
@@ -6003,6 +6092,63 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CLAOMissionResponse"];
+                };
+            };
+        };
+    };
+    continueCLAOMission: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CLAOMissionResponse"];
+                };
+            };
+        };
+    };
+    postCLAODirective: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CLAODirectiveRequest"];
+            };
+        };
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CLAODirectiveResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CLAODirectiveResponse"];
                 };
             };
         };

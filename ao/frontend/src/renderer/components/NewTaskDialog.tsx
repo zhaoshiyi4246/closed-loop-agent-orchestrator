@@ -16,7 +16,7 @@ type NewTaskDialogProps = {
 export function NewTaskDialog({ open, projectId, initialRequest, onCreated, onOpenChange }: NewTaskDialogProps) {
 	const { t } = useTranslation();
 	const [closedLoop,setClosedLoop] = useState(Boolean(initialRequest));
-	const [fields,setFields] = useState<AcceptanceFields>(initialRequest ? { criteria: initialRequest.criteria.map(ac => ac.description).join("\n"), allowed: initialRequest.allowedPaths.join("\n"), forbidden: initialRequest.forbiddenPaths.join("\n"), gates: initialRequest.gateCommands.join("\n"), repairs: initialRequest.maxRepairs, timeout: initialRequest.gateTimeout, roles: initialRequest.roles, replans: initialRequest.maxReplans ?? 0 } : {criteria:"",allowed:"",forbidden:"",gates:"",repairs:1,timeout:120});
+	const [fields,setFields] = useState<AcceptanceFields>(initialRequest ? { parentId:initialRequest.id, criteria: initialRequest.criteria.map(ac => ac.description).join("\n"), allowed: initialRequest.allowedPaths.join("\n"), forbidden: initialRequest.forbiddenPaths.join("\n"), gates: initialRequest.gateCommands.join("\n"), repairs: initialRequest.maxRepairs, timeout: initialRequest.gateTimeout, roles: initialRequest.roles, replans: initialRequest.maxReplans ?? 0 } : {criteria:"",allowed:"",forbidden:"",gates:"",repairs:1,timeout:120});
 	const requestId = useRef(crypto.randomUUID());
 	const [receiptId, setReceiptId] = useState<string | null>(null);
 	const [attempted, setAttempted] = useState(false);
@@ -36,7 +36,7 @@ export function NewTaskDialog({ open, projectId, initialRequest, onCreated, onOp
 					    modal; everything else stays the composer's surface, no bordered header. */}
 					<Dialog.Title className="settings-dialog-title px-4 pt-3">{t("newTask.title")}</Dialog.Title>
 					<Dialog.Description className="sr-only">{t("newTask.description")}</Dialog.Description>
-					{receiptId && <CLAOMissionDetail missionId={receiptId} onBack={() => setReceiptId(null)} onOpenSession={created} onNewAttempt={() => { requestId.current = crypto.randomUUID(); setReceiptId(null); setAttempted(false); }} />}
+					{receiptId && <CLAOMissionDetail missionId={receiptId} onBack={() => setReceiptId(null)} onOpenSession={created} onNewAttempt={original => { setFields(v=>({...v,parentId:original.id})); requestId.current = crypto.randomUUID(); setReceiptId(null); setAttempted(false); }} />}
 					<div hidden={receiptId !== null}>
 					<fieldset disabled={submitting}>
 					<label className="flex items-center gap-2 px-4 pt-3 text-sm"><input type="checkbox" checked={closedLoop} onChange={e=>setClosedLoop(e.target.checked)} />CLAO 闭环验收</label>

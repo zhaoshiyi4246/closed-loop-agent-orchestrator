@@ -2,6 +2,7 @@ package claoloop
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,6 +25,10 @@ type FrozenRole struct {
 	AccountRef string `json:"accountRef,omitempty"`
 }
 type RoleCall struct {
+	Text            string           `json:"text,omitempty"`
+	InputDigest     string           `json:"inputDigest,omitempty"`
+	DirectiveIDs    []string         `json:"directiveIds,omitempty"`
+	TurnID          string           `json:"turnId,omitempty"`
 	Owner           string           `json:"owner"`
 	ID              string           `json:"id"`
 	Role            string           `json:"role"`
@@ -40,6 +45,8 @@ type RoleCall struct {
 	Error           string           `json:"error,omitempty"`
 }
 type Decision struct {
+	Charged       bool             `json:"charged"`
+	Context       map[string]any   `json:"context,omitempty"`
 	ID            string           `json:"id"`
 	EvidenceIndex int              `json:"evidenceIndex"`
 	WorkerID      domain.SessionID `json:"workerId"`
@@ -124,6 +131,7 @@ func (s *Service) callUpdate(id, callID string, f func(*RoleCall)) (Mission, err
 		for i := range m.RoleCalls {
 			if m.RoleCalls[i].ID == callID {
 				f(&m.RoleCalls[i])
+				markConsumption(m, m.RoleCalls[i])
 				return nil
 			}
 		}
@@ -169,34 +177,66 @@ func (s *Service) semantic(id, role, callID, incident, prompt string) (string, e
 	if err = s.checkAccount(choice); err != nil {
 		return "", err
 	}
+	var call RoleCall
 	for _, c := range m.RoleCalls {
 		if c.ID == callID {
-			return "", errors.New("role call already recorded; automatic replay refused")
+			call = c
 		}
 	}
-	_, err = s.mutate(id, func(v *Mission) error {
-		if v.CancelRequested {
-			return errCancelled
+	if call.ID == "" {
+		m, err = s.mutate(id, func(v *Mission) error {
+			if v.CancelRequested {
+				return errCancelled
+			}
+			ids := directiveIDs(*v, role)
+			full := directivePrompt(*v, role, prompt, ids)
+			call = RoleCall{ID: callID, Owner: id + ":" + role + ":" + fmt.Sprint(len(v.RoleCalls)), Role: role, IncidentID: incident, Choice: choice, State: "STARTING", StartedAt: time.Now().UTC().Format(time.RFC3339Nano), DirectiveIDs: ids, InputDigest: fmt.Sprintf("%x", sha256.Sum256([]byte(full)))}
+			v.RoleCalls = append(v.RoleCalls, call)
+			markConsumption(v, call)
+			return nil
+		})
+		if err != nil {
+			return "", err
 		}
-		v.RoleCalls = append(v.RoleCalls, RoleCall{ID: callID, Owner: id + ":" + role + ":" + fmt.Sprint(len(m.RoleCalls)), Role: role, IncidentID: incident, Choice: choice, State: "STARTING", StartedAt: time.Now().UTC().Format(time.RFC3339Nano)})
-		return nil
-	})
-	if err != nil {
-		return "", err
+	}
+	prompt = directivePrompt(m, role, prompt, call.DirectiveIDs)
+	if call.InputDigest == "" || call.InputDigest != fmt.Sprintf("%x", sha256.Sum256([]byte(prompt))) {
+		return "", errors.New("角色原输入与当前证据不一致，不复用或重发")
+	}
+	if call.Text != "" {
+		rec, ok, e := s.store.GetSession(s.ctx, call.SessionID)
+		if e != nil || !ok {
+			return "", errors.New("原角色 Session 缺失")
+		}
+		base := m.Base
+		if role == "verifier" {
+			base = m.ResultHead
+		}
+		clean, e := s.acceptance.Source(s.ctx, rec.Metadata.WorkspacePath)
+		if e != nil || clean != base || s.requireStopped(rec.ID) != nil {
+			return "", errors.New("已完成角色的工作区或停止事实变化")
+		}
+		return call.Text, nil
 	}
 	var rec domain.SessionRecord
 	base := m.Base
 	if role == "verifier" {
 		base = m.ResultHead
 	}
-	owner := id + ":" + role + ":" + fmt.Sprint(len(m.RoleCalls))
-	err = s.operation(id, "spawn_"+role, owner, func() error {
+	owner := call.Owner
+	err = s.namedOperation(id, owner+":spawn", "spawn_"+role, owner, "", func() error {
 		var e error
-		rec, _, _, e = s.sessions.Spawn(ports.WithCLAOOwner(s.ctx, id), ports.SpawnConfig{ProjectID: m.Request.ProjectID, Branch: "clao/" + id + "/" + role + "-" + fmt.Sprint(len(m.RoleCalls)), Kind: domain.KindWorker, Harness: choice.Agent, RequestedMode: domain.SessionModeChat, CLAOMissionID: owner, CLAOBaseSHA: base, CLAOReview: true, AgentConfig: ports.AgentConfig{Model: choice.Model, Permissions: domain.PermissionModeReadOnly}, Prompt: prompt, DisplayName: role + " · " + m.Request.Objective})
+		rec, _, _, e = s.sessions.Spawn(ports.WithCLAOOwner(s.ctx, id), ports.SpawnConfig{ProjectID: m.Request.ProjectID, Branch: "clao/" + id + "/" + role + "-" + call.ID[strings.LastIndex(call.ID, ":")+1:] + "-" + fmt.Sprint(len(m.RoleCalls)), Kind: domain.KindWorker, Harness: choice.Agent, RequestedMode: domain.SessionModeChat, CLAOMissionID: owner, CLAOBaseSHA: base, CLAOReview: true, AgentConfig: ports.AgentConfig{Model: choice.Model, Permissions: domain.PermissionModeReadOnly}, Prompt: prompt, DisplayName: role + " · " + m.Request.Objective})
 		return e
 	})
 	if err != nil {
 		return "", err
+	}
+	if rec.ID == "" {
+		rec, err = s.findOwner(owner)
+		if err != nil {
+			return "", err
+		}
 	}
 	_, err = s.callUpdate(id, callID, func(c *RoleCall) { c.SessionID = rec.ID; c.ResolvedModel = rec.Metadata.Model; c.State = "RUNNING" })
 	if err != nil {
@@ -232,6 +272,10 @@ func (s *Service) semantic(id, role, callID, incident, prompt string) (string, e
 		c.ConfirmedModel = confirmed
 		c.ModelFactSource = modelSource
 		c.State = "RECEIVED"
+		c.TurnID = latestTurn(snap, rec.ID).ID
+		if waitErr == nil {
+			c.Text = text
+		}
 		if waitErr != nil {
 			c.State = "FAILED"
 			c.Error = waitErr.Error()
@@ -278,30 +322,45 @@ func (s *Service) decisionUpdate(id, incident, state, outcome string) error {
 // Returns an action only after the old Prompt/Schema/correlation contracts and
 // current target/permission/budget checks. It never runs an external side effect.
 func (s *Service) diagnose(id string, m Mission, proof Evidence, executionError string) (map[string]any, string, error) {
-	if len(m.Decisions) >= m.Request.MaxRepairs+2 {
-		return nil, "", s.human(id, "诊断/无进展预算耗尽")
-	}
-	if len(m.Decisions) > 0 && executionError == "" {
-		old := m.Decisions[len(m.Decisions)-1]
-		if old.EvidenceIndex < len(m.Evidence)-1 && m.Evidence[old.EvidenceIndex].Digest == proof.Digest {
-			return nil, "", s.human(id, "修复后没有新的文件进展，停止重复诊断")
-		}
-	}
 	core, ok := s.acceptance.(roleCore)
 	if !ok {
 		return nil, "", s.human(id, "角色契约核心不可用")
 	}
-	incident := fmt.Sprintf("%s:incident:%d", id, len(m.Decisions))
-	auditID, plannerID := incident+":audit", incident+":plan"
-	_, err := s.mutate(id, func(v *Mission) error {
-		v.Decisions = append(v.Decisions, Decision{ID: incident, EvidenceIndex: len(v.Evidence) - 1, WorkerID: v.SessionID, AuditID: auditID, PlannerID: plannerID, State: "DIAGNOSING"})
-		return nil
-	})
-	if err != nil {
-		return nil, incident, err
+	var d Decision
+	for _, old := range m.Decisions {
+		if old.EvidenceIndex == m.Checkpoint.Proof && old.WorkerID == m.SessionID {
+			d = old
+		}
 	}
-	history := map[string]any{"local_fixes": m.Repairs, "replans": m.Replans, "decisions": m.Decisions, "role_results": m.RoleCalls}
-	contextData := map[string]any{"incidentId": incident, "workerId": m.SessionID, "workerStatus": map[string]any{"sessionId": m.SessionID, "stopped": true, "executionError": executionError}, "proof": proof, "executionError": executionError, "history": history, "remainingReplans": m.Request.MaxReplans - m.Replans, "remainingActions": m.Request.MaxRepairs - m.Repairs - m.Replans, "auditId": auditID}
+	if d.ID == "" {
+		if len(m.Decisions) >= m.Request.MaxRepairs+2 {
+			return nil, "", s.human(id, "诊断/无进展预算耗尽")
+		}
+		if len(m.Decisions) > 0 && executionError == "" {
+			old := m.Decisions[len(m.Decisions)-1]
+			if old.EvidenceIndex < len(m.Evidence)-1 && m.Evidence[old.EvidenceIndex].Digest == proof.Digest {
+				return nil, "", s.human(id, "修复后没有新的文件进展，停止重复诊断")
+			}
+		}
+		incident := fmt.Sprintf("%s:incident:%d", id, len(m.Decisions))
+		history := map[string]any{"local_fixes": m.Repairs, "replans": m.Replans, "decisions": m.Decisions}
+		data := map[string]any{"incidentId": incident, "workerId": m.SessionID, "workerStatus": map[string]any{"sessionId": m.SessionID, "stopped": true, "executionError": executionError}, "proof": proof, "executionError": executionError, "history": history, "remainingReplans": m.Request.MaxReplans - m.Replans, "remainingActions": m.Request.MaxRepairs - m.Repairs - m.Replans, "auditId": incident + ":audit"}
+		d = Decision{ID: incident, EvidenceIndex: m.Checkpoint.Proof, WorkerID: m.SessionID, AuditID: incident + ":audit", PlannerID: incident + ":plan", State: "DIAGNOSING", Context: data}
+		var err error
+		m, err = s.mutate(id, func(v *Mission) error { v.Decisions = append(v.Decisions, d); return nil })
+		if err != nil {
+			return nil, incident, err
+		}
+	}
+	incident, auditID, plannerID := d.ID, d.AuditID, d.PlannerID
+	// Copy persisted context so preparation cannot mutate its recovery identity.
+	encoded, _ := json.Marshal(d.Context)
+	contextData := map[string]any{}
+	_ = json.Unmarshal(encoded, &contextData)
+	if len(contextData) == 0 {
+		return nil, incident, errors.New("历史决策缺少原输入上下文")
+	}
+	var err error
 	for _, role := range []string{"auditor", "planner"} {
 		rid := auditID
 		phase := "DIAGNOSING"
@@ -328,7 +387,14 @@ func (s *Service) diagnose(id string, m Mission, proof Evidence, executionError 
 			if len(current.Operations) > 0 && strings.HasPrefix(current.Operations[len(current.Operations)-1].Kind, "spawn_") {
 				return nil, incident, e
 			}
-			return nil, incident, s.human(id, role+" 未提供可用结果："+e.Error())
+			for _, call := range current.RoleCalls {
+				if call.ID == rid && call.State == "FAILED" {
+					return nil, incident, s.human(id, role+" 未提供可用结果："+e.Error())
+				}
+			}
+			// Persistence/checkpoint failures are resumable; they do not prove that
+			// the semantic result is invalid or that a fresh model request is allowed.
+			return nil, incident, e
 		}
 		validated, e := core.Role(s.ctx, m, role, contextData, &text)
 		if e != nil || !validated.OK {

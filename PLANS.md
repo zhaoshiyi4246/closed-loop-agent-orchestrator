@@ -7,7 +7,7 @@
 ## 当前唯一执行指针
 
 - 当前阶段：**M4 IN_PROGRESS**；M0 / M1 / M2 / M3 保持 COMPLETE。
-- 当前唯一下一开发内容：**运行恢复与用户指令回执迁移，TODO**，本轮不开始。整体“AO 原生底座 + CLAO 闭环迁移”与 M4 保持 IN_PROGRESS；PR #45 被替代、不合并，保留分支与证据；P01/P02 联合真实评测继续暂缓。
+- 当前唯一执行内容：**运行恢复与用户指令回执迁移，IN_REVIEW**。从 main `157093b` 建立 `codex/ao-native-recovery-directives`；已实现阶段继续、原生 Chat 与四目标指令回执；提交独立 PR 后停止等待审计。整体“AO 原生底座 + CLAO 闭环迁移”与 M4 保持 IN_PROGRESS；PR #45 被替代、不合并，保留分支与证据；P01/P02 联合真实评测继续暂缓。
 - 最近完成：**Planner/Auditor 异常决策与独立角色配置迁移，DONE**。[PR #47](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/47) 再次外部代码审计 PASS，默认模型在实际 Chat 启动/恢复中的接线已修正，2026-09-10 已 rebase 合入 main。完成范围为单 Worker 异常诊断、五类动作、独立只读语义会话、四角色执行器/模型配置、冻结选择贯通启动/恢复和原生角色/决策展示；不是全部 Planner、所有执行器、逐角色独立账号或完整迁移完成。详细证据与空账户开发入口见 [开发说明](ao/CLAO.md) 和 [迁移台账](docs/V03_BACKLOG.md)。
 - 此前完成：**P02 工程接入与离线验证切片 DONE**；[PR #44](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/44) 外部工程审计 PASS，无返修阻塞项，2026-09-09 已 rebase 合入 main `c112e25d332a284e857c9b2b0d3bd1ad32856485`，合入 tree 与已审计 head `d140e5d14e152ad1a64a4643bcbb1b775bac4a38` 一致。P01 工程切片保持 DONE；P01/P02 整卡及 M4 保持 IN_PROGRESS。
 - P02 已合入 Moonshot 国内通用 `kimi-k3`，复用原传输/角色校验与模型页；凭据及外发许可按实际服务隔离，旧 GLM/Codex 配置兼容、当前快照冻结。最终 Windows P02/浏览器定向 65 passed，Codex/Worker 停止兼容 41 passed；实际 Edge 截图自查及首轮修正见 P02 卡。仅外部边界使用替身，真实模型仍 NOT_RUN，P02 整卡与 M4 不标完成；不开始 P03。
@@ -18,7 +18,7 @@
 - 沿用 U03 Windows 定向（本轮不重跑） **39 passed / 84.44s**（真实 Git/SQLite/HTTP、原 Controller/Gate/Verifier + 仅引擎/Provider 替身，含实际 Edge）；U02 四旅程复查 **4 passed / 34 deselected / 35.25s**，此前其余兼容定向 30 passed；另补基线缓存独立应用 1 passed，失败修正及证据分类见 U03 卡。未运行全量、安装、smoke、真实 AO/模型或 CLAO 发行打包；结果包生成/下载/解压/独立应用和内容/Gate 检查已执行。
 - U03 / PR #42 误拦截返修：凭据读取、精确环境占位及普通 CLI prompt 参数不再仅因名称被拒绝；明确凭据/私钥/认证与 Prompt 材料仍拦截。真实 Git/HTTP 补丁独立应用与旧包保留定向已验证，具体结果见 U03 卡。
 - 基础切片保持完成：**AO 原生底座 + 单 Worker 验收闭环基础集成，DONE**。[PR #46](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/46) 启动失败返修已通过外部代码审计，2026-09-10 已 rebase 合入 main。已接原生项目/模型入口、Session/工作区、Gate/范围/完整性、有界修复、独立 Verifier、启动请求可见/失败处理及验收面板；不等于整体迁移完成。
-- 尚未迁移：上述下一切片、多子任务分解/并行、普通目录/未提交来源、旧历史/连接/凭据导入、结果中心与独立导出、闭环运行图和正式发布入口。本轮仅合并、文档与差异检查；主目录已有 `clao/config/default.yaml` 修改原样保留，不纳入提交；开发工作树、依赖和独立数据保留。完成后停止。
+- 尚未迁移：任意在途执行的恢复、多子任务分解/并行、普通目录/未提交来源、旧历史/连接/凭据导入、结果中心与独立导出、闭环运行图和正式发布入口。本轮做实际 daemon 重启、定向服务与原生界面检查；主目录已有 `clao/config/default.yaml` 修改原样保留，不纳入提交；开发工作树、依赖和独立数据保留。完成后停止。
 - PR #47 证据：沿用已有 Windows/Go/纯契约与初始 Electron 检查、Codex 截图自查；默认模型返修未重测浏览器，合并收尾不重跑测试/构建。再次源码审计 PASS 不等于负责人完整体验；`account_storage_unsafe` 待解决，xfailed 不计执行通过，真实账号/模型/套餐额度、全量与发布验收仍未完成。
 - PR #46 证据：沿用既有 Windows/离线集成、开发构建与 Electron 操作检查、Codex 截图自查；本次外部代码审计 PASS 不等于负责人完整体验验收。`account_storage_unsafe` 仍待解决，xfailed 不算执行通过；真实账户/模型、全量及发布验收未完成。PR #46 收尾仅做文档链接与差异检查。准确的空账户隔离启动命令见 [开发说明](ao/CLAO.md)，既有检查见 [原生证据](docs/reference/ao-native/README.md)。
 - PR #44 收尾历史：完成合并、背景同步及本地 main fast-forward。本轮仅文档链接、差异与产品 blob 不变检查，沿用既有证据，不重跑测试/构建/smoke、不读取真实 Key 或请求供应商。两家工程均已完成，当时拟进行的联合真实验证现已暂缓；工程审计、离线 HTTP/浏览器通过不等于真实准入或质量评测通过。完整 GUI 体验、全量、安装与发布验收尚未完成；“任务闭环运行视图”仍仅为未授权候选。

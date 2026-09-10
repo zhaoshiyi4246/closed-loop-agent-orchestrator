@@ -20,6 +20,8 @@ type CLAOService interface {
 	Get(context.Context, string) (claoloop.Mission, error)
 	List(context.Context) ([]claoloop.Mission, error)
 	Cancel(context.Context, string) (claoloop.Mission, error)
+	Continue(context.Context, string) (claoloop.Mission, error)
+	PostDirective(context.Context, string, claoloop.DirectiveRequest) (claoloop.Directive, error)
 }
 type CLAOController struct {
 	Svc     CLAOService
@@ -53,7 +55,44 @@ func (c *CLAOController) Register(r chi.Router) {
 		r.Post("/missions", c.create)
 		r.Get("/missions/{id}", c.get)
 		r.Post("/missions/{id}/cancel", c.cancel)
+		r.Post("/missions/{id}/continue", c.resume)
+		r.Post("/missions/{id}/directives", c.directive)
 	})
+}
+
+type CLAODirectiveResponse struct {
+	Directive claoloop.Directive `json:"directive"`
+}
+
+func (c *CLAOController) resume(w http.ResponseWriter, r *http.Request) {
+	var body struct{}
+	if err := decodeJSONStrict(r, &body); err != nil {
+		c.fail(w, r, 400, "Invalid JSON")
+		return
+	}
+	m, err := c.Svc.Continue(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		c.fail(w, r, 409, err.Error())
+		return
+	}
+	envelope.WriteJSON(w, 202, CLAOMissionResponse{Mission: m})
+}
+func (c *CLAOController) directive(w http.ResponseWriter, r *http.Request) {
+	var body claoloop.DirectiveRequest
+	if err := decodeJSONStrict(r, &body); err != nil {
+		c.fail(w, r, 400, "Invalid directive JSON")
+		return
+	}
+	d, err := c.Svc.PostDirective(r.Context(), chi.URLParam(r, "id"), body)
+	if err != nil {
+		c.fail(w, r, 409, err.Error())
+		return
+	}
+	status := 202
+	if d.State == "rejected" {
+		status = 409
+	}
+	envelope.WriteJSON(w, status, CLAODirectiveResponse{Directive: d})
 }
 func (c *CLAOController) fail(w http.ResponseWriter, r *http.Request, status int, msg string) {
 	envelope.WriteAPIError(w, r, status, "clao_error", "CLAO_REQUEST_REJECTED", msg, nil)

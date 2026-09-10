@@ -741,6 +741,7 @@ func Run() error {
 
 	claoSvc := claoloop.New(ctx, store, wiredSessMgr, chatSvc, claoloop.PythonAcceptance{Python: os.Getenv("CLAO_CORE_PYTHON"), CoreRoot: os.Getenv("CLAO_CORE_ROOT")}, log)
 	chatSvc.SetCLAOApprovalPolicy(claoSvc.CheckApproval)
+	chatSvc.SetCLAODirective(claoSvc.NativeDirective)
 	if err := claoSvc.Recover(); err != nil {
 		return fmt.Errorf("recover CLAO acceptance facts: %w", err)
 	}

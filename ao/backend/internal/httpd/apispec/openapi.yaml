@@ -1147,6 +1147,56 @@ paths:
       summary: Durably request cancellation
       tags:
       - clao
+  /api/v1/clao/missions/{id}/continue:
+    post:
+      operationId: continueCLAOMission
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        "202":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CLAOMissionResponse'
+          description: Accepted
+      summary: Continue confirmed original progress
+      tags:
+      - clao
+  /api/v1/clao/missions/{id}/directives:
+    post:
+      operationId: postCLAODirective
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CLAODirectiveRequest'
+        required: true
+      responses:
+        "202":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CLAODirectiveResponse'
+          description: Accepted
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CLAODirectiveResponse'
+          description: Conflict
+      summary: Receive a scoped instruction before delivery
+      tags:
+      - clao
   /api/v1/clao/session:
     get:
       operationId: claoSession
@@ -7288,6 +7338,46 @@ components:
       - connected
       - transport
       type: object
+    CLAOCheckpoint:
+      properties:
+        afterTurn:
+          type: string
+        digest:
+          type: string
+        executionError:
+          type: string
+        incident:
+          type: string
+        localState:
+          type: string
+        proof:
+          type: integer
+        stage:
+          type: string
+      required:
+      - stage
+      - proof
+      type: object
+    CLAOConsumption:
+      properties:
+        callId:
+          type: string
+        mirror:
+          type: boolean
+        role:
+          type: string
+        sessionId:
+          type: string
+        state:
+          type: string
+        turnId:
+          type: string
+      required:
+      - callId
+      - role
+      - state
+      - mirror
+      type: object
     CLAOCriterion:
       properties:
         description:
@@ -7304,6 +7394,11 @@ components:
           type: string
         auditId:
           type: string
+        charged:
+          type: boolean
+        context:
+          additionalProperties: {}
+          type: object
         evidenceIndex:
           type: integer
         id:
@@ -7319,12 +7414,63 @@ components:
         workerId:
           type: string
       required:
+      - charged
       - id
       - evidenceIndex
       - workerId
       - auditId
       - plannerId
       - state
+      type: object
+    CLAODirective:
+      properties:
+        consumers:
+          items:
+            $ref: '#/components/schemas/CLAOConsumption'
+          type: array
+        id:
+          type: string
+        reason:
+          type: string
+        receivedAt:
+          type: string
+        sessionId:
+          type: string
+        state:
+          type: string
+        target:
+          type: string
+        text:
+          type: string
+        turnId:
+          type: string
+      required:
+      - id
+      - target
+      - text
+      - state
+      - reason
+      - receivedAt
+      type: object
+    CLAODirectiveRequest:
+      properties:
+        id:
+          type: string
+        target:
+          type: string
+        text:
+          type: string
+      required:
+      - id
+      - target
+      - text
+      type: object
+    CLAODirectiveResponse:
+      properties:
+        directive:
+          $ref: '#/components/schemas/CLAODirective'
+      required:
+      - directive
       type: object
     CLAOEvidence:
       properties:
@@ -7387,9 +7533,15 @@ components:
           type: string
         cancelRequested:
           type: boolean
+        checkpoint:
+          $ref: '#/components/schemas/CLAOCheckpoint'
         decisions:
           items:
             $ref: '#/components/schemas/CLAODecision'
+          type: array
+        directives:
+          items:
+            $ref: '#/components/schemas/CLAODirective'
           type: array
         evidence:
           items:
@@ -7401,6 +7553,8 @@ components:
           type: array
         reason:
           type: string
+        recovery:
+          $ref: '#/components/schemas/CLAORecoveryStatus'
         repairs:
           type: integer
         replans:
@@ -7423,6 +7577,8 @@ components:
             $ref: '#/components/schemas/CLAOFrozenRole'
           type: object
         sessionId:
+          type: string
+        sourcePath:
           type: string
         state:
           type: string
@@ -7473,6 +7629,8 @@ components:
           type: string
         kind:
           type: string
+        messageId:
+          type: string
         reason:
           type: string
         state:
@@ -7484,6 +7642,18 @@ components:
       - kind
       - target
       - state
+      type: object
+    CLAORecoveryStatus:
+      properties:
+        canContinue:
+          type: boolean
+        reason:
+          type: string
+        stage:
+          type: string
+      required:
+      - canContinue
+      - reason
       type: object
     CLAORequest:
       properties:
@@ -7518,6 +7688,8 @@ components:
           type: string
         objective:
           type: string
+        parentId:
+          type: string
         projectId:
           type: string
         roles:
@@ -7544,6 +7716,10 @@ components:
           $ref: '#/components/schemas/CLAOFrozenRole'
         confirmedModel:
           type: string
+        directiveIds:
+          items:
+            type: string
+          type: array
         error:
           type: string
         finishedAt:
@@ -7551,6 +7727,8 @@ components:
         id:
           type: string
         incidentId:
+          type: string
+        inputDigest:
           type: string
         modelFactSource:
           type: string
@@ -7566,6 +7744,10 @@ components:
         startedAt:
           type: string
         state:
+          type: string
+        text:
+          type: string
+        turnId:
           type: string
       required:
       - owner

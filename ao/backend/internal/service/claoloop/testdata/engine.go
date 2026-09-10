@@ -49,7 +49,7 @@ func roleInput(text string) map[string]any {
 	for i := 0; i < len(text); i++ {
 		if text[i] == '{' {
 			var obj map[string]any
-			if json.Unmarshal([]byte(text[i:]), &obj) == nil && (obj["audit_id"] != nil || obj["action_id"] != nil || obj["verify_id"] != nil) {
+			if json.NewDecoder(strings.NewReader(text[i:])).Decode(&obj) == nil && (obj["evidence_bundle"] != nil && obj["audit_id"] != nil || obj["audit_result"] != nil && obj["action_id"] != nil || obj["verifier_input"] != nil && obj["verify_id"] != nil) {
 				return obj
 			}
 		}
@@ -94,12 +94,12 @@ func reviewResult(text string) string {
 			continue
 		}
 		var in map[string]any
-		if json.Unmarshal([]byte(text[i:]), &in) != nil {
+		if json.NewDecoder(strings.NewReader(text[i:])).Decode(&in) != nil {
 			continue
 		}
 		id, _ := in["verify_id"].(string)
 		task, _ := in["task_id"].(string)
-		if id == "" {
+		if id == "" || in["verifier_input"] == nil {
 			continue
 		}
 		checks := []any{}
@@ -137,7 +137,11 @@ func complete(m message, codex bool) {
 	// can change project defaults before any subsequent role/repair/replacement.
 	if roleInput(text) == nil && strings.Contains(text, "HOLD_CONFIG") && !strings.Contains(text, "replacement-pass") {
 		trace("config_wait", "waiting for test release")
-		deadline := time.Now().Add(20 * time.Second)
+		wait := 20 * time.Second
+		if os.Getenv("CLAO_FIXTURE_LONG_HOLD") == "1" {
+			wait = 90 * time.Second
+		}
+		deadline := time.Now().Add(wait)
 		for {
 			if _, err := os.Stat(os.Getenv("CLAO_FIXTURE_RELEASE_CONFIG")); err == nil {
 				break
