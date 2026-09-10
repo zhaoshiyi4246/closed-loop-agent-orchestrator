@@ -7,7 +7,7 @@
 ## 当前唯一执行指针
 
 - 当前阶段：**M4 IN_PROGRESS**；M0 / M1 / M2 / M3 保持 COMPLETE。
-- 当前唯一执行内容：**Planner/Auditor 决策与独立角色配置迁移，IN_REVIEW**。本轮从 main `357cfdc` 建立 `codex/ao-native-role-decisions`，本轮角色决策/配置与直接验证已完成，提交独立 PR 等待审计；不合并、不开始下一迁移项。整体“AO 原生底座 + CLAO 闭环迁移”与 M4 保持 IN_PROGRESS；PR #45 被替代、不合并，保留分支与证据；P01/P02 联合真实评测继续暂缓。
+- 当前唯一执行内容：**Planner/Auditor 决策与独立角色配置迁移，IN_REVIEW**。本轮从 main `357cfdc` 建立 `codex/ao-native-role-decisions`，本轮角色决策/配置与直接验证已完成，[PR #47](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/47) 等待审计；不合并、不开始下一迁移项。整体“AO 原生底座 + CLAO 闭环迁移”与 M4 保持 IN_PROGRESS；PR #45 被替代、不合并，保留分支与证据；P01/P02 联合真实评测继续暂缓。
 - 本切片接通四角色冻结选择、只读语义 Session、Auditor → Planner 的五类动作与停止/预算检查、角色与事件记录及原生模型菜单。正常路径仍 gate-first；具体行为差异、验证与边界见 [开发说明](ao/CLAO.md#角色决策与配置切片) 和 [迁移台账](docs/V03_BACKLOG.md)。主目录已有 `clao/config/default.yaml` 修改保持原样；基础切片 DONE，整体迁移和 M4 仍 IN_PROGRESS。
 - 此前完成：**P02 工程接入与离线验证切片 DONE**；[PR #44](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/44) 外部工程审计 PASS，无返修阻塞项，2026-09-09 已 rebase 合入 main `c112e25d332a284e857c9b2b0d3bd1ad32856485`，合入 tree 与已审计 head `d140e5d14e152ad1a64a4643bcbb1b775bac4a38` 一致。P01 工程切片保持 DONE；P01/P02 整卡及 M4 保持 IN_PROGRESS。
 - P02 已合入 Moonshot 国内通用 `kimi-k3`，复用原传输/角色校验与模型页；凭据及外发许可按实际服务隔离，旧 GLM/Codex 配置兼容、当前快照冻结。最终 Windows P02/浏览器定向 65 passed，Codex/Worker 停止兼容 41 passed；实际 Edge 截图自查及首轮修正见 P02 卡。仅外部边界使用替身，真实模型仍 NOT_RUN，P02 整卡与 M4 不标完成；不开始 P03。

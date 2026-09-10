@@ -25,7 +25,7 @@
 
 ### 原生 Planner/Auditor 与角色配置切片（2026-09-10）
 
-- 状态 **IN_REVIEW**；从 main `357cfdc` 建立 `codex/ao-native-role-decisions`，不合并。基础切片 DONE；整体迁移/M4 IN_PROGRESS；旧 M0–M3 与 P01/P02 工程历史保留，联合真实评测暂缓。
+- 状态 **IN_REVIEW**；[PR #47](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/47)，实现提交 `1378c51`；从 main `357cfdc` 建立 `codex/ao-native-role-decisions`，不合并。基础切片 DONE；整体迁移/M4 IN_PROGRESS；旧 M0–M3 与 P01/P02 工程历史保留，联合真实评测暂缓。
 - 复用旧 Auditor/Planner Prompt、Schema、ID/目标/AC/一致性及完整证据限制，通过原生 Chat 独立只读 Session 执行。正常路径不加 Auditor/Planner；失败记录关联审核、决策、一次动作及 Gate/Verifier。角色配置冻结，缺字段历史不伪造新角色记录。
 - 五动作：CONTINUE 仅观察/一次确定性复查；SEND_LOCAL_FIX 只发当前 Worker 一条修复；REPLAN_SPAWN 停止后从原 base 替换、原目标/AC/范围/Gate 不变；CANDIDATE_DONE 只触发验收；HUMAN 合法结束自动处理并允许新尝试。有限预算/同一文件证据无进展阻止重复链。没有多任务分解、并行 Worker 或新的状态权威。
 - 只读权限与不可变 owner 扩展至全部角色；操作回执丢失按精确 owner 关联，保留 UNKNOWN、不重发。取消覆盖所有关联 Session，迟到结果不触发动作。Codex 只读 sandbox、禁用继承 MCP/子 Agent/联网工具；OpenCode 原生临时 agent 禁用所有工具、ACP 不批准提权；不改用户原生配置。
