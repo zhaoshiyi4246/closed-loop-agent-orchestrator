@@ -79,6 +79,8 @@ $env:CODEX_HOME = Join-Path $profileDir '.codex'
 
 创建时展开“角色与决策预算”，为 Auditor、Planner、Verifier 选择“沿用 Worker”，或使用原生 Agent / Model 菜单单独搜索、点击型号。继承只复制当次配置，每次角色调用都有独立 Session/工作区/上下文。模型留空仍表示原生默认，不强填型号；实际选择、AO 配置解析值和执行器明确报告值分别显示。ACP 仅设置成功但没有回传当前型号时显示 unknown，不能从请求值推断；Codex 记录 thread/start resolved 事实，不冒充每一次 provider 请求型号。角色开始/结束计时来自真实调用边界，不是 Mission 总耗时，用量/费用未提供时为 unknown。
 
+默认值贯通到实际 Chat：创建表单已展示并确认的项目模型作为具体型号提交；主动清空模型表示执行器默认/不覆盖。角色“沿用 Worker”复制该次已确认选择，换执行器后的空模型不会继承项目 Worker 的型号。Manager 的预检、Session 记录和 Chat 启动共用这一配置规则，局部修复的 Chat 恢复使用 Session 已保存的模型/权限；后续角色及替代 Worker 使用 Mission 冻结选择，不再合并当前项目默认。只能由执行器解析的空型号继续保持不覆盖，确认事实不足时显示 unknown。普通非闭环 AO 的项目/角色默认继承与恢复行为保持原样，历史记录不因本次修复重写。
+
 原生 Codex 有可读 active account 引用时保存引用并在调用前核对，账号变化停止继续；AO v0.12.12 没有 per-spawn 独立账号参数，故不提供假的逐角色换账号功能。其他执行器沿用其原生认证，未提供账号事实不猜测。配置与角色冻结保存在现有 `clao_missions` 文档，之后改项目默认值不改变当前角色或 Worker 恢复参数。历史缺角色字段保持历史缺失，不写入新的角色/模型事实；旧 HTTP 连接、系统凭据仍未自动导入。
 
 当前语义通道以 `read-only` 能力准入：Codex 原生 read-only sandbox/never approval，逐线程禁用继承 MCP、子 Agent、shell 与 web 工具；OpenCode 原生临时命名 agent 的全部工具/权限 deny，并在 ACP 客户端拒绝提权。权限覆盖仅本次调用，不改全局配置。结束后还需确认 Session 已停止且语义工作区相对其固定 base 无改动。其他上游 Chat/TUI 工具的普通能力原样保留，缺少这项明确只读映射时不能承载自动语义角色；不能将未安装与缺少只读能力混为一谈。当前验证代表为 OpenCode 语义角色，另有 Kimi Worker + OpenCode 角色混用；不宣称全部执行器/真实账号准入。

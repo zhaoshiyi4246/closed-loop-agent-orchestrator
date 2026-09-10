@@ -1298,3 +1298,74 @@ func TestSendRefusedForTerminatedChatSession(t *testing.T) {
 		t.Errorf("a terminated session still received %v", launcher.relayed)
 	}
 }
+
+// Exercise Manager -> launchChatController, not just the config helpers.
+func TestChatSpawnModelChoiceOwnership(t *testing.T) {
+	for _, tc := range []struct {
+		name, owner, model, want string
+	}{
+		{"clao executor default", "mission-1:auditor:0", "", ""},
+		{"clao explicit model", "mission-1:verifier:0", "role-model", "role-model"},
+		{"ordinary project inheritance", "", "", "project-worker-model"},
+		{"ordinary explicit override", "", "role-model", "role-model"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			launcher := &recordingLauncher{}
+			mgr, store, runtime := newChatManager(launcher)
+			mgr.dataDir = t.TempDir()
+			project := store.projects[string(chatTestProject)]
+			project.Config.AgentConfig = domain.AgentConfig{Model: "project-base-model", Permissions: domain.PermissionModeAuto}
+			project.Config.Worker = domain.RoleOverride{Harness: domain.HarnessKimi, AgentConfig: domain.AgentConfig{Model: "project-worker-model"}}
+			store.projects[string(chatTestProject)] = project
+			rec, _, _, err := mgr.Spawn(context.Background(), ports.SpawnConfig{
+				ProjectID: chatTestProject, Kind: domain.KindWorker, Harness: domain.HarnessOpenCode,
+				RequestedMode: domain.SessionModeChat, CLAOMissionID: tc.owner, CLAOBaseSHA: "frozen-base",
+				AgentConfig: domain.AgentConfig{Model: tc.model, Permissions: domain.PermissionModeReadOnly},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(launcher.started) != 1 || launcher.started[0].Model != tc.want || rec.Metadata.Model != tc.want {
+				t.Fatalf("Chat starts=%+v, Session model=%q, want %q", launcher.started, rec.Metadata.Model, tc.want)
+			}
+			if launcher.started[0].Harness != domain.HarnessOpenCode || launcher.started[0].Permissions != domain.PermissionModeReadOnly || rec.Metadata.Permissions != domain.PermissionModeReadOnly || runtime.created != 0 {
+				t.Fatal("harness/permissions or single Chat controller boundary changed")
+			}
+		})
+	}
+}
+
+func TestChatResumeModelChoiceOwnership(t *testing.T) {
+	for _, tc := range []struct {
+		name, owner, saved, want string
+	}{
+		{"clao executor default", "mission-1", "", ""},
+		{"clao explicit model", "mission-1", "frozen-model", "frozen-model"},
+		{"ordinary latest project model", "", "old-model", "new-project-model"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			launcher := &recordingLauncher{}
+			mgr, store, runtime := newChatManager(launcher)
+			mgr.dataDir = t.TempDir()
+			seedChatResumeSession(store, domain.ActivityExited)
+			rec := store.sessions["mer-1"]
+			rec.Harness = domain.HarnessOpenCode
+			rec.Metadata.Model, rec.Metadata.CLAOMissionID = tc.saved, tc.owner
+			rec.Metadata.Permissions = domain.PermissionModeReadOnly
+			store.sessions[rec.ID] = rec
+			project := store.projects[string(chatTestProject)]
+			project.Config.Worker.AgentConfig = domain.AgentConfig{Model: "new-project-model", Permissions: domain.PermissionModeAuto}
+			store.projects[string(chatTestProject)] = project
+			result, err := mgr.ResumeAgentWithMode(ports.WithCLAOOwner(context.Background(), "mission-1"), rec.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(launcher.started) != 1 || launcher.started[0].Model != tc.want || launcher.started[0].Permissions != rec.Metadata.Permissions {
+				t.Fatalf("Chat resume=%+v, want model %q and saved permissions", launcher.started, tc.want)
+			}
+			if result.Session.Metadata.Model != tc.saved || runtime.created != 0 {
+				t.Fatal("resume rewrote saved model facts or launched a terminal")
+			}
+		})
+	}
+}

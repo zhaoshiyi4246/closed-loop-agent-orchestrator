@@ -162,10 +162,7 @@ func (m *Manager) launchChatController(ctx context.Context, in chatSpawn) (domai
 		return domain.SessionRecord{}, wrapSpawnStage(id, ErrChatController, err)
 	}
 	defer releaseCodexAdmission()
-	agentConfig := applySpawnAgentConfig(
-		effectiveAgentConfig(in.cfg.Kind, in.project.Config),
-		in.cfg.AgentConfig,
-	)
+	agentConfig := spawnAgentConfig(in.cfg, in.project.Config)
 
 	var diffBaseSHA, diffBaseRef string
 	if in.projectKind == domain.ProjectKindSingleRepo {
@@ -381,10 +378,7 @@ func (m *Manager) resumeChatController(
 		return RestoreResult{}, fmt.Errorf("%s %s: switched continuation: %w", operation, rec.ID, err)
 	}
 
-	agentConfig := effectiveAgentConfig(rec.Kind, project.Config)
-	if rec.Metadata.Permissions != "" {
-		agentConfig.Permissions = rec.Metadata.Permissions
-	}
+	agentConfig := restoreAgentConfig(rec, project.Config)
 	additionalDirectories, err := m.restoredWorkspaceProjectDirectories(ctx, rec, project, ws.Path)
 	if err != nil {
 		return RestoreResult{}, fmt.Errorf("%s %s: workspace roots: %w", operation, rec.ID, err)
