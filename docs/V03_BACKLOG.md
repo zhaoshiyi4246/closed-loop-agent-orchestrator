@@ -32,6 +32,8 @@
 - 直接 Windows 验证：真实 AO HTTP/SQLite/Session/Git + 外部协议替身 **27 passed / 1 xfailed**；独立 Kimi Worker + OpenCode 角色、不同模型、五动作、回执和取消均覆盖。Python 角色负例 **15 passed**；原生创建对话框 **16 passed**（另补预算输入与历史角色字段兼容各 **1 passed**）；Go 定向、类型/开发构建、Electron 原生菜单与正常/修复/HUMAN 旅程见 [开发说明](../ao/CLAO.md#角色决策与配置切片)。不是真实模型或全执行器兼容证明。
 - 首轮检查修正了空集合字段、Verifier 错误归属及“设置 ACK 不能冒充模型回传”；Go 相关测试改用 Windows 临时绝对目录。首轮一项 HTTP 连接重置，保留相同断言复查通过。首轮 Electron Git 子进程 `0xc0000142` 未启动 Mission，界面保留真实错误；独立复查正常完成，未放宽账户/权限检查。
 - 补充定向：同文件证据无进展 **1 passed**、明确模型回传与冻结选择分离 **1 passed**；Go 新增恢复/模型来源校验通过（构造夹具补齐原生 capability map），不改业务断言。
+- PR #47 默认模型返修：修正实际 `launchChatController` 和 Chat 恢复重新合并项目模型的缺口；预检、Session 权限记录和执行入口复用同一选择规则。闭环空型号明确为执行器不覆盖、继承为当次 Worker 选择；项目已选型号作为确认值冻结。普通 AO 的默认继承不变，不改历史记录。新增正式 HTTP → SessionManager → Chat → ACP 协议回归，在 Worker 等待时改项目默认，覆盖跨执行器默认、明确型号、继承、后续三角色、局部恢复及替代 Worker；另有普通 AO 继承/显式覆盖正例。仅外部引擎替身，真实 Git/SQLite/Controller 保留。
+- 返修 Windows 定向：`test_ao_native.py` 的默认模型/普通 AO/显式角色共 **6 个用例分批通过**（4 个默认变化场景、1 个普通 AO、1 个已有显式角色回归）；首次新用例因空 `roleCalls` / `roles` 被 API 省略而读取失败，改按现有省略契约读取，完整执行/型号断言保留。SessionManager 首次 Chat/恢复参数与既有配置/权限检查通过（含 7 个新增表格场景）；Go daemon 开发构建、Python compileall、diff-check 通过。未改前端/API 结构，未重跑浏览器/全量/smoke/发行/真实账户或模型；`account_storage_unsafe` 边界不变。本切片 IN_REVIEW，整体迁移/M4 IN_PROGRESS。
 - 截图：[原生角色模型菜单](reference/ao-native/roles/roles-native-model-menu.png)、[正常独立复核](reference/ao-native/roles/roles-independent-verifier.png)、[审核/规划/修复](reference/ao-native/roles/roles-audit-planner-repair.png)、[交人工](reference/ao-native/roles/roles-human-decision.png)。实际 Electron 截图已由 Codex 自查，不等同负责人完整体验验收。
 - NOT_RUN：真实账户/模型/套餐、全量、smoke、发行安装包与完整体验。Codex 隔离 `account_storage_unsafe` 仍待解决，xfailed 不计执行通过。后续恢复/指令回执、旧连接和历史导入、普通目录来源、导出/结果中心与运行图均未实施。
 

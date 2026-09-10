@@ -133,6 +133,21 @@ func extractText(params map[string]any) string {
 func complete(m message, codex bool) {
 	text := extractText(m.Params)
 	trace("prompt", text)
+	// Hold only the initial Worker at the external protocol boundary so a test
+	// can change project defaults before any subsequent role/repair/replacement.
+	if roleInput(text) == nil && strings.Contains(text, "HOLD_CONFIG") && !strings.Contains(text, "replacement-pass") {
+		trace("config_wait", "waiting for test release")
+		deadline := time.Now().Add(20 * time.Second)
+		for {
+			if _, err := os.Stat(os.Getenv("CLAO_FIXTURE_RELEASE_CONFIG")); err == nil {
+				break
+			}
+			if time.Now().After(deadline) {
+				panic("test configuration release not received")
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
 	answer := "Worker turn complete; await program acceptance."
 	if in := roleInput(text); in != nil && (in["audit_id"] != nil || in["action_id"] != nil) {
 		answer = roleResult(in, text)
@@ -246,6 +261,7 @@ func main() {
 			if id, ok := m.Params["sessionId"].(string); ok {
 				session = id
 			}
+			trace(m.Method, promptText(m.Params))
 			reply(m.ID, map[string]any{"sessionId": session, "configOptions": options(), "models": map[string]any{"currentModelId": "test/native", "availableModels": []any{map[string]any{"modelId": "test/native", "name": "Native fixture"}}}})
 		case "session/set_config_option", "session/set_model", "session/set_mode":
 			trace("selection", promptText(m.Params))

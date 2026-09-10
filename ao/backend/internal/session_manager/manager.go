@@ -858,10 +858,7 @@ func (m *Manager) Spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.Sess
 	// Resolve the effective agent config (project base + role override + spawn
 	// override) and validate the model before any durable state is created. A
 	// model the harness cannot honor should not leave a seed row behind.
-	agentConfig := applySpawnAgentConfig(effectiveAgentConfig(cfg.Kind, project.Config), cfg.AgentConfig)
-	if cfg.CLAOMissionID != "" {
-		agentConfig = cfg.AgentConfig
-	}
+	agentConfig := spawnAgentConfig(cfg, project.Config)
 	if err := validateSpawnModel(cfg.Harness, agentConfig.Model); err != nil {
 		return domain.SessionRecord{}, 0, 0, fmt.Errorf("spawn: %w: %s", ErrUnsupportedModel, err.Error())
 	}
@@ -1438,6 +1435,27 @@ func effectiveAgentConfig(kind domain.SessionKind, cfg domain.ProjectConfig) por
 		merged.Permissions = override.Permissions
 	}
 	return merged
+}
+
+// CLAO resolves choices before dispatch. Empty Model deliberately means the
+// executor default, not an invitation to merge the current project defaults.
+// Use the same rule for validation, the seed record, and the actual controller.
+func spawnAgentConfig(cfg ports.SpawnConfig, project domain.ProjectConfig) ports.AgentConfig {
+	if cfg.CLAOMissionID != "" {
+		return cfg.AgentConfig
+	}
+	return applySpawnAgentConfig(effectiveAgentConfig(cfg.Kind, project), cfg.AgentConfig)
+}
+
+func restoreAgentConfig(rec domain.SessionRecord, project domain.ProjectConfig) ports.AgentConfig {
+	if rec.Metadata.CLAOMissionID != "" {
+		return ports.AgentConfig{Model: rec.Metadata.Model, Permissions: rec.Metadata.Permissions}
+	}
+	config := effectiveAgentConfig(rec.Kind, project)
+	if rec.Metadata.Permissions != "" {
+		config.Permissions = rec.Metadata.Permissions
+	}
+	return config
 }
 
 func applySpawnAgentConfig(base, override ports.AgentConfig) ports.AgentConfig {
@@ -2269,15 +2287,9 @@ func (m *Manager) relaunchSessionWithPolicyAndGeneration(ctx context.Context, op
 		return RestoreResult{}, fmt.Errorf("%s %s: system prompt file: %w", operation, rec.ID, err)
 	}
 
-	// Restore resolves the project model while retaining this session's pinned
-	// permission policy independently of future project defaults.
-	agentConfig := effectiveAgentConfig(rec.Kind, project.Config)
-	if rec.Metadata.CLAOMissionID != "" {
-		agentConfig = ports.AgentConfig{Model: rec.Metadata.Model, Permissions: rec.Metadata.Permissions}
-	}
-	if rec.Metadata.Permissions != "" {
-		agentConfig.Permissions = rec.Metadata.Permissions
-	}
+	// Ordinary AO restores retain project inheritance; CLAO restores use the
+	// recorded choice, including an intentionally empty executor-default model.
+	agentConfig := restoreAgentConfig(rec, project.Config)
 	var env map[string]string
 	rec, env, err = m.prepareWorkerLaunchEnv(ctx, rec, project.Config.Env)
 	if err != nil {
@@ -3824,7 +3836,7 @@ func seedRecord(cfg ports.SpawnConfig, projectConfig domain.ProjectConfig, now t
 		// Resolved before this point and persisted here. There is no UPDATE
 		// statement that can change it afterwards.
 		Mode:              domain.NormalizeSessionMode(cfg.RequestedMode),
-		Metadata:          domain.SessionMetadata{CLAOMissionID: cfg.CLAOMissionID, Permissions: applySpawnAgentConfig(effectiveAgentConfig(cfg.Kind, projectConfig), cfg.AgentConfig).Permissions},
+		Metadata:          domain.SessionMetadata{CLAOMissionID: cfg.CLAOMissionID, Permissions: spawnAgentConfig(cfg, projectConfig).Permissions},
 		AutoReviewEnabled: projectConfig.AutoReview && cfg.CLAOMissionID == "",
 		AutoInjectReview:  cfg.CLAOMissionID == "",
 		AutoInjectCI:      cfg.CLAOMissionID == "",

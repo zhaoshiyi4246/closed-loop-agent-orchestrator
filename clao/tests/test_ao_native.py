@@ -68,15 +68,16 @@ def native(tmp_path, native_engine):
                 "AO_TELEMETRY_EVENTS": "off", "AO_TELEMETRY_REMOTE": "off", "AO_SENTRY_DSN": "",
                 "CLAO_CORE_PYTHON": sys.executable, "CLAO_CORE_ROOT": str(ROOT / "clao"),
                 "CLAO_FIXTURE_TRACE": str(tmp_path / "external.jsonl"),
+                "CLAO_FIXTURE_RELEASE_CONFIG": str(tmp_path / "release-config"),
                 "CLAO_FIXTURE_FAIL_START": str(tmp_path / "reject-start")})
     log_path = tmp_path / "daemon.log"
     log = log_path.open("wb")
     proc = subprocess.Popen([str(binary), "daemon"], env=env, cwd=AO / "frontend", stdout=log, stderr=subprocess.STDOUT)
     url = f"http://127.0.0.1:{port}"
 
-    def api(path, body=None, headers=None):
+    def api(path, body=None, headers=None, method=None):
         request = urllib.request.Request(url + path, data=None if body is None else json.dumps(body).encode(),
-                                         headers={"Origin": url, "Content-Type": "application/json", **(headers or {})})
+                                         headers={"Origin": url, "Content-Type": "application/json", **(headers or {})}, method=method)
         try:
             with urllib.request.urlopen(request, timeout=35) as response:
                 return response.status, json.load(response) if response.status != 204 else {}
@@ -101,9 +102,9 @@ def native(tmp_path, native_engine):
         status, nonce = api("/api/v1/clao/session")
         assert status == 200, nonce
 
-        def submit(objective, repairs=1, agent="opencode", on_running=None, roles=None, replans=0):
+        def submit(objective, repairs=1, agent="opencode", on_running=None, roles=None, replans=0, model="test/native"):
             spec = {"id": "clao-test-" + hashlib.sha256(objective.encode()).hexdigest()[:12], "projectId": project_id,
-                    "objective": objective, "agent": agent, "model": "test/native", "allowedPaths": ["**"], "forbiddenPaths": ["private/**"],
+                    "objective": objective, "agent": agent, "model": model, "allowedPaths": ["**"], "forbiddenPaths": ["private/**"],
                     "criteria": [{"id": "AC1", "description": "result.txt contains accepted"}], "gateCommands": ["python check.py"],
                     "maxRepairs": repairs, "maxReplans": replans, "roles": roles or {}, "gateTimeout": 10}
             status, result = api("/api/v1/clao/missions", spec, {"X-CLAO-Nonce": nonce["nonce"]})
@@ -463,3 +464,105 @@ def test_native_reported_model_is_separate_from_frozen_choice(native):
     call=result["roleCalls"][0]
     assert call["choice"]["model"]==call["resolvedModel"]=="test/second"
     assert call["confirmedModel"]=="test/provider-confirmed" and call["modelFactSource"]=="ACP session/catalog"
+
+
+@pytest.mark.parametrize("agent,model,marker,roles", [
+    ("kimi", "test/second", "PLAN_REPLACE", {
+        "auditor": {"agent": "opencode", "model": ""},
+        "planner": {"agent": "opencode", "model": "test/native"},
+        "verifier": {"agent": "opencode", "model": ""},
+    }),
+    ("kimi", "", "PLAN_REPLACE", {r: {"agent": "opencode", "model": ""} for r in ("auditor", "planner", "verifier")}),
+    ("opencode", "", "REPAIR_ONCE", {}),
+    ("opencode", "test/second", "REPAIR_ONCE", {
+        "auditor": {"agent": "opencode", "model": ""},
+        "planner": {"agent": "opencode", "model": "test/native"},
+    }),
+])
+def test_native_chat_uses_frozen_model_defaults(native, agent, model, marker, roles):
+    submit, api, nonce, source, base, temp = native
+    project_id = next(p["id"] for p in api("/api/v1/projects")[1]["projects"] if Path(p["path"]) == source)
+
+    def configure(value):
+        config = {"defaultBranch": "main", "worker": {"agent": "kimi", "agentConfig": {"model": value}}}
+        status, response = api(f"/api/v1/projects/{project_id}/config", {"config": config}, method="PUT")
+        assert status == 200, response
+
+    configure("test/second")
+    changed = []
+
+    def change_while_worker_waits(mission):
+        if changed:
+            return
+        traces = [json.loads(line) for line in (temp / "external.jsonl").read_text("utf-8").splitlines()]
+        if not any(t["kind"] == "config_wait" for t in traces):
+            return
+        assert not mission.get("roleCalls", []) and not mission["replans"]
+        configure("test/native")
+        changed.append(True)
+        (temp / "release-config").write_text("release", encoding="utf-8")
+
+    result = submit(marker + " HOLD_CONFIG confirmed model choices", agent=agent, model=model,
+                    roles=roles, replans=1 if marker == "PLAN_REPLACE" else 0, on_running=change_while_worker_waits)
+    assert changed and result["state"] == "DONE", result
+    assert [c["role"] for c in result["roleCalls"]] == ["auditor", "planner", "verifier"]
+    assert result["roles"]["worker"]["model"] == model
+    assert result["request"]["model"] == model and result["request"].get("roles", {}) == roles
+    traces = [json.loads(line) for line in (temp / "external.jsonl").read_text("utf-8").splitlines()]
+    sessions = {result["sessionId"]: (model, False)}
+    if marker == "PLAN_REPLACE":
+        sessions[result["decisions"][0]["workerId"]] = (model, False)
+    for call in result["roleCalls"]:
+        expected = roles.get(call["role"], {"model": model})["model"]
+        assert call["choice"]["model"] == expected
+        assert call["choice"]["inherited"] == (call["role"] not in roles)
+        assert call.get("resolvedModel", "") == expected
+        # A missing override has a native catalog fact, never the project value.
+        if not expected:
+            assert call["confirmedModel"] == "test/native"
+        sessions[call["sessionId"]] = (expected, True)
+    for sid, (expected, readonly) in sessions.items():
+        status, view = api("/api/v1/sessions/" + sid)
+        assert status == 200, view
+        assert view["session"].get("model", "") == expected
+        with sqlite3.connect(temp / "isolated-home/native/data/ao.db") as db:
+            workspace, saved_model, permissions = db.execute("SELECT workspace_path, model, session_permissions FROM sessions WHERE id = ?", (sid,)).fetchone()
+        assert (saved_model or "") == expected
+        assert permissions == ("read-only" if readonly else "default")
+        starts = [t for t in traces if t["workspace"] == workspace and t["kind"] in {"session/new", "session/load", "session/resume"}]
+        assert starts, (sid, traces)
+        selected = [json.loads(t["text"]) for t in traces if t["workspace"] == workspace and t["kind"] == "selection"]
+        selected = [v.get("value", v.get("modelId")) for v in selected if v.get("configId") == "model" or "modelId" in v]
+        if expected:
+            assert selected and set(selected) == {expected}, (sid, expected, selected)
+        else:
+            assert not selected, (sid, selected)
+        if sid == result["sessionId"] and marker == "REPAIR_ONCE":
+            assert len(starts) == 2  # initial spawn and actual Chat resume
+        if readonly:
+            policies = [json.loads(t["text"]) for t in traces if t["workspace"] == workspace and t["kind"] == "policy" and t["text"]]
+            assert policies and all(p["permission"] == "deny" for p in policies)
+    # Historical reads do not recompute choices from new project defaults.
+    assert api("/api/v1/clao/missions/" + result["request"]["id"])[1]["mission"] == result
+
+
+def test_native_ordinary_chat_keeps_project_model_inheritance(native):
+    _, api, _, source, _, temp = native
+    project_id = next(p["id"] for p in api("/api/v1/projects")[1]["projects"] if Path(p["path"]) == source)
+    for project_model, explicit in [("test/second", ""), ("test/native", "test/second")]:
+        status, response = api(f"/api/v1/projects/{project_id}/config", {"config": {
+            "defaultBranch": "main", "worker": {"agent": "opencode", "agentConfig": {"model": project_model}}
+        }}, method="PUT")
+        assert status == 200, response
+        status, response = api("/api/v1/sessions", {"projectId": project_id, "kind": "worker", "mode": "chat", "model": explicit})
+        assert status in (200, 201), response
+        session = response["session"]
+        expected = explicit or project_model
+        assert session["model"] == expected
+        traces = [json.loads(line) for line in (temp / "external.jsonl").read_text("utf-8").splitlines()]
+        with sqlite3.connect(temp / "isolated-home/native/data/ao.db") as db:
+            workspace, saved = db.execute("SELECT workspace_path, model FROM sessions WHERE id = ?", (session["id"],)).fetchone()
+        assert saved == expected
+        choices = [json.loads(t["text"]) for t in traces if t["kind"] == "selection" and t["workspace"] == workspace]
+        assert any(t.get("value", t.get("modelId")) == expected for t in choices), choices
+        assert api("/api/v1/sessions/" + session["id"] + "/kill", {})[0] == 200
