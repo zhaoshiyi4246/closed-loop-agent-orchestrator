@@ -100,6 +100,7 @@ func (d *Driver) Harness() domain.AgentHarness { return domain.HarnessCodex }
 // entry here was exercised against a live app-server rather than read off a doc.
 func capabilities() ports.ChatCapabilities {
 	return ports.ChatCapabilities{
+		ports.ChatCapabilityReadOnly:    true,
 		ports.ChatCapabilityStreaming:   true,
 		ports.ChatCapabilityTools:       true,
 		ports.ChatCapabilityApprovals:   true,
@@ -292,6 +293,19 @@ func (d *Driver) Start(ctx context.Context, cfg ports.ChatStartConfig) (ports.Ch
 	if cfg.SystemPrompt != "" {
 		params["developerInstructions"] = cfg.SystemPrompt
 	}
+	if cfg.Permissions == ports.PermissionModeReadOnly {
+		override, e := readOnlyConfig(ctx, conv, cfg.WorkspacePath)
+		if e != nil {
+			_ = conv.Terminate()
+			return nil, e
+		}
+		if current, ok := params["config"].(map[string]any); ok {
+			for k, v := range current {
+				override[k] = v
+			}
+		}
+		params["config"] = override
+	}
 
 	var resp struct {
 		Thread struct {
@@ -359,6 +373,19 @@ func (d *Driver) Resume(ctx context.Context, cfg ports.ChatResumeConfig) (ports.
 	// native thread, just as the TUI adapter does with its resume command.
 	if cfg.SystemPrompt != "" {
 		params["developerInstructions"] = cfg.SystemPrompt
+	}
+	if cfg.Permissions == ports.PermissionModeReadOnly {
+		override, e := readOnlyConfig(ctx, conv, cfg.WorkspacePath)
+		if e != nil {
+			_ = conv.Terminate()
+			return nil, e
+		}
+		if current, ok := params["config"].(map[string]any); ok {
+			for k, v := range current {
+				override[k] = v
+			}
+		}
+		params["config"] = override
 	}
 	resumeCtx, cancel := context.WithTimeout(ctx, handshakeTimeout)
 	defer cancel()
@@ -492,6 +519,8 @@ func initializeConnection(ctx context.Context, connection *conn) error {
 // become stricter than the terminal path for the same setting.
 func approvalSettings(mode ports.PermissionMode) (policy, sandbox string) {
 	switch ports.NormalizePermissionMode(mode) {
+	case ports.PermissionModeReadOnly:
+		return "never", "read-only"
 	case ports.PermissionModeAcceptEdits, ports.PermissionModeAuto:
 		// on-request lets the provider decide when to ask; workspace-write keeps
 		// edits inside the worktree.
@@ -596,4 +625,28 @@ func codexProcessEnv(ctx context.Context, bin string, env map[string]string) []s
 	}
 	agentlaunch.AugmentRuntimePATHForLaunchBinary(ctx, overlay, []string{bin}, exec.LookPath)
 	return envSlice(overlay)
+}
+
+// Resolve only the names of native MCP entries through the public config API.
+// Override this thread, never the user's config. Empty tables cannot safely
+// disable inherited servers under Codex's recursive configuration merge.
+func readOnlyConfig(ctx context.Context, conv *conversation, cwd string) (map[string]any, error) {
+	ctx, cancel := context.WithTimeout(ctx, handshakeTimeout)
+	defer cancel()
+	var facts struct {
+		Config *struct {
+			MCP map[string]json.RawMessage `json:"mcp_servers"`
+		} `json:"config"`
+	}
+	if err := conv.conn.request(ctx, "config/read", map[string]any{"includeLayers": false, "cwd": cwd}, &facts); err != nil {
+		return nil, fmt.Errorf("read-only tool configuration unavailable: %w", err)
+	}
+	if facts.Config == nil {
+		return nil, errors.New("read-only config response omitted config")
+	}
+	servers := map[string]any{}
+	for name := range facts.Config.MCP {
+		servers[name] = map[string]any{"enabled": false}
+	}
+	return map[string]any{"mcp_servers": servers, "features": map[string]any{"multi_agent": false, "shell_tool": false, "apps": false}, "web_search": "disabled"}, nil
 }

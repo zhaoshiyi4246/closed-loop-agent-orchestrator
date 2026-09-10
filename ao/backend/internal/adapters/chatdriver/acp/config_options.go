@@ -141,6 +141,12 @@ func (c *conversation) replaceConfigOptions(options []acpsdk.SessionConfigOption
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.configOptions = normalized
+	c.reportedModel = ""
+	for _, opt := range normalized {
+		if opt.ID == "model" || opt.Category == "model" {
+			c.reportedModel = opt.Current.Select
+		}
+	}
 	if len(normalized) > 0 {
 		c.capabilities[ports.ChatCapabilityConfigOptions] = true
 	}
@@ -159,6 +165,9 @@ func (c *conversation) applyAcceptedConfigOption(id string, value ports.ChatConf
 		}
 		switch c.configOptions[i].Type {
 		case ports.ChatConfigOptionSelect:
+			if (id == "model" || c.configOptions[i].Category == "model") && c.reportedModel != value.Select {
+				c.reportedModel = ""
+			}
 			c.configOptions[i].Current = ports.ChatConfigOptionValue{Select: value.Select}
 		case ports.ChatConfigOptionBoolean:
 			if value.Boolean != nil {
@@ -449,4 +458,10 @@ func cloneConfigOptions(options []ports.ChatConfigOption) []ports.ChatConfigOpti
 		}
 	}
 	return out
+}
+
+func (c *conversation) ReportedModel() (string, string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.reportedModel, "ACP session/catalog"
 }

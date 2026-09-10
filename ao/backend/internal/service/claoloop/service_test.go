@@ -307,3 +307,49 @@ func TestCLAOCancelReceiptFailureHasNoStopSideEffect(t *testing.T) {
 		t.Fatal("failed durable receipt produced a stop action")
 	}
 }
+
+func TestCLAORoleRecoveryReattachesImmutableOwnerAndNeverDispatches(t *testing.T) {
+	dir := t.TempDir()
+	st, err := sqlitetest.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	now := time.Now().UTC()
+	req := contract()
+	if err = st.UpsertProject(ctx, domain.ProjectRecord{ID: string(req.ProjectID), Path: dir, RegisteredAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	owner := req.ID + ":planner:1"
+	rec, err := st.CreateSession(ctx, domain.SessionRecord{ProjectID: req.ProjectID, Kind: domain.KindWorker, Harness: req.Agent, Mode: domain.SessionModeChat, Activity: domain.Activity{State: domain.ActivityExited, LastActivityAt: now}, Metadata: domain.SessionMetadata{CLAOMissionID: owner, WorkspacePath: dir}, CreatedAt: now, UpdatedAt: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	frozen := FrozenRole{RoleChoice: RoleChoice{Agent: domain.HarnessOpenCode, Model: "frozen/second"}}
+	m := Mission{Request: req, Roles: map[string]FrozenRole{"planner": frozen}, RoleCalls: []RoleCall{{ID: "plan-1", Owner: owner, Role: "planner", State: "STARTING", Choice: frozen}}, State: "PLANNING", Revision: 1, Operations: []Operation{{Kind: "spawn_planner", Target: owner, State: "IN_FLIGHT"}}, UpdatedAt: now.Format(time.RFC3339Nano)}
+	if err = st.CreateCLAOMission(ctx, record(m)); err != nil {
+		t.Fatal(err)
+	}
+	if err = st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	st, err = sqlite.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	// A nil session executor intentionally panics on any attempted side effect.
+	service := New(ctx, st, nil, absentController{}, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	for i := 0; i < 2; i++ {
+		if err = service.Recover(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := service.Get(ctx, req.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != "UNKNOWN" || got.RoleCalls[0].SessionID != rec.ID || got.RoleCalls[0].State != "UNKNOWN" || got.Roles["planner"] != frozen || len(got.Operations) != 1 {
+		t.Fatalf("role recovery: %+v", got)
+	}
+}

@@ -101,11 +101,11 @@ def native(tmp_path, native_engine):
         status, nonce = api("/api/v1/clao/session")
         assert status == 200, nonce
 
-        def submit(objective, repairs=1, agent="opencode", on_running=None):
+        def submit(objective, repairs=1, agent="opencode", on_running=None, roles=None, replans=0):
             spec = {"id": "clao-test-" + hashlib.sha256(objective.encode()).hexdigest()[:12], "projectId": project_id,
                     "objective": objective, "agent": agent, "model": "test/native", "allowedPaths": ["**"], "forbiddenPaths": ["private/**"],
                     "criteria": [{"id": "AC1", "description": "result.txt contains accepted"}], "gateCommands": ["python check.py"],
-                    "maxRepairs": repairs, "gateTimeout": 10}
+                    "maxRepairs": repairs, "maxReplans": replans, "roles": roles or {}, "gateTimeout": 10}
             status, result = api("/api/v1/clao/missions", spec, {"X-CLAO-Nonce": nonce["nonce"]})
             assert status == 202, (result, log_path.read_text("utf-8", errors="replace")[-7000:])
             # Replay the exact receipt: it may observe progress but cannot spawn twice.
@@ -115,7 +115,7 @@ def native(tmp_path, native_engine):
                 assert status == 200, result
                 if on_running and result["mission"].get("sessionId"):
                     on_running(result["mission"])
-                if result["mission"]["state"] in {"DONE", "FAILED", "UNKNOWN", "CANCELLED"}:
+                if result["mission"]["state"] in {"DONE", "FAILED", "UNKNOWN", "CANCELLED", "HUMAN"}:
                     return result["mission"]
                 time.sleep(.15)
             pytest.fail("mission did not settle: " + json.dumps(result) + "\n" + log_path.read_text("utf-8", errors="replace")[-8000:])
@@ -140,6 +140,8 @@ def test_native_opencode_pass_and_frozen_result(native):
     submit, api, nonce, source, base, temp = native
     result = submit("Create result.txt containing accepted")
     assert result["state"] == "DONE", json.dumps(result, ensure_ascii=False)
+    assert [c["role"] for c in result["roleCalls"]] == ["verifier"]
+    assert result.get("decisions", []) == []
     assert result["base"] == base
     assert result["sessionId"] != result["verifierSessionId"]
     assert (Path(result["workspace"]) / "result.txt").read_text() == "accepted\n"
@@ -209,7 +211,7 @@ def test_native_spawn_receipt_loss_adopts_owner_and_requires_stop(native):
 def test_native_gate_failure_sends_only_one_repair(native):
     submit, api, nonce, source, base, temp = native
     result = submit("FAIL_GATE always keep the failure visible", repairs=1)
-    assert result["state"] == "FAILED", json.dumps(result, ensure_ascii=False)
+    assert result["state"] == "HUMAN", json.dumps(result, ensure_ascii=False)
     assert not result.get("resultHead")
     assert not result.get("verifierSessionId")
     assert result["repairs"] == 1
@@ -322,3 +324,142 @@ def test_native_codex_approval_uses_original_permission_facts(tmp_path, context,
                                 'allowed_paths': ['**'], 'forbidden_paths': [],
                                 'acceptance_criteria': [{'id': 'AC1', 'description': 'check'}], 'gate_commands': ['python check.py']}})
     assert result['ok'] is allow
+
+
+
+def test_native_independent_roles_repair_and_frozen_models(native):
+    submit, api, nonce, source, base, temp = native
+    roles = {r: {"agent": "opencode", "model": "test/second"} for r in ("auditor", "planner", "verifier")}
+    result = submit("REPAIR_ONCE use full evidence and repair result", roles=roles)
+    assert result["state"] == "DONE", result
+    assert [c["role"] for c in result["roleCalls"]] == ["auditor", "planner", "verifier"]
+    assert all(c["state"] == "VALIDATED" for c in result["roleCalls"])
+    assert all(c["choice"]["model"] == "test/second" and not c["choice"]["inherited"] for c in result["roleCalls"])
+    assert all(c["resolvedModel"] == "test/second" and not c.get("confirmedModel") for c in result["roleCalls"])
+    assert len({c["sessionId"] for c in result["roleCalls"]} | {result["sessionId"]}) == 4
+    assert result["decisions"][0]["action"] == "SEND_LOCAL_FIX"
+    assert result["decisions"][0]["state"] == "APPLIED" and result["repairs"] == 1
+    assert result["roles"]["worker"]["model"] == "test/native"
+    trace = [json.loads(line) for line in (temp / "external.jsonl").read_text("utf-8").splitlines()]
+    audit_prompt = next(t["text"] for t in trace if t["kind"] == "prompt" and '"audit_id":' in t["text"])
+    assert "AssertionError" in audit_prompt and "broken" in audit_prompt and "source.txt" not in git(source, "status", "--porcelain")
+    policies = [json.loads(t["text"]) for t in trace if t["kind"] == "policy" and t["text"]]
+    readonly = [c for c in policies if c.get("permission") == "deny"]
+    assert len(readonly) >= 3
+    assert all(c["agent"][c["default_agent"]]["permission"] == {"*": "deny"} for c in readonly)
+    for _ in range(3):
+        assert api("/api/v1/clao/missions/" + result["request"]["id"])[1]["mission"] == result
+    assert api("/api/v1/clao/missions", result["request"], {"X-CLAO-Nonce": nonce})[1]["mission"] == result
+    assert len([t for t in trace if t["kind"] == "prompt"]) == 5  # worker, audit, plan, fix, verifier
+
+
+@pytest.mark.parametrize("marker,action,replans,expected", [
+    ("PLAN_REPLACE", "REPLAN_SPAWN", 1, "DONE"),
+    ("PLAN_REPLACE", "REPLAN_SPAWN", 0, "HUMAN"),
+    ("PLAN_HUMAN", "HUMAN", 0, "HUMAN"),
+    ("PLAN_CANDIDATE", "CANDIDATE_DONE", 0, "HUMAN"),
+    ("PLAN_CONTINUE", "CONTINUE", 0, "HUMAN"),
+])
+def test_native_planner_actions_have_distinct_bounded_effects(native, marker, action, replans, expected):
+    submit, api, nonce, source, base, temp = native
+    result = submit(marker + " preserve original task contract", replans=replans)
+    assert result["state"] == expected, result
+    assert result["decisions"][0]["action"] == action
+    assert result["repairs"] == 0
+    assert not any(o["kind"] == "repair_send" for o in result["operations"])
+    replacements = [o for o in result["operations"] if o["kind"] == "spawn_replacement"]
+    if expected == "DONE":
+        assert len(replacements) == result["replans"] == 1
+        old = result["decisions"][0]["workerId"]
+        assert old != result["sessionId"]
+        replacement_index = result["operations"].index(replacements[0])
+        assert any(o["kind"] == "stop" and o["target"] == old and o["state"] == "CONFIRMED_SUCCESS" for o in result["operations"][:replacement_index])
+        assert git(Path(result["workspace"]), "show", result["resultHead"] + ":result.txt") == "accepted"
+        assert result["request"]["objective"].startswith(marker)
+    else:
+        assert not replacements and not result.get("resultHead") and not result.get("verifierSessionId")
+        assert result["reason"]
+        next_result = submit("New attempt after legal HUMAN " + action)
+        assert next_result["state"] == "DONE"
+
+
+def test_native_bad_role_correlation_does_not_send_or_spawn(native):
+    submit, api, nonce, source, base, temp = native
+    result = submit("BAD_ROLE_ID reject other task result")
+    assert result["state"] == "HUMAN", result
+    assert [c["state"] for c in result["roleCalls"]] == ["PROTOCOL_ERROR"]
+    assert not any(o["kind"] in {"repair_send", "spawn_replacement", "spawn_planner"} for o in result["operations"])
+    assert not result.get("resultHead")
+
+
+@pytest.mark.parametrize("role", ["auditor", "planner"])
+def test_native_cancel_during_semantic_wait_stops_every_owner(native, role):
+    submit, api, nonce, source, base, temp = native
+    cancelled = []
+    def cancel(m):
+        calls = m.get("roleCalls", [])
+        if not cancelled and any(c["role"] == role and c["state"] == "RUNNING" for c in calls):
+            status, receipt = api('/api/v1/clao/missions/' + m['request']['id'] + '/cancel', {}, {'X-CLAO-Nonce': nonce})
+            assert status == 202 and receipt['mission']['cancelRequested']
+            cancelled.append(True)
+    result = submit("HOLD_" + role.upper() + " cancel a waiting role", on_running=cancel)
+    assert cancelled and result["state"] == "CANCELLED", result
+    assert not result.get("resultHead") and result["repairs"] == result["replans"] == 0
+    assert next(c for c in result["roleCalls"] if c["role"] == role)["state"] == "CANCELLED"
+    assert not any(o["kind"] in {"repair_send", "spawn_replacement"} for o in result["operations"])
+    assert api("/api/v1/clao/missions", result["request"], {"X-CLAO-Nonce": nonce})[1]["mission"] == result
+
+
+def test_native_role_receipt_loss_adopts_exact_owner_without_replay(native):
+    submit, api, nonce, source, base, temp = native
+    with sqlite3.connect(temp / 'isolated-home/native/data/ao.db') as db:
+        db.execute("""CREATE TRIGGER role_receipt_failure BEFORE UPDATE ON clao_missions
+          WHEN json_extract(NEW.document, '$.operations[#-1].kind') = 'spawn_auditor'
+           AND json_extract(NEW.document, '$.operations[#-1].state') = 'CONFIRMED_SUCCESS'
+          BEGIN SELECT RAISE(ABORT, 'injected role receipt write failure'); END""")
+    result = submit("HOLD_AUDITOR reconcile role ACK")
+    for _ in range(60):
+        result = api("/api/v1/clao/missions/" + result["request"]["id"])[1]["mission"]
+        if result["roleCalls"][-1].get("sessionId"):
+            break
+        time.sleep(.1)
+    assert result["state"] == "UNKNOWN" and result["roleCalls"][-1]["state"] == "UNKNOWN", result
+    assert result["roleCalls"][-1].get("sessionId")
+    assert api("/api/v1/clao/missions", result["request"], {"X-CLAO-Nonce": nonce})[0] == 202
+    assert api("/api/v1/clao/missions", {**result["request"], "id": result["request"]["id"] + "-new"}, {"X-CLAO-Nonce": nonce})[0] == 400
+    assert (temp / "external.jsonl").read_text("utf-8").count('"kind":"waiting"') == 1
+    assert api('/api/v1/clao/missions/' + result['request']['id'] + '/cancel', {}, {'X-CLAO-Nonce': nonce})[0] == 202
+    for _ in range(60):
+        result = api("/api/v1/clao/missions/" + result["request"]["id"])[1]["mission"]
+        if result["state"] == "CANCELLED": break
+        time.sleep(.1)
+    assert result["state"] == "CANCELLED", result
+    assert sum(o["kind"] == "spawn_auditor" for o in result["operations"]) == 1
+
+
+def test_native_mixed_engine_worker_and_semantic_roles(native):
+    submit,api,nonce,source,base,temp=native
+    roles={r:{"agent":"opencode","model":"test/second"} for r in ("auditor","planner","verifier")}
+    result=submit("REPAIR_ONCE mixed native engines",agent="kimi",roles=roles)
+    assert result["state"]=="DONE",result
+    assert result["roles"]["worker"]["agent"]=="kimi"
+    assert all(c["choice"]["agent"]=="opencode" for c in result["roleCalls"])
+    assert result["repairs"]==1
+
+
+def test_native_identical_failure_stops_before_repeating_diagnosis(native):
+    submit,api,nonce,source,base,temp=native
+    result=submit("FAIL_GATE no-progress across a repair",repairs=3)
+    assert result["state"]=="HUMAN",result
+    assert result["repairs"]==1 and len(result["decisions"])==1
+    assert [c["role"] for c in result["roleCalls"]]==["auditor","planner"]
+    assert "没有新的文件进展" in result["reason"]
+
+
+def test_native_reported_model_is_separate_from_frozen_choice(native):
+    submit,api,nonce,source,base,temp=native
+    result=submit("REPORT_MODEL record an explicit native model fact",roles={"verifier":{"agent":"opencode","model":"test/second"}})
+    assert result["state"]=="DONE",result
+    call=result["roleCalls"][0]
+    assert call["choice"]["model"]==call["resolvedModel"]=="test/second"
+    assert call["confirmedModel"]=="test/provider-confirmed" and call["modelFactSource"]=="ACP session/catalog"

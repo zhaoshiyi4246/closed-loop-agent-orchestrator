@@ -28,3 +28,17 @@ func TestMissingCapabilitiesForPermissions(t *testing.T) {
 		t.Fatalf("bypass missing = %v, want interrupt", got)
 	}
 }
+
+func TestCLAORequiresExplicitReadOnlyCapability(t *testing.T) {
+	caps := ChatCapabilities{ChatCapabilityStreaming: true, ChatCapabilityInterrupt: true, ChatCapabilityResume: true, ChatCapabilityApprovals: true}
+	if got := MissingCapabilitiesForPermissions(caps, PermissionModeReadOnly); !reflect.DeepEqual(got, []ChatCapability{ChatCapabilityReadOnly}) {
+		t.Fatal(got)
+	}
+	caps[ChatCapabilityReadOnly] = true
+	if got := MissingCapabilitiesForPermissions(caps, PermissionModeReadOnly); len(got) != 0 {
+		t.Fatal(got)
+	}
+	if NormalizePermissionMode(PermissionModeReadOnly) != PermissionModeReadOnly {
+		t.Fatal("read-only fell back to default")
+	}
+}

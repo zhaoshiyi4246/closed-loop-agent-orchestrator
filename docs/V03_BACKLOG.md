@@ -1,6 +1,6 @@
 # CLAO v0.3 任务与验收台账
 
-版本：0.3-plan-r1 · 2026-09-06。状态：已批准 / IN EFFECT。DOC-00、F01–F05、R01 / R02 已完成（DONE），M0 / M1 / M2 为 `COMPLETE`；U01 / U02 / U03 均已审计合入（`DONE`），U02 两个切片保持 `DONE`；M3 `COMPLETE` 表示本阶段开发与代码审计完成，完整体验与发布验收尚未完成；M4 `IN_PROGRESS`，P01/P02 工程切片均已审计合入（`DONE`），两张整卡保持 `IN_PROGRESS`；原生底座基础集成已完成，整体迁移仍 IN_PROGRESS；唯一下一开发内容为 Planner/Auditor 决策与独立角色配置迁移（TODO），联合真实评测暂缓；其余功能卡状态见下表，原报告的发现不等于已复现或已修复。
+版本：0.3-plan-r1 · 2026-09-06。状态：已批准 / IN EFFECT。DOC-00、F01–F05、R01 / R02 已完成（DONE），M0 / M1 / M2 为 `COMPLETE`；U01 / U02 / U03 均已审计合入（`DONE`），U02 两个切片保持 `DONE`；M3 `COMPLETE` 表示本阶段开发与代码审计完成，完整体验与发布验收尚未完成；M4 `IN_PROGRESS`，P01/P02 工程切片均已审计合入（`DONE`），两张整卡保持 `IN_PROGRESS`；原生底座基础集成已完成，整体迁移仍 IN_PROGRESS；当前执行内容为 Planner/Auditor 决策与独立角色配置迁移（IN_REVIEW），联合真实评测暂缓；其余功能卡状态见下表，原报告的发现不等于已复现或已修复。
 
 设计以 [V03_PLAN.md](V03_PLAN.md) 为准。当前唯一任务由根目录 [PLANS.md](../PLANS.md) 指定。本文件保存每张卡的详细状态和证据，PLANS 不重复整张台账。
 
@@ -20,8 +20,20 @@
 - 实际入口、控制权、当前支持及未迁移能力见 [ao/CLAO.md](../ao/CLAO.md)，直接验证与截图见 [原生证据](reference/ao-native/README.md)。真实模型/账户/套餐未运行；Codex 隔离账户安全阻塞单列，不假称全执行器兼容。
 - PR #46 局部返修：项目页直接查询持久 Mission，启动失败无 Session 也可查看原因和原请求；原生 owner 关联回执丢失保持 UNKNOWN/停止入口，已确认未启动记 FAILED 并允许新尝试。新提交身份与分支不复用旧请求，保留草稿；不放宽 `account_storage_unsafe`。本次定向故障/桌面证据及准确启动命令见上述入口。
 - 已接：原生项目/模型入口、单 Worker 的 Session/工作区接线、Gate/范围/完整性、有界修复、独立 Verifier、启动请求可见/失败处理及验收面板。
-- 唯一下一开发内容：**Planner/Auditor 决策与独立角色配置迁移，TODO**，本轮不开始。另未迁移：完整恢复与用户指令回执、旧历史/连接导入、普通目录/未提交来源支持、独立导出与结果中心、闭环运行图及正式发布入口。P01/P02 联合真实评测继续暂缓，P03 不开始。
-- 收尾仅检查文档链接与差异，不重跑既有验证。沿用 Windows/离线集成与 Electron 检查、Codex 截图自查；本次为外部代码审计 PASS，负责人完整体验、真实账户/模型及发布验收尚未完成。`account_storage_unsafe` 保持待解决，xfailed 不是执行通过；保留空账户隔离开发入口，不切换正式发行入口。
+- 当前唯一执行内容：**Planner/Auditor 决策与独立角色配置迁移，IN_REVIEW**。本轮从 main `357cfdc` 建立 `codex/ao-native-role-decisions`，完成后提交独立 PR；不合并。另未迁移：完整恢复与用户指令回执、旧历史/连接导入、普通目录/未提交来源支持、独立导出与结果中心、闭环运行图及正式发布入口。P01/P02 联合真实评测继续暂缓，P03 不开始。
+- PR #46 收尾仅检查文档链接与差异，不重跑既有验证。沿用 Windows/离线集成与 Electron 检查、Codex 截图自查；本次为外部代码审计 PASS，负责人完整体验、真实账户/模型及发布验收尚未完成。`account_storage_unsafe` 保持待解决，xfailed 不是执行通过；保留空账户隔离开发入口，不切换正式发行入口。
+
+### 原生 Planner/Auditor 与角色配置切片（2026-09-10）
+
+- 状态 **IN_REVIEW**；从 main `357cfdc` 建立 `codex/ao-native-role-decisions`，不合并。基础切片 DONE；整体迁移/M4 IN_PROGRESS；旧 M0–M3 与 P01/P02 工程历史保留，联合真实评测暂缓。
+- 复用旧 Auditor/Planner Prompt、Schema、ID/目标/AC/一致性及完整证据限制，通过原生 Chat 独立只读 Session 执行。正常路径不加 Auditor/Planner；失败记录关联审核、决策、一次动作及 Gate/Verifier。角色配置冻结，缺字段历史不伪造新角色记录。
+- 五动作：CONTINUE 仅观察/一次确定性复查；SEND_LOCAL_FIX 只发当前 Worker 一条修复；REPLAN_SPAWN 停止后从原 base 替换、原目标/AC/范围/Gate 不变；CANDIDATE_DONE 只触发验收；HUMAN 合法结束自动处理并允许新尝试。有限预算/同一文件证据无进展阻止重复链。没有多任务分解、并行 Worker 或新的状态权威。
+- 只读权限与不可变 owner 扩展至全部角色；操作回执丢失按精确 owner 关联，保留 UNKNOWN、不重发。取消覆盖所有关联 Session，迟到结果不触发动作。Codex 只读 sandbox、禁用继承 MCP/子 Agent/联网工具；OpenCode 原生临时 agent 禁用所有工具、ACP 不批准提权；不改用户原生配置。
+- 直接 Windows 验证：真实 AO HTTP/SQLite/Session/Git + 外部协议替身 **27 passed / 1 xfailed**；独立 Kimi Worker + OpenCode 角色、不同模型、五动作、回执和取消均覆盖。Python 角色负例 **15 passed**；原生创建对话框 **16 passed**（另补预算输入与历史角色字段兼容各 **1 passed**）；Go 定向、类型/开发构建、Electron 原生菜单与正常/修复/HUMAN 旅程见 [开发说明](../ao/CLAO.md#角色决策与配置切片)。不是真实模型或全执行器兼容证明。
+- 首轮检查修正了空集合字段、Verifier 错误归属及“设置 ACK 不能冒充模型回传”；Go 相关测试改用 Windows 临时绝对目录。首轮一项 HTTP 连接重置，保留相同断言复查通过。首轮 Electron Git 子进程 `0xc0000142` 未启动 Mission，界面保留真实错误；独立复查正常完成，未放宽账户/权限检查。
+- 补充定向：同文件证据无进展 **1 passed**、明确模型回传与冻结选择分离 **1 passed**；Go 新增恢复/模型来源校验通过（构造夹具补齐原生 capability map），不改业务断言。
+- 截图：[原生角色模型菜单](reference/ao-native/roles/roles-native-model-menu.png)、[正常独立复核](reference/ao-native/roles/roles-independent-verifier.png)、[审核/规划/修复](reference/ao-native/roles/roles-audit-planner-repair.png)、[交人工](reference/ao-native/roles/roles-human-decision.png)。实际 Electron 截图已由 Codex 自查，不等同负责人完整体验验收。
+- NOT_RUN：真实账户/模型/套餐、全量、smoke、发行安装包与完整体验。Codex 隔离 `account_storage_unsafe` 仍待解决，xfailed 不计执行通过。后续恢复/指令回执、旧连接和历史导入、普通目录来源、导出/结果中心与运行图均未实施。
 
 ### 原发现映射（历史）
 

@@ -1004,3 +1004,9 @@ func approvalReply(method string, decision ports.ChatDecision) any {
 	}
 	return map[string]any{"decision": decision.ID}
 }
+
+func (c *conversation) ReportedModel() (string, string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.threadModel, "Codex thread/start resolved"
+}

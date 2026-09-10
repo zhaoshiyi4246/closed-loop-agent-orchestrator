@@ -993,3 +993,18 @@ func contains(values []string, needle string) bool {
 	}
 	return false
 }
+
+func TestCLAOReadOnlyAgentOverridesInheritedToolPermission(t *testing.T) {
+	raw, err := PrepareACPConfigContent(`{"permission":"allow","agent":{"build":{"permission":"allow"}}}`, "role evidence", "review-id", ports.PermissionModeReadOnly)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var config map[string]any
+	if err = json.Unmarshal([]byte(raw), &config); err != nil {
+		t.Fatal(err)
+	}
+	named := config["agent"].(map[string]any)[config["default_agent"].(string)].(map[string]any)
+	if config["permission"] != "deny" || named["permission"].(map[string]any)["*"] != "deny" || named["tools"].(map[string]any)["*"] != false {
+		t.Fatal(config)
+	}
+}

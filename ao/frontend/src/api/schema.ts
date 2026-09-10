@@ -2626,6 +2626,17 @@ export interface components {
             description: string;
             id: string;
         };
+        CLAODecision: {
+            action?: string;
+            auditId: string;
+            evidenceIndex: number;
+            id: string;
+            outcome?: string;
+            plannerId: string;
+            reason?: string;
+            state: string;
+            workerId: string;
+        };
         CLAOEvidence: {
             digest: string;
             forbidden: string[];
@@ -2636,22 +2647,36 @@ export interface components {
             readError?: string;
             records?: unknown;
             resultHead?: string;
+            rolePrompt?: string;
+            roleResult?: unknown;
             scopeOK: boolean;
             verification?: unknown;
             verifierPrompt?: string;
         };
+        CLAOFrozenRole: {
+            accountRef?: string;
+            agent: string;
+            inherited: boolean;
+            model: string;
+        };
         CLAOMission: {
             base?: string;
             cancelRequested: boolean;
+            decisions?: components["schemas"]["CLAODecision"][];
             evidence: components["schemas"]["CLAOEvidence"][];
             operations: components["schemas"]["CLAOOperation"][];
             reason: string;
             repairs: number;
+            replans: number;
             request: components["schemas"]["CLAORequest"];
             resolvedModel?: string;
             resultHead?: string;
             /** Format: int64 */
             revision: number;
+            roleCalls?: components["schemas"]["CLAORoleCall"][];
+            roles?: {
+                [key: string]: components["schemas"]["CLAOFrozenRole"];
+            };
             sessionId?: string;
             state: string;
             updatedAt: string;
@@ -2684,9 +2709,33 @@ export interface components {
             gateTimeout: number;
             id: string;
             maxRepairs: number;
+            maxReplans: number;
             model: string;
             objective: string;
             projectId: string;
+            roles?: {
+                [key: string]: components["schemas"]["CLAORoleChoice"];
+            };
+        };
+        CLAORoleCall: {
+            choice: components["schemas"]["CLAOFrozenRole"];
+            confirmedModel?: string;
+            error?: string;
+            finishedAt?: string;
+            id: string;
+            incidentId?: string;
+            modelFactSource?: string;
+            owner: string;
+            resolvedModel?: string;
+            result?: unknown;
+            role: string;
+            sessionId?: string;
+            startedAt: string;
+            state: string;
+        };
+        CLAORoleChoice: {
+            agent: string;
+            model: string;
         };
         CancelReviewResponse: {
             reviewerHandleId: string;

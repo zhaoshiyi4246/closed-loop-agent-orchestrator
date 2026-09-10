@@ -859,6 +859,9 @@ func (m *Manager) Spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.Sess
 	// override) and validate the model before any durable state is created. A
 	// model the harness cannot honor should not leave a seed row behind.
 	agentConfig := applySpawnAgentConfig(effectiveAgentConfig(cfg.Kind, project.Config), cfg.AgentConfig)
+	if cfg.CLAOMissionID != "" {
+		agentConfig = cfg.AgentConfig
+	}
 	if err := validateSpawnModel(cfg.Harness, agentConfig.Model); err != nil {
 		return domain.SessionRecord{}, 0, 0, fmt.Errorf("spawn: %w: %s", ErrUnsupportedModel, err.Error())
 	}
@@ -2269,6 +2272,9 @@ func (m *Manager) relaunchSessionWithPolicyAndGeneration(ctx context.Context, op
 	// Restore resolves the project model while retaining this session's pinned
 	// permission policy independently of future project defaults.
 	agentConfig := effectiveAgentConfig(rec.Kind, project.Config)
+	if rec.Metadata.CLAOMissionID != "" {
+		agentConfig = ports.AgentConfig{Model: rec.Metadata.Model, Permissions: rec.Metadata.Permissions}
+	}
 	if rec.Metadata.Permissions != "" {
 		agentConfig.Permissions = rec.Metadata.Permissions
 	}

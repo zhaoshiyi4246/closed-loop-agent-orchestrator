@@ -40,6 +40,8 @@ if (!$SkipBuild) {
 if (!(Test-Path -LiteralPath $env:AO_DEV_DAEMON_BINARY)) { throw 'Build the derived daemon first.' }
 Push-Location $frontend
 try {
-    & $nodeExe node_modules/@electron-forge/cli/dist/electron-forge.js start
+    # The installed Forge start entry uses the existing dependencies directly;
+    # it does not need a separately installed npm to report its version.
+    & $nodeExe node_modules/@electron-forge/cli/dist/electron-forge-start.js
     if ($LASTEXITCODE -ne 0) { throw 'Native desktop startup failed.' }
 } finally { Pop-Location }

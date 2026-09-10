@@ -1,20 +1,24 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { useNavigate } from "@tanstack/react-router";
 import { useUiStore } from "../stores/ui-store";
 import { getApiBaseUrl, hasTrustedApiBaseUrl } from "../lib/api-client";
 
-export type AcceptanceFields = { criteria: string; allowed: string; forbidden: string; gates: string; repairs: number; timeout: number };
+export type RoleChoice = { agent: string; model: string };
+export type RoleChoices = Partial<Record<"planner" | "auditor" | "verifier", RoleChoice>>;
+export type AcceptanceFields = { criteria: string; allowed: string; forbidden: string; gates: string; repairs: number; timeout: number; replans?: number; roles?: RoleChoices };
 export type AcceptanceRequest = {
 	id: string; projectId: string; objective: string; agent: string; model: string;
 	criteria: { id: string; description: string }[]; allowedPaths: string[]; forbiddenPaths: string[];
-	gateCommands: string[]; maxRepairs: number; gateTimeout: number;
+	gateCommands: string[]; maxRepairs: number; gateTimeout: number; maxReplans?: number; roles?: RoleChoices;
 };
 type Evidence = { ok: boolean; scopeOK: boolean; readError?: string; paths: string[]; forbidden: string[]; outside: string[]; gate?: { command_ok: boolean; integrity_ok: boolean }; records?: unknown; verification?: { verdict: string; summary: string; ac_checks: { ac_id: string; verdict: string; note: string }[] }; resultHead?: string };
-export type Mission = { request: AcceptanceRequest; state: string; reason: string; revision: number; sessionId?: string; verifierSessionId?: string; workspace?: string; resultHead?: string; repairs: number; cancelRequested: boolean; evidence: Evidence[]; operations: unknown[] };
-const terminal = new Set(["DONE", "FAILED", "CANCELLED", "UNKNOWN"]);
-const states: Record<string, string> = { SPAWNING: "准备中", RUNNING: "执行中", STOPPING: "确认停止", GATE: "验收中", REPAIRING: "修复中", MATERIALIZING: "固定结果", VERIFYING: "独立复核", DONE: "验收通过", FAILED: "验收未通过", CANCELLED: "已取消", UNKNOWN: "结果尚未确认" };
+type RoleCall = { id: string; role: string; incidentId?: string; sessionId?: string; choice: RoleChoice & { accountRef?: string; inherited: boolean }; resolvedModel?: string; confirmedModel?: string; modelFactSource?: string; state: string; startedAt: string; finishedAt?: string; result?: { diagnosis?: string; decision?: string; action?: string; reason?: string; evidence?: {summary: string;reference?:string}[] }; error?: string };
+type Decision = { id: string; workerId: string; auditId: string; plannerId: string; action?: string; reason?: string; state: string; outcome?: string };
+export type Mission = { request: AcceptanceRequest; state: string; reason: string; revision: number; sessionId?: string; verifierSessionId?: string; workspace?: string; resultHead?: string; repairs: number; cancelRequested: boolean; evidence: Evidence[]; operations: unknown[]; roles?: Record<string, RoleChoice & {inherited: boolean; accountRef?: string}>; roleCalls?: RoleCall[]; decisions?: Decision[]; replans?: number };
+const terminal = new Set(["DONE", "FAILED", "CANCELLED", "UNKNOWN", "HUMAN"]);
+const states: Record<string, string> = { HUMAN: "需要处理", DIAGNOSING: "异常诊断", PLANNING: "规划决策", REPLANNING: "替换 Worker", SPAWNING: "准备中", RUNNING: "执行中", STOPPING: "确认停止", GATE: "验收中", REPAIRING: "修复中", MATERIALIZING: "固定结果", VERIFYING: "独立复核", DONE: "验收通过", FAILED: "验收未通过", CANCELLED: "已取消", UNKNOWN: "结果尚未确认" };
 const lines = (value: string) => value.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
 
 async function request<T>(path: string, body?: unknown): Promise<T> {
@@ -34,7 +38,8 @@ async function request<T>(path: string, body?: unknown): Promise<T> {
 }
 export async function createAcceptance(id: string, fields: AcceptanceFields, input: { projectId: string; brief: string; agent?: string; model?: string; mode?: string; approvalMode?: string; attachments?: unknown[] }): Promise<Mission> {
 	if (input.mode || input.approvalMode || input.attachments?.length) throw new Error("闭环使用原生 Chat 审批；本轮不接受终端降级、跳过审批或附件");
-	const body: AcceptanceRequest = { id, projectId: input.projectId, objective: input.brief, agent: input.agent || "", model: input.model || "", criteria: lines(fields.criteria).map((description, i) => ({ id: `AC${i + 1}`, description })), allowedPaths: lines(fields.allowed), forbiddenPaths: lines(fields.forbidden), gateCommands: lines(fields.gates), maxRepairs: fields.repairs, gateTimeout: fields.timeout };
+	const body: AcceptanceRequest = { id, projectId: input.projectId, objective: input.brief, agent: input.agent || "", model: input.model || "", criteria: lines(fields.criteria).map((description, i) => ({ id: `AC${i + 1}`, description })), allowedPaths: lines(fields.allowed), forbiddenPaths: lines(fields.forbidden), gateCommands: lines(fields.gates), maxRepairs: fields.repairs, gateTimeout: fields.timeout, maxReplans: fields.replans ?? 0, roles: fields.roles };
+	if (![body.maxRepairs,body.maxReplans ?? 0].every(Number.isInteger) || body.maxRepairs<0 || body.maxRepairs>3 || (body.maxReplans ?? 0)<0 || (body.maxReplans ?? 0)>body.maxRepairs || !Number.isFinite(body.gateTimeout) || body.gateTimeout<1 || body.gateTimeout>600) throw new Error("请填写合法的修复/替换次数与 Gate 超时");
 	if (!body.criteria.length || !body.allowedPaths.length || !body.gateCommands.length) throw new Error("请填写验收条件、允许范围和 Gate");
 	try {
 		return (await request<{ mission: Mission }>("/missions", body)).mission;
@@ -60,7 +65,7 @@ export function AcceptanceForm({ value, onChange }: { value: AcceptanceFields; o
 }
 export function CLAOAcceptance({ sessionId }: { sessionId: string }) {
 	const query = useQuery({ queryKey: ["clao-missions"], queryFn: () => request<{ missions: Mission[] }>("/missions"), refetchInterval: 1500, retry: false });
-	const m = query.data?.missions.find(m => m.sessionId === sessionId || m.verifierSessionId === sessionId);
+	const m = query.data?.missions.find(m => m.sessionId === sessionId || m.verifierSessionId === sessionId || m.roleCalls?.some(c => c.sessionId === sessionId) || m.decisions?.some(d => d.workerId === sessionId));
 	if (!m) return query.isError ? <p className="px-4 text-sm text-destructive">验收记录读取失败</p> : null;
 	return <MissionContent key={m.request.id} m={m} readError={query.isError} />;
 }
@@ -92,6 +97,8 @@ export function CLAOMissionList({ projectId }: { projectId?: string }) {
 
 function MissionContent({ m, readError, onNewAttempt, onOpenSession }: { m: Mission; readError: boolean; onNewAttempt?: (request: AcceptanceRequest) => void; onOpenSession?: (id: string) => void }) {
 	const queryClient = useQueryClient();
+    const [now,setNow]=useState(Date.now());
+    useEffect(()=>{if(terminal.has(m.state))return;const timer=setInterval(()=>setNow(Date.now()),1000);return ()=>clearInterval(timer)},[m.state]);
 	const navigate = useNavigate();
 	const [pending, setPending] = useState(false);
 	const [error, setError] = useState<{ id: string; text: string } | null>(null);
@@ -111,10 +118,26 @@ function MissionContent({ m, readError, onNewAttempt, onOpenSession }: { m: Miss
 		{readError && <p className="text-destructive">连接中断，保留最后已知验收状态。</p>}
 		<div className="mt-2 flex flex-wrap gap-3">
 		{m.sessionId && <button type="button" className="underline" onClick={() => { void navigate({ to: "/projects/$projectId/sessions/$sessionId", params: { projectId: m.request.projectId, sessionId: m.sessionId! } }); onOpenSession?.(m.sessionId!); }}>打开原生 Session</button>}
-		{onNewAttempt && ["FAILED", "CANCELLED", "DONE"].includes(m.state) && <button type="button" className="rounded-md border border-border px-3 py-2" disabled={readError} onClick={() => onNewAttempt(m.request)}>创建新的尝试（保留草稿）</button>}
+		{onNewAttempt && ["FAILED", "CANCELLED", "DONE", "HUMAN"].includes(m.state) && <button type="button" className="rounded-md border border-border px-3 py-2" disabled={readError} onClick={() => onNewAttempt(m.request)}>创建新的尝试（保留草稿）</button>}
 		</div>
 		{error?.id === m.request.id && <p role="alert" className="text-destructive">{error.text}</p>}
 		{m.resultHead && <p className="mt-1 break-all">结果：{m.workspace} {m.state !== "DONE" && "（尚未通过最终验收）"}</p>}
+        <details className="mt-3" data-testid="clao-role-facts"><summary className="cursor-pointer">角色与决策</summary>
+        <div className="mt-2 space-y-3">{["worker", "auditor", "planner", "verifier"].map(role => {
+            const chosen=m.roles?.[role]; const calls=m.roleCalls?.filter(c=>c.role===role) ?? [];
+            return <div key={role} className="rounded border border-border p-2"><strong>{role}</strong>
+                <p>{chosen ? `${chosen.agent} · ${chosen.model || "执行器默认（不覆盖）"}${chosen.inherited ? " · 沿用 Worker 选择" : ""}` : "历史未提供独立角色配置"}</p>
+                {chosen?.accountRef && <details><summary>原生账号引用</summary><span>{chosen.accountRef}</span></details>}
+                {role === "worker" ? <span>当前执行对象：{m.sessionId || "尚未启动"}</span> : calls.length===0 ? <span>{chosen ? "未调用" : role==="verifier" && m.verifierSessionId ? "历史已记录 Verifier Session，未提供角色调用明细" : "历史未提供角色调用记录"}</span> : calls.map(c=><div key={c.id} className="mt-2 space-y-1">
+                    <p>{({STARTING:"正在启动",RUNNING:"调用中",RECEIVED:"已收到回复，等待校验",VALIDATED:"已校验结构化结果",PROTOCOL_ERROR:"回复契约不符合要求",FAILED:"调用失败",UNKNOWN:"结果尚未确认",CANCELLED:"已停止"} as Record<string,string>)[c.state] || c.state}</p>
+                    {c.result?.diagnosis && <p className="whitespace-pre-wrap break-words">{c.result.diagnosis}</p>}
+                    {c.result?.action && <p>{c.result.action} · {c.result.reason}</p>}
+                    {c.error && <p className="text-destructive break-words">{c.error}</p>}
+                    <details><summary>模型、计时与证据关联</summary><p>请求：{c.choice.model || "执行器默认"} · AO 解析：{c.resolvedModel || "unknown"} · 执行器报告：{c.confirmedModel || "unknown"}（{c.modelFactSource || "未提供事实"}，非单次 provider 请求证明）</p><p>开始：{c.startedAt} · 结束：{c.finishedAt || "尚未返回"} · {c.startedAt && Number.isFinite(Date.parse(c.startedAt)) ? `已等待 ${Math.max(0, ((c.finishedAt ? Date.parse(c.finishedAt) : now) - Date.parse(c.startedAt)) / 1000).toFixed(1)} 秒` : "耗时 unknown"}</p><p>事件：{c.incidentId || "最终验收"} · 用量/费用：unknown</p>{c.result?.evidence?.map((e,i)=><p key={i} className="break-words">{e.summary} · {e.reference}</p>)}</details>
+                    {c.sessionId && <button type="button" className="underline" onClick={()=>{void navigate({to:"/projects/$projectId/sessions/$sessionId",params:{projectId:m.request.projectId,sessionId:c.sessionId!}});onOpenSession?.(c.sessionId!);}}>打开 {role} 会话</button>}
+                </div>)}
+            </div>;
+        })}{m.decisions?.map(d=><div key={d.id} className="rounded border border-border p-2"><strong>程序动作：{d.action || "等待决策"}</strong><p>{d.reason}</p><p>{d.outcome !== d.reason ? d.outcome || "尚未执行" : "已交给用户处理；未执行自动修复"}</p><details><summary>关联执行与状态</summary>{d.workerId} · {d.state}</details></div>)}</div></details>
 		<details className="mt-2"><summary className="cursor-pointer">验收条件、文件与证据</summary><div className="mt-2 max-h-56 space-y-2 overflow-auto">
 		<div className="flex flex-wrap gap-x-6 gap-y-1">
             <span>Gate 命令：{latest?.gate ? latest.gate.command_ok ? "通过" : "未通过" : "尚未提供"}</span>

@@ -96,6 +96,9 @@ func (e *ChatCapabilityError) Unwrap() error { return ErrChatUnsupported }
 // features on these rather than on the harness name.
 type ChatCapability string
 
+// ReadOnly means the driver enforces a native no-write/tool policy.
+const ChatCapabilityReadOnly ChatCapability = "read-only"
+
 // The capabilities AO currently checks.
 const (
 	ChatCapabilityStreaming ChatCapability = "streaming"
@@ -194,6 +197,9 @@ func MissingProductionCapabilities(caps ChatCapabilities) []ChatCapability {
 // not require an approval channel because the user has opted out of approvals.
 func MissingCapabilitiesForPermissions(caps ChatCapabilities, permissions PermissionMode) []ChatCapability {
 	missing := MissingProductionCapabilities(caps)
+	if permissions == PermissionModeReadOnly && !caps[ChatCapabilityReadOnly] {
+		missing = append(missing, ChatCapabilityReadOnly)
+	}
 	if NormalizePermissionMode(permissions) != PermissionModeBypassPermissions {
 		return missing
 	}
@@ -983,3 +989,7 @@ type ChatDriverRegistry interface {
 	// all, without probing the local install.
 	SupportsChat(harness domain.AgentHarness) bool
 }
+
+// ChatReportedModelReader returns a model explicitly reported by the engine,
+// separate from an accepted setter or requested turn setting. No extra request.
+type ChatReportedModelReader interface{ ReportedModel() (model, source string) }

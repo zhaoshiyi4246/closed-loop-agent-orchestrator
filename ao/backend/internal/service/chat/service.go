@@ -734,7 +734,7 @@ func (s *Service) Send(
 	if err != nil {
 		return domain.ConversationTurn{}, err
 	}
-	if rec.Metadata.CLAOMissionID != "" && (msg.Origin != domain.MessageOriginHuman || strings.HasSuffix(rec.Metadata.CLAOMissionID, ":verifier")) {
+	if rec.Metadata.CLAOMissionID != "" && (msg.Origin != domain.MessageOriginHuman || ports.CLAOSemanticOwner(rec.Metadata.CLAOMissionID)) {
 		if err := ports.RequireCLAOOwner(ctx, rec.Metadata.CLAOMissionID); err != nil {
 			return domain.ConversationTurn{}, err
 		}

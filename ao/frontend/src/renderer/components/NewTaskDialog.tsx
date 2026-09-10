@@ -1,3 +1,4 @@
+import { CLAORoleForm } from "./CLAORoleForm";
 import { useRef, useState } from "react";
 import { AcceptanceForm, CLAOMissionDetail, createAcceptance, type AcceptanceFields, type AcceptanceRequest } from "./CLAOAcceptance";
 import * as Dialog from "@radix-ui/react-dialog";
@@ -15,7 +16,7 @@ type NewTaskDialogProps = {
 export function NewTaskDialog({ open, projectId, initialRequest, onCreated, onOpenChange }: NewTaskDialogProps) {
 	const { t } = useTranslation();
 	const [closedLoop,setClosedLoop] = useState(Boolean(initialRequest));
-	const [fields,setFields] = useState<AcceptanceFields>(initialRequest ? { criteria: initialRequest.criteria.map(ac => ac.description).join("\n"), allowed: initialRequest.allowedPaths.join("\n"), forbidden: initialRequest.forbiddenPaths.join("\n"), gates: initialRequest.gateCommands.join("\n"), repairs: initialRequest.maxRepairs, timeout: initialRequest.gateTimeout } : {criteria:"",allowed:"",forbidden:"",gates:"",repairs:1,timeout:120});
+	const [fields,setFields] = useState<AcceptanceFields>(initialRequest ? { criteria: initialRequest.criteria.map(ac => ac.description).join("\n"), allowed: initialRequest.allowedPaths.join("\n"), forbidden: initialRequest.forbiddenPaths.join("\n"), gates: initialRequest.gateCommands.join("\n"), repairs: initialRequest.maxRepairs, timeout: initialRequest.gateTimeout, roles: initialRequest.roles, replans: initialRequest.maxReplans ?? 0 } : {criteria:"",allowed:"",forbidden:"",gates:"",repairs:1,timeout:120});
 	const requestId = useRef(crypto.randomUUID());
 	const [receiptId, setReceiptId] = useState<string | null>(null);
 	const [attempted, setAttempted] = useState(false);
@@ -39,7 +40,7 @@ export function NewTaskDialog({ open, projectId, initialRequest, onCreated, onOp
 					<div hidden={receiptId !== null}>
 					<fieldset disabled={submitting}>
 					<label className="flex items-center gap-2 px-4 pt-3 text-sm"><input type="checkbox" checked={closedLoop} onChange={e=>setClosedLoop(e.target.checked)} />CLAO 闭环验收</label>
-					{closedLoop && <AcceptanceForm value={fields} onChange={setFields} />}
+					{closedLoop && <><AcceptanceForm value={fields} onChange={setFields} /><CLAORoleForm fields={fields} onChange={setFields} projectId={projectId || ""} worker={draft} /></>}
 					</fieldset>
 					<TaskComposer
 						initialInput={draft}

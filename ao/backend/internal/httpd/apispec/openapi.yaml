@@ -7298,6 +7298,34 @@ components:
       - id
       - description
       type: object
+    CLAODecision:
+      properties:
+        action:
+          type: string
+        auditId:
+          type: string
+        evidenceIndex:
+          type: integer
+        id:
+          type: string
+        outcome:
+          type: string
+        plannerId:
+          type: string
+        reason:
+          type: string
+        state:
+          type: string
+        workerId:
+          type: string
+      required:
+      - id
+      - evidenceIndex
+      - workerId
+      - auditId
+      - plannerId
+      - state
+      type: object
     CLAOEvidence:
       properties:
         digest:
@@ -7322,6 +7350,9 @@ components:
         records: {}
         resultHead:
           type: string
+        rolePrompt:
+          type: string
+        roleResult: {}
         scopeOK:
           type: boolean
         verification: {}
@@ -7335,12 +7366,31 @@ components:
       - outside
       - digest
       type: object
+    CLAOFrozenRole:
+      properties:
+        accountRef:
+          type: string
+        agent:
+          type: string
+        inherited:
+          type: boolean
+        model:
+          type: string
+      required:
+      - agent
+      - model
+      - inherited
+      type: object
     CLAOMission:
       properties:
         base:
           type: string
         cancelRequested:
           type: boolean
+        decisions:
+          items:
+            $ref: '#/components/schemas/CLAODecision'
+          type: array
         evidence:
           items:
             $ref: '#/components/schemas/CLAOEvidence'
@@ -7353,6 +7403,8 @@ components:
           type: string
         repairs:
           type: integer
+        replans:
+          type: integer
         request:
           $ref: '#/components/schemas/CLAORequest'
         resolvedModel:
@@ -7362,6 +7414,14 @@ components:
         revision:
           format: int64
           type: integer
+        roleCalls:
+          items:
+            $ref: '#/components/schemas/CLAORoleCall'
+          type: array
+        roles:
+          additionalProperties:
+            $ref: '#/components/schemas/CLAOFrozenRole'
+          type: object
         sessionId:
           type: string
         state:
@@ -7373,6 +7433,7 @@ components:
         workspace:
           type: string
       required:
+      - replans
       - request
       - state
       - reason
@@ -7451,13 +7512,20 @@ components:
           type: string
         maxRepairs:
           type: integer
+        maxReplans:
+          type: integer
         model:
           type: string
         objective:
           type: string
         projectId:
           type: string
+        roles:
+          additionalProperties:
+            $ref: '#/components/schemas/CLAORoleChoice'
+          type: object
       required:
+      - maxReplans
       - id
       - projectId
       - objective
@@ -7469,6 +7537,53 @@ components:
       - model
       - maxRepairs
       - gateTimeout
+      type: object
+    CLAORoleCall:
+      properties:
+        choice:
+          $ref: '#/components/schemas/CLAOFrozenRole'
+        confirmedModel:
+          type: string
+        error:
+          type: string
+        finishedAt:
+          type: string
+        id:
+          type: string
+        incidentId:
+          type: string
+        modelFactSource:
+          type: string
+        owner:
+          type: string
+        resolvedModel:
+          type: string
+        result: {}
+        role:
+          type: string
+        sessionId:
+          type: string
+        startedAt:
+          type: string
+        state:
+          type: string
+      required:
+      - owner
+      - id
+      - role
+      - choice
+      - state
+      - startedAt
+      type: object
+    CLAORoleChoice:
+      properties:
+        agent:
+          type: string
+        model:
+          type: string
+      required:
+      - agent
+      - model
       type: object
     CancelReviewResponse:
       properties:

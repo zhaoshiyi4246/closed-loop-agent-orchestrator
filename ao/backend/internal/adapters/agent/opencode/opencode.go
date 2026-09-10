@@ -428,7 +428,7 @@ func PrepareACPConfigContent(
 	permissions ports.PermissionMode,
 ) (string, error) {
 	allowAll := ports.NormalizePermissionMode(permissions) == ports.PermissionModeBypassPermissions
-	if strings.TrimSpace(systemPrompt) == "" && !allowAll {
+	if strings.TrimSpace(systemPrompt) == "" && !allowAll && permissions != ports.PermissionModeReadOnly {
 		return existing, nil
 	}
 	config := map[string]any{}
@@ -452,6 +452,14 @@ func PrepareACPConfigContent(
 		agents[agentName] = opencodeAgentSettings{Mode: "primary", Prompt: systemPrompt}
 		config["agent"] = agents
 		config["default_agent"] = agentName
+	}
+	if permissions == ports.PermissionModeReadOnly {
+		// An isolated named native agent overrides user/project per-agent rules.
+		// Deny every tool (including task/MCP); all review evidence is supplied.
+		name := opencodeAOAgentName(sessionID)
+		config["agent"] = map[string]any{name: map[string]any{"mode": "primary", "prompt": systemPrompt, "permission": map[string]string{"*": "deny"}, "tools": map[string]bool{"*": false}}}
+		config["default_agent"] = name
+		config["permission"] = "deny"
 	}
 	if allowAll {
 		// This is the native config equivalent of OpenCode's TUI auto-approval

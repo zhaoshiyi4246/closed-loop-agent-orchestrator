@@ -503,6 +503,7 @@ type PermissionMode = domain.PermissionMode
 // The permission modes adapters map onto their agent's native approval flags.
 // These re-export the domain constants so existing adapter code is unchanged.
 const (
+	PermissionModeReadOnly          = domain.PermissionModeReadOnly
 	PermissionModeDefault           = domain.PermissionModeDefault
 	PermissionModeAcceptEdits       = domain.PermissionModeAcceptEdits
 	PermissionModeAuto              = domain.PermissionModeAuto
@@ -515,7 +516,7 @@ const (
 // (usually by emitting no flag) rather than mapping onto a bogus one.
 func NormalizePermissionMode(mode PermissionMode) PermissionMode {
 	switch mode {
-	case PermissionModeDefault,
+	case PermissionModeReadOnly, PermissionModeDefault,
 		PermissionModeAcceptEdits,
 		PermissionModeAuto,
 		PermissionModeBypassPermissions:

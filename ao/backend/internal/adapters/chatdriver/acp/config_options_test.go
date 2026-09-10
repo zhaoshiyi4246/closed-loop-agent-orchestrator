@@ -136,3 +136,18 @@ func TestApplyAcceptedConfigOptionIgnoresUnknownID(t *testing.T) {
 }
 
 func boolPtr(v bool) *bool { return &v }
+
+func TestCLAOReportedModelDoesNotInferFromAcceptedSetter(t *testing.T) {
+	c := &conversation{capabilities: make(ports.ChatCapabilities), reportedModel: "server-original", configOptions: []ports.ChatConfigOption{{ID: "model", Category: "model", Type: ports.ChatConfigOptionSelect, Current: ports.ChatConfigOptionValue{Select: "server-original"}}}}
+	c.applyAcceptedConfigOption("model", ports.ChatConfigOptionValue{Select: "requested-new"})
+	model, _ := c.ReportedModel()
+	if model != "" {
+		t.Fatal("setter ACK guessed returned model", model)
+	}
+	// A subsequent explicit catalog event is authoritative, including reroutes.
+	c.replaceConfigOptions([]acpsdk.SessionConfigOption{selectOption("model", "Model", "server-rerouted")})
+	model, source := c.ReportedModel()
+	if model != "server-rerouted" || source != "ACP session/catalog" {
+		t.Fatal(model, source)
+	}
+}

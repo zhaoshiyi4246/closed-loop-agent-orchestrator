@@ -101,6 +101,7 @@ type conversation struct {
 	tools             map[string]*toolState
 	providerFailure   *ports.ChatEvent
 	configOptions     []ports.ChatConfigOption
+	reportedModel     string
 	skills            []ports.ChatSkill
 	skillsKnown       bool
 	closed            bool
@@ -252,6 +253,11 @@ func (c *conversation) start(
 	// not lost to an empty response snapshot.
 	if len(configOptions) > 0 || models != nil || modes != nil {
 		c.configOptions = normalizeSessionOptions(configOptions, models, modes)
+		for _, opt := range c.configOptions {
+			if opt.ID == "model" || opt.Category == "model" {
+				c.reportedModel = opt.Current.Select
+			}
+		}
 	}
 	if len(c.configOptions) > 0 {
 		c.capabilities[ports.ChatCapabilityConfigOptions] = true

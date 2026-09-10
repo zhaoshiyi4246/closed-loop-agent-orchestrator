@@ -25,17 +25,19 @@ type Criterion struct {
 	Description string `json:"description"`
 }
 type Request struct {
-	ID             string              `json:"id"`
-	ProjectID      domain.ProjectID    `json:"projectId"`
-	Objective      string              `json:"objective"`
-	AllowedPaths   []string            `json:"allowedPaths"`
-	ForbiddenPaths []string            `json:"forbiddenPaths"`
-	Criteria       []Criterion         `json:"criteria"`
-	GateCommands   []string            `json:"gateCommands"`
-	Agent          domain.AgentHarness `json:"agent"`
-	Model          string              `json:"model"`
-	MaxRepairs     int                 `json:"maxRepairs"`
-	GateTimeout    float64             `json:"gateTimeout"`
+	Roles          map[string]RoleChoice `json:"roles,omitempty"`
+	MaxReplans     int                   `json:"maxReplans"`
+	ID             string                `json:"id"`
+	ProjectID      domain.ProjectID      `json:"projectId"`
+	Objective      string                `json:"objective"`
+	AllowedPaths   []string              `json:"allowedPaths"`
+	ForbiddenPaths []string              `json:"forbiddenPaths"`
+	Criteria       []Criterion           `json:"criteria"`
+	GateCommands   []string              `json:"gateCommands"`
+	Agent          domain.AgentHarness   `json:"agent"`
+	Model          string                `json:"model"`
+	MaxRepairs     int                   `json:"maxRepairs"`
+	GateTimeout    float64               `json:"gateTimeout"`
 }
 type Operation struct {
 	ID     string `json:"id"`
@@ -45,6 +47,8 @@ type Operation struct {
 	Reason string `json:"reason,omitempty"`
 }
 type Evidence struct {
+	RolePrompt     string          `json:"rolePrompt,omitempty"`
+	RoleResult     json.RawMessage `json:"roleResult,omitempty"`
 	OK             bool            `json:"ok"`
 	ReadError      string          `json:"readError,omitempty"`
 	ScopeOK        bool            `json:"scopeOK"`
@@ -59,25 +63,29 @@ type Evidence struct {
 	Verification   json.RawMessage `json:"verification,omitempty"`
 }
 type Mission struct {
-	Request           Request          `json:"request"`
-	State             string           `json:"state"`
-	Reason            string           `json:"reason"`
-	Revision          int64            `json:"revision"`
-	SessionID         domain.SessionID `json:"sessionId,omitempty"`
-	VerifierSessionID domain.SessionID `json:"verifierSessionId,omitempty"`
-	Base              string           `json:"base,omitempty"`
-	ResolvedModel     string           `json:"resolvedModel,omitempty"`
-	Workspace         string           `json:"workspace,omitempty"`
-	ResultHead        string           `json:"resultHead,omitempty"`
-	Repairs           int              `json:"repairs"`
-	CancelRequested   bool             `json:"cancelRequested"`
-	Operations        []Operation      `json:"operations"`
-	Evidence          []Evidence       `json:"evidence"`
-	UpdatedAt         string           `json:"updatedAt"`
+	Roles             map[string]FrozenRole `json:"roles,omitempty"`
+	RoleCalls         []RoleCall            `json:"roleCalls,omitempty"`
+	Decisions         []Decision            `json:"decisions,omitempty"`
+	Replans           int                   `json:"replans"`
+	Request           Request               `json:"request"`
+	State             string                `json:"state"`
+	Reason            string                `json:"reason"`
+	Revision          int64                 `json:"revision"`
+	SessionID         domain.SessionID      `json:"sessionId,omitempty"`
+	VerifierSessionID domain.SessionID      `json:"verifierSessionId,omitempty"`
+	Base              string                `json:"base,omitempty"`
+	ResolvedModel     string                `json:"resolvedModel,omitempty"`
+	Workspace         string                `json:"workspace,omitempty"`
+	ResultHead        string                `json:"resultHead,omitempty"`
+	Repairs           int                   `json:"repairs"`
+	CancelRequested   bool                  `json:"cancelRequested"`
+	Operations        []Operation           `json:"operations"`
+	Evidence          []Evidence            `json:"evidence"`
+	UpdatedAt         string                `json:"updatedAt"`
 }
 
 func (m Mission) Terminal() bool {
-	return m.State == "DONE" || m.State == "FAILED" || m.State == "CANCELLED" || m.State == "UNKNOWN"
+	return m.State == "DONE" || m.State == "FAILED" || m.State == "CANCELLED" || m.State == "UNKNOWN" || m.State == "HUMAN"
 }
 
 type Store interface {
@@ -122,7 +130,7 @@ func New(ctx context.Context, store Store, sessions Sessions, chat Chat, accepta
 }
 
 func (s *Service) CheckApproval(ctx context.Context, rec domain.SessionRecord, activity domain.ConversationActivity) error {
-	m, err := s.Get(ctx, rec.Metadata.CLAOMissionID)
+	m, err := s.Get(ctx, ports.CLAOMissionOwner(rec.Metadata.CLAOMissionID))
 	if err != nil {
 		return err
 	}
@@ -167,7 +175,7 @@ func Validate(r Request) error {
 			return errors.New("Gate 必须是明确的单条命令")
 		}
 	}
-	if r.MaxRepairs < 0 || r.MaxRepairs > 3 || math.IsNaN(r.GateTimeout) || math.IsInf(r.GateTimeout, 0) || r.GateTimeout < 1 || r.GateTimeout > 600 {
+	if r.MaxReplans < 0 || r.MaxReplans > r.MaxRepairs || r.MaxRepairs < 0 || r.MaxRepairs > 3 || math.IsNaN(r.GateTimeout) || math.IsInf(r.GateTimeout, 0) || r.GateTimeout < 1 || r.GateTimeout > 600 {
 		return errors.New("修复次数须为 0–3，Gate 超时须为 1–600 秒")
 	}
 	if r.Agent == "" {
@@ -266,10 +274,11 @@ func (s *Service) Create(ctx context.Context, r Request) (Mission, error) {
 	if err != nil {
 		return Mission{}, err
 	}
-	if err = s.chat.PreflightChat(ctx, r.Agent, domain.PermissionModeDefault); err != nil {
+	roles, err := s.freezeRoles(ctx, r)
+	if err != nil {
 		return Mission{}, err
 	}
-	m := Mission{Request: r, State: "SPAWNING", Reason: "准备原生 Session", Base: base, Revision: 1, Operations: []Operation{}, Evidence: []Evidence{}, UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano)}
+	m := Mission{Roles: roles, RoleCalls: []RoleCall{}, Decisions: []Decision{}, Request: r, State: "SPAWNING", Reason: "准备原生 Session", Base: base, Revision: 1, Operations: []Operation{}, Evidence: []Evidence{}, UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano)}
 	if err = s.store.CreateCLAOMission(ctx, record(m)); err != nil {
 		return Mission{}, err
 	}
@@ -279,7 +288,7 @@ func (s *Service) Create(ctx context.Context, r Request) (Mission, error) {
 }
 func (s *Service) Cancel(ctx context.Context, id string) (Mission, error) {
 	m, err := s.mutate(id, func(m *Mission) error {
-		if m.State == "DONE" || m.State == "FAILED" || m.State == "CANCELLED" {
+		if m.State == "DONE" || m.State == "FAILED" || m.State == "CANCELLED" || m.State == "HUMAN" {
 			return errors.New("终态不可取消")
 		}
 		m.CancelRequested = true
@@ -311,7 +320,7 @@ func (s *Service) ownedSessions(id string) ([]domain.SessionRecord, error) {
 	}
 	result := []domain.SessionRecord{}
 	for _, r := range rows {
-		if r.Metadata.CLAOMissionID == id || r.Metadata.CLAOMissionID == id+":verifier" {
+		if ports.CLAOMissionOwner(r.Metadata.CLAOMissionID) == id {
 			result = append(result, r)
 		}
 	}
@@ -324,38 +333,45 @@ func (s *Service) ownedSessions(id string) ([]domain.SessionRecord, error) {
 func (s *Service) reconcileSpawn(id string, cause error) error {
 	owned, err := s.ownedSessions(id)
 	if err != nil {
-		return err // A failed read is not evidence that nothing started.
+		return err
 	}
 	_, err = s.mutate(id, func(m *Mission) error {
 		if len(m.Operations) == 0 {
 			return nil
 		}
 		op := &m.Operations[len(m.Operations)-1]
-		if op.Kind != "spawn" && op.Kind != "spawn_verifier" {
+		if !strings.HasPrefix(op.Kind, "spawn") {
 			return nil
+		}
+		owner := op.Target
+		if owner == "worker" {
+			owner = id
+		}
+		if owner == "verifier" {
+			owner = id + ":verifier"
+		}
+		found, allStopped := false, true
+		for _, r := range owned {
+			associateSession(m, r)
+			if r.Metadata.CLAOMissionID == owner {
+				found = true
+			}
+			allStopped = allStopped && r.Activity.State == domain.ActivityExited && !s.chat.HasLiveChatController(r.ID)
 		}
 		if op.Reason == "" && cause != nil {
 			op.Reason = cause.Error()
 		}
-		owner, priorID := id, m.SessionID
-		if op.Kind == "spawn_verifier" {
-			owner, priorID = id+":verifier", m.VerifierSessionID
-		}
-		found, allStopped := false, true
-		for _, r := range owned {
-			if r.Metadata.CLAOMissionID == id {
-				m.SessionID, m.Workspace, m.ResolvedModel = r.ID, r.Metadata.WorkspacePath, r.Metadata.Model
-			} else {
-				m.VerifierSessionID = r.ID
+		if !found && op.State != "CONFIRMED_SUCCESS" {
+			for i := range m.RoleCalls {
+				if m.RoleCalls[i].Owner == owner {
+					m.RoleCalls[i].State = "FAILED"
+					m.RoleCalls[i].Error = cause.Error()
+					m.RoleCalls[i].FinishedAt = time.Now().UTC().Format(time.RFC3339Nano)
+				}
 			}
-			found = found || r.Metadata.CLAOMissionID == owner
-			allStopped = allStopped && r.Activity.State == domain.ActivityExited && !s.chat.HasLiveChatController(r.ID)
-		}
-		if !found && priorID == "" && op.State != "CONFIRMED_SUCCESS" {
 			op.State = "CONFIRMED_FAILURE"
 			op.Reason += "; native owner query: no Session was published; initial turn was not dispatched"
-			// Verifier failure must not hide a missing or still-live Worker.
-			if allStopped && (op.Kind == "spawn" || m.SessionID != "" && len(owned) > 0) {
+			if allStopped {
 				m.State = "FAILED"
 				m.Reason = "启动失败，已确认没有启动本次执行：" + op.Reason
 				return nil
@@ -364,16 +380,44 @@ func (s *Service) reconcileSpawn(id string, cause error) error {
 		if op.State == "IN_FLIGHT" {
 			op.State = "UNKNOWN"
 		}
+		for i := range m.RoleCalls {
+			if m.RoleCalls[i].Owner == owner {
+				m.RoleCalls[i].State = "UNKNOWN"
+				m.RoleCalls[i].Error = op.Reason
+			}
+		}
 		m.State = "UNKNOWN"
 		m.Reason = "启动结果尚未确认；不会重复启动。" + op.Reason
 		if found {
 			m.Reason += "（已按不可变 owner 关联原生 Session）"
-		} else {
-			m.Reason += "（无法确认目标 Session 事实）"
 		}
 		return nil
 	})
 	return err
+}
+func workerOwner(m Mission) string {
+	if m.Replans == 0 {
+		return m.Request.ID
+	}
+	return fmt.Sprintf("%s:worker:%d", m.Request.ID, m.Replans)
+}
+func associateSession(m *Mission, r domain.SessionRecord) {
+	owner := r.Metadata.CLAOMissionID
+	if owner == workerOwner(*m) {
+		m.SessionID, m.Workspace, m.ResolvedModel = r.ID, r.Metadata.WorkspacePath, r.Metadata.Model
+	}
+	if owner == m.Request.ID+":verifier" {
+		m.VerifierSessionID = r.ID
+	}
+	for i := range m.RoleCalls {
+		if m.RoleCalls[i].Owner == owner {
+			m.RoleCalls[i].SessionID = r.ID
+			m.RoleCalls[i].ResolvedModel = r.Metadata.Model
+			if m.RoleCalls[i].Role == "verifier" {
+				m.VerifierSessionID = r.ID
+			}
+		}
+	}
 }
 func (s *Service) cancelStopped(id string) error {
 	rows, err := s.ownedSessions(id)
@@ -382,20 +426,32 @@ func (s *Service) cancelStopped(id string) error {
 	}
 	if _, err = s.mutate(id, func(m *Mission) error {
 		for _, r := range rows {
-			if r.Metadata.CLAOMissionID == id {
-				m.SessionID, m.Workspace, m.ResolvedModel = r.ID, r.Metadata.WorkspacePath, r.Metadata.Model
-			} else {
-				m.VerifierSessionID = r.ID
-			}
+			associateSession(m, r)
 		}
 		return nil
 	}); err != nil {
 		return err
 	}
+	var stopErrors []error
 	for _, r := range rows {
-		if err = s.stopped(id, r.ID); err != nil {
-			return err
+		if e := s.stopped(id, r.ID); e != nil {
+			stopErrors = append(stopErrors, e)
 		}
+	}
+	if len(stopErrors) > 0 {
+		return errors.Join(stopErrors...)
+	}
+	if _, err = s.mutate(id, func(v *Mission) error {
+		for i := range v.RoleCalls {
+			c := &v.RoleCalls[i]
+			if c.State == "RUNNING" || c.State == "STARTING" || c.State == "UNKNOWN" {
+				c.State = "CANCELLED"
+				c.FinishedAt = time.Now().UTC().Format(time.RFC3339Nano)
+			}
+		}
+		return nil
+	}); err != nil {
+		return err
 	}
 	// Native SessionManager durably seeds ownership before launching a process.
 	_, err = s.phase(id, "CANCELLED", "原生 Session 已确认停止；未重新执行任何指令")
@@ -409,7 +465,7 @@ func (s *Service) Recover() error {
 		return err
 	}
 	for _, m := range rows {
-		if m.State == "DONE" || m.State == "FAILED" || m.State == "CANCELLED" {
+		if m.State == "DONE" || m.State == "FAILED" || m.State == "CANCELLED" || m.State == "HUMAN" {
 			continue
 		}
 		owned, err := s.ownedSessions(m.Request.ID)
@@ -420,13 +476,15 @@ func (s *Service) Recover() error {
 			v.State = "UNKNOWN"
 			v.Reason = "运行被中断，外部结果需确认；不会自动重发"
 			for _, r := range owned {
-				if r.Metadata.CLAOMissionID == v.Request.ID {
-					v.SessionID = r.ID
-					v.Workspace = r.Metadata.WorkspacePath
-				} else {
-					v.VerifierSessionID = r.ID
+				associateSession(v, r)
+			}
+			for i := range v.RoleCalls {
+				if v.RoleCalls[i].State == "STARTING" || v.RoleCalls[i].State == "RUNNING" {
+					v.RoleCalls[i].State = "UNKNOWN"
+					v.RoleCalls[i].Error = "运行被中断；不会自动重发"
 				}
 			}
+
 			for i := range v.Operations {
 				if v.Operations[i].State == "IN_FLIGHT" {
 					v.Operations[i].State = "UNKNOWN"
@@ -517,7 +575,7 @@ func (s *Service) waitTurn(id string, sid domain.SessionID, after string) (chats
 			return chatsvc.Snapshot{}, err
 		}
 		if m.CancelRequested {
-			return chatsvc.Snapshot{}, errors.New("cancel_requested")
+			return chatsvc.Snapshot{}, errCancelled
 		}
 		snap, err := s.chat.Snapshot(s.ctx, sid)
 		if err != nil {
@@ -548,7 +606,7 @@ func (s *Service) waitTurn(id string, sid domain.SessionID, after string) (chats
 		case <-s.ctx.Done():
 			return snap, s.ctx.Err()
 		case <-timeout.C:
-			return snap, errors.New("Worker/Verifier 等待超过 30 分钟上限")
+			return snap, errors.New("原生执行/角色等待超过配置上限")
 		case <-ticker.C:
 		}
 	}
@@ -567,7 +625,7 @@ func (s *Service) run(id string) {
 		m, e := s.Get(s.ctx, id)
 		if e == nil && len(m.Operations) > 0 {
 			op := m.Operations[len(m.Operations)-1]
-			if op.Kind == "spawn" || op.Kind == "spawn_verifier" {
+			if strings.HasPrefix(op.Kind, "spawn") {
 				if e = s.reconcileSpawn(id, err); e != nil {
 					s.log.Error("CLAO spawn reconciliation failed", "mission", id, "error", e)
 					_, _ = s.phase(id, "UNKNOWN", "启动对账失败，不会自动重试："+e.Error()+"；原错误："+err.Error())
@@ -576,7 +634,24 @@ func (s *Service) run(id string) {
 			}
 		}
 		if e == nil && !m.Terminal() {
-			_, _ = s.phase(id, "UNKNOWN", err.Error())
+			// Failed local evidence/contract work is not an ambiguous external
+			// dispatch. Only close after every immutable owner is confirmed stopped.
+			state := "UNKNOWN"
+			owned, readErr := s.ownedSessions(id)
+			stopped := readErr == nil
+			for _, rec := range owned {
+				stopped = stopped && rec.Activity.State == domain.ActivityExited && !s.chat.HasLiveChatController(rec.ID)
+			}
+			uncertain := false
+			for _, op := range m.Operations {
+				if op.State == "UNKNOWN" || op.State == "IN_FLIGHT" {
+					uncertain = true
+				}
+			}
+			if stopped && !uncertain {
+				state = "FAILED"
+			}
+			_, _ = s.phase(id, state, err.Error())
 		}
 	}
 }
@@ -585,26 +660,11 @@ func (s *Service) execute(id string) error {
 	if err != nil {
 		return err
 	}
-	var worker domain.SessionRecord
-	err = s.operation(id, "spawn", "worker", func() error {
-		var e error
-		// Seed Session numbers can be reused after failed-start rollback, while
-		// its Git branch survives. A new mission gets its own branch; no cleanup
-		// or history rewrite is needed to create a genuinely new attempt.
-		worker, _, _, e = s.sessions.Spawn(ports.WithCLAOOwner(s.ctx, id), ports.SpawnConfig{ProjectID: m.Request.ProjectID, Branch: "clao/" + id + "/worker", Kind: domain.KindWorker, Harness: m.Request.Agent, RequestedMode: domain.SessionModeChat, CLAOMissionID: id, CLAOBaseSHA: m.Base, AgentConfig: ports.AgentConfig{Model: m.Request.Model, Permissions: domain.PermissionModeDefault}, Prompt: workerPrompt(m), DisplayName: "闭环 · " + m.Request.Objective})
-		return e
-	})
+	worker, err := s.spawnWorker(id, m, "")
 	if err != nil {
 		return err
 	}
-	m, err = s.mutate(id, func(v *Mission) error {
-		v.SessionID = worker.ID
-		v.ResolvedModel = worker.Metadata.Model
-		v.Workspace = worker.Metadata.WorkspacePath
-		v.State = "RUNNING"
-		v.Reason = "Worker 执行中"
-		return nil
-	})
+	m, err = s.Get(s.ctx, id)
 	if err != nil {
 		return err
 	}
@@ -632,10 +692,6 @@ func (s *Service) execute(id string) error {
 			_, err = s.phase(id, "CANCELLED", "Worker 已确认停止")
 			return err
 		}
-		if waitErr != nil {
-			_, err = s.phase(id, "FAILED", waitErr.Error())
-			return err
-		}
 		if len(snap.Turns) > 0 {
 			lastTurn = snap.Turns[len(snap.Turns)-1].ID
 		}
@@ -654,45 +710,119 @@ func (s *Service) execute(id string) error {
 			_, err = s.phase(id, "CANCELLED", "Worker 已停止，取消验收")
 			return err
 		}
-		if !proof.OK {
-			if proof.ReadError != "" || !proof.ScopeOK || m.Repairs >= m.Request.MaxRepairs {
-				_, err = s.phase(id, "FAILED", "Gate 或确定性范围验收未通过")
+		if !proof.OK || waitErr != nil {
+			if proof.ReadError != "" || !proof.ScopeOK || !gateIntegrity(proof) {
+				_, err = s.phase(id, "FAILED", "确定性范围/完整性或取证失败，模型不能覆盖")
 				return err
 			}
-			m, err = s.mutate(id, func(v *Mission) error {
-				v.Repairs++
-				v.State = "REPAIRING"
-				v.Reason = "发送一次有界修复指令"
+			if m.Repairs+m.Replans >= m.Request.MaxRepairs {
+				return s.human(id, "修复预算耗尽；Gate 或执行仍未通过")
+			}
+			executionError := ""
+			if waitErr != nil {
+				executionError = waitErr.Error()
+			}
+			action, incident, e := s.diagnose(id, m, proof, executionError)
+			if e != nil {
+				return e
+			}
+			if action == nil {
 				return nil
-			})
+			}
+			m, err = s.Get(s.ctx, id)
 			if err != nil {
 				return err
 			}
-			if err = s.operation(id, "resume", string(worker.ID), func() error {
-				_, e := s.sessions.ResumeAgentWithMode(ports.WithCLAOOwner(s.ctx, id), worker.ID)
-				return e
-			}); err != nil {
+			if m.CancelRequested {
+				return errCancelled
+			}
+			next, _ := action["action"].(string)
+			reason, _ := action["reason"].(string)
+			if err = s.decisionUpdate(id, incident, "EXECUTING", ""); err != nil {
 				return err
 			}
-			m, _ = s.Get(s.ctx, id)
-			if m.CancelRequested {
+			switch next {
+			case "HUMAN":
+				if err = s.decisionUpdate(id, incident, "HUMAN", reason); err != nil {
+					return err
+				}
+				return s.human(id, reason)
+			case "CONTINUE", "CANDIDATE_DONE":
+				// CONTINUE observes without restarting. The current Worker has already
+				// stopped; recheck its evidence once. Candidate completion is also only
+				// a deterministic check, never a terminal override or a model retry loop.
+				checked, e := s.acceptance.Check(s.ctx, m, false, "", "")
+				if e != nil {
+					return e
+				}
+				if _, err = s.mutate(id, func(v *Mission) error { v.Evidence = append(v.Evidence, checked); return nil }); err != nil {
+					return err
+				}
+				if err = s.decisionUpdate(id, incident, "APPLIED", "仅重新读取/执行确定性验收，未向 Worker 发指令"); err != nil {
+					return err
+				}
+				if !checked.OK || waitErr != nil {
+					return s.human(id, next+" 未解除已有 Gate/执行失败；停止无进展循环")
+				}
+				proof = checked
+			case "REPLAN_SPAWN":
+				if m.Replans >= m.Request.MaxReplans {
+					if err = s.decisionUpdate(id, incident, "BLOCKED", "重新规划预算耗尽"); err != nil {
+						return err
+					}
+					return s.human(id, "重新规划预算耗尽")
+				}
 				if err = s.stopped(id, worker.ID); err != nil {
 					return err
 				}
-				_, err = s.phase(id, "CANCELLED", "Worker 已停止")
-				return err
+				m, err = s.mutate(id, func(v *Mission) error { v.Replans++; v.State = "REPLANNING"; v.Reason = reason; return nil })
+				if err != nil {
+					return err
+				}
+				replacement, _ := action["replacement_task_spec"].(map[string]any)
+				plan, _ := replacement["objective"].(string)
+				worker, err = s.spawnWorker(id, m, plan)
+				if err != nil {
+					return err
+				}
+				if err = s.decisionUpdate(id, incident, "APPLIED", "旧 Worker 已停止；从冻结 base 创建独立替代 Worker "+string(worker.ID)); err != nil {
+					return err
+				}
+				lastTurn = ""
+				continue
+			case "SEND_LOCAL_FIX":
+				m, err = s.mutate(id, func(v *Mission) error { v.Repairs++; v.State = "REPAIRING"; v.Reason = reason; return nil })
+				if err != nil {
+					return err
+				}
+				if err = s.checkAccount(m.choice("worker")); err != nil {
+					return s.human(id, err.Error())
+				}
+				if err = s.operation(id, "resume", string(worker.ID), func() error {
+					_, e := s.sessions.ResumeAgentWithMode(ports.WithCLAOOwner(s.ctx, id), worker.ID)
+					return e
+				}); err != nil {
+					return err
+				}
+				message, _ := action["message"].(string)
+				if err = s.operation(id, "repair_send", string(worker.ID), func() error {
+					_, e := s.chat.Send(ports.WithCLAOOwner(s.ctx, id), worker.ID, ports.ChatUserMessage{Text: "在原目标/AC/Gate/范围不变的约束内处理本次局部修复：\n" + message, ClientMessageID: incident + ":fix", Origin: domain.MessageOriginAutomation})
+					return e
+				}); err != nil {
+					return err
+				}
+				if err = s.decisionUpdate(id, incident, "APPLIED", "已向当前 Worker 提交一次局部修复"); err != nil {
+					return err
+				}
+				if _, err = s.phase(id, "RUNNING", "Worker 修复中"); err != nil {
+					return err
+				}
+				continue
+			default:
+				return s.human(id, "未支持的 Planner 动作")
 			}
-			if err = s.operation(id, "repair_send", string(worker.ID), func() error {
-				_, e := s.chat.Send(ports.WithCLAOOwner(s.ctx, id), worker.ID, ports.ChatUserMessage{Text: "修复以下实际 Gate 失败，不改变目标、范围或验收条件：\n" + string(proof.Records), ClientMessageID: fmt.Sprintf("%s:repair:%d", id, m.Repairs), Origin: domain.MessageOriginAutomation})
-				return e
-			}); err != nil {
-				return err
-			}
-			if _, err = s.phase(id, "RUNNING", "Worker 修复中"); err != nil {
-				return err
-			}
-			continue
 		}
+
 		if _, err = s.phase(id, "MATERIALIZING", "固定验收产物；不写回原项目"); err != nil {
 			return err
 		}
@@ -722,56 +852,20 @@ func (s *Service) verify(id string, m Mission, proof Evidence) error {
 	if proof.VerifierPrompt == "" {
 		return errors.New("complete verifier evidence unavailable")
 	}
-	var review domain.SessionRecord
-	err := s.operation(id, "spawn_verifier", "verifier", func() error {
-		var e error
-		review, _, _, e = s.sessions.Spawn(ports.WithCLAOOwner(s.ctx, id), ports.SpawnConfig{ProjectID: m.Request.ProjectID, Branch: "clao/" + id + "/verifier", Kind: domain.KindWorker, Harness: m.Request.Agent, RequestedMode: domain.SessionModeChat, CLAOMissionID: id + ":verifier", CLAOBaseSHA: m.ResultHead, CLAOReview: true, AgentConfig: ports.AgentConfig{Model: m.ResolvedModel, Permissions: domain.PermissionModeDefault}, Prompt: proof.VerifierPrompt, DisplayName: "验收 · " + m.Request.Objective})
-		return e
-	})
+	text, err := s.semantic(id, "verifier", id+":verify", "", proof.VerifierPrompt)
 	if err != nil {
-		return err
-	}
-	if _, err = s.mutate(id, func(v *Mission) error { v.VerifierSessionID = review.ID; return nil }); err != nil {
-		return err
-	}
-	snap, waitErr := s.waitTurn(id, review.ID, "")
-	if err = s.stopped(id, review.ID); err != nil {
-		return err
+		current, e := s.Get(s.ctx, id)
+		if e != nil || errors.Is(err, errCancelled) || current.State == "UNKNOWN" {
+			return err
+		}
+		if len(current.Operations) > 0 && strings.HasPrefix(current.Operations[len(current.Operations)-1].Kind, "spawn") {
+			return err
+		}
+		_, e = s.phase(id, "FAILED", "Verifier 复核失败："+err.Error())
+		return e
 	}
 	m, err = s.Get(s.ctx, id)
 	if err != nil {
-		return err
-	}
-	if m.CancelRequested {
-		_, err = s.phase(id, "CANCELLED", "执行与复核 Session 均已停止")
-		return err
-	}
-	if waitErr != nil {
-		_, err = s.phase(id, "FAILED", "复核失败："+waitErr.Error())
-		return err
-	}
-	text := ""
-	turn := ""
-	if len(snap.Turns) > 0 {
-		turn = snap.Turns[len(snap.Turns)-1].ID
-	}
-	for _, msg := range snap.Messages {
-		if msg.Role == domain.MessageRoleAssistant && !msg.Streaming && msg.TurnID == turn {
-			text = msg.Text
-		}
-	}
-	if strings.TrimSpace(text) == "" {
-		_, err = s.phase(id, "FAILED", "Verifier 没有提供结构化结果；不能仅凭回合结束确认通过")
-		return err
-	}
-	// The reviewer's separate worktree may never alter the accepted worker tree.
-	// Even an engine ignoring the read-only instruction cannot turn edits into PASS.
-	check := m
-	check.Workspace = review.Metadata.WorkspacePath
-	check.Base = m.ResultHead
-	clean, e := s.acceptance.Source(s.ctx, check.Workspace)
-	if e != nil || clean != m.ResultHead {
-		_, err = s.phase(id, "FAILED", "Verifier 工作区发生改动或不可取证")
 		return err
 	}
 	final, e := s.acceptance.Check(s.ctx, m, false, "", text)
@@ -780,6 +874,16 @@ func (s *Service) verify(id string, m Mission, proof Evidence) error {
 	}
 	m, err = s.mutate(id, func(v *Mission) error {
 		v.Evidence = append(v.Evidence, final)
+		for i := range v.RoleCalls {
+			if v.RoleCalls[i].Role == "verifier" {
+				v.RoleCalls[i].Result = final.Verification
+				v.RoleCalls[i].State = "VALIDATED"
+				if final.ReadError != "" {
+					v.RoleCalls[i].State = "PROTOCOL_ERROR"
+					v.RoleCalls[i].Error = final.ReadError
+				}
+			}
+		}
 		if v.CancelRequested {
 			v.State = "CANCELLED"
 			v.Reason = "已停止"
@@ -797,4 +901,54 @@ func (s *Service) verify(id string, m Mission, proof Evidence) error {
 func workerPrompt(m Mission) string {
 	b, _ := json.Marshal(m.Request)
 	return "CLAO 验收驱动任务。仅在本 Session 隔离工作区执行；不得 push、写回原项目或启动其他 Worker。不得改变验收条件。完成后等待程序运行 Gate；不得把自己的完成声明当作最终验收。范围与 Gate 如下：\n" + string(b)
+}
+
+func gateIntegrity(p Evidence) bool {
+	var g struct {
+		IntegrityOK bool `json:"integrity_ok"`
+	}
+	return json.Unmarshal(p.Gate, &g) == nil && g.IntegrityOK
+}
+func (s *Service) spawnWorker(id string, m Mission, plan string) (domain.SessionRecord, error) {
+	var worker domain.SessionRecord
+	choice := m.choice("worker")
+	if err := s.checkAccount(choice); err != nil {
+		return worker, err
+	}
+	owner := workerOwner(m)
+	suffix := "worker"
+	kind := "spawn"
+	if m.Replans > 0 {
+		suffix = fmt.Sprintf("worker-%d", m.Replans)
+		kind = "spawn_replacement"
+	}
+	prompt := workerPrompt(m)
+	if plan != "" {
+		prompt += "\n执行方案调整（不能覆盖上述原任务契约）：\n" + plan
+	}
+	err := s.operation(id, kind, owner, func() error {
+		var e error
+		worker, _, _, e = s.sessions.Spawn(ports.WithCLAOOwner(s.ctx, id), ports.SpawnConfig{ProjectID: m.Request.ProjectID, Branch: "clao/" + id + "/" + suffix, Kind: domain.KindWorker, Harness: choice.Agent, RequestedMode: domain.SessionModeChat, CLAOMissionID: owner, CLAOBaseSHA: m.Base, AgentConfig: ports.AgentConfig{Model: choice.Model, Permissions: domain.PermissionModeDefault}, Prompt: prompt, DisplayName: "闭环 · " + m.Request.Objective})
+		return e
+	})
+	if err != nil {
+		return worker, err
+	}
+	_, err = s.mutate(id, func(v *Mission) error {
+		v.SessionID = worker.ID
+		v.ResolvedModel = worker.Metadata.Model
+		v.Workspace = worker.Metadata.WorkspacePath
+		v.State = "RUNNING"
+		v.Reason = "Worker 执行中"
+		return nil
+	})
+	if err == nil && worker.Metadata.DiffBaseSHA != m.Base {
+		if err = s.stopped(id, worker.ID); err == nil {
+			_, err = s.phase(id, "FAILED", "AO workspace base differs from frozen source")
+			if err == nil {
+				err = errors.New("source mismatch")
+			}
+		}
+	}
+	return worker, err
 }
