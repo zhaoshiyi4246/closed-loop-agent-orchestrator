@@ -25,7 +25,7 @@
 
 ### 原生运行恢复与用户指令回执切片（2026-09-10）
 
-- 状态 **IN_REVIEW**；基线 main `157093b`，分支 `codex/ao-native-recovery-directives`。复用当前 AO Mission/Session/SQLite，迁移可确认阶段继续与 Worker/语义角色指令回执；不重放未知副作用，不回写终态。PR #46/#47 DONE，整体迁移/M4 IN_PROGRESS。
+- 状态 **IN_REVIEW**；[PR #48](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/48)，实现提交 `7a44cf8`；基线 main `157093b`，分支 `codex/ao-native-recovery-directives`。复用当前 AO Mission/Session/SQLite，迁移可确认阶段继续与 Worker/语义角色指令回执；不重放未知副作用，不回写终态。PR #46/#47 DONE，整体迁移/M4 IN_PROGRESS。
 - 产品接线：Mission 保存 checkpoint/输入摘要、正式角色响应、原生消息/回合身份和指令消费者；显式继续复用原阶段/Session/base/模型/预算。Gate/固定产物在途结果丢失或输入变化不重跑；原生未知动作不重发。角色输入冻结，Planner 镜像单列；原生 Chat 与新增表单共用接收边界，终态新尝试保存 parentId。详细阶段/限制与完整本机入口见 [ao/CLAO.md](../ao/CLAO.md#运行恢复与用户指令回执)。
 - Windows HTTP/Git/SQLite：`pytest clao/tests/test_ao_native_recovery.py` 的 **15 个直接回归**，连同两个兼容复核最终 **17 passed / 329.32s**。覆盖真实 daemon 终止/重启、Worker 完成/Gate 前、角色输入与已存决策、已恢复但尚未发送动作、固定产物/Verifier 已完成、发送与替换 ACK 丢失、停止/取消、输入变更拒绝和接收持久失败。引擎边界用协议替身，AO Manager/Chat/Store/Git 和 Python Gate 未替换。
 - 兼容选集：审批/禁止路径、取消语义角色、五动作、混用 Worker、冻结默认和普通 AO Chat。首轮 19 项中 17 passed、2 failed；发现零替换预算应保持 HUMAN（已修正），另一次普通 Session kill HTTP 连接重置而 daemon 记录 200；保留断言复核两项通过，不把首轮失败隐去或累计成全量。
