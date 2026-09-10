@@ -21,6 +21,7 @@ import (
 func New(plugin nativeacp.Plugin, log *slog.Logger) ports.ChatDriver {
 	return nativeacp.New(plugin, nativeacp.Config{
 		Harness:              domain.HarnessOpenCode,
+		Capabilities:         ports.ChatCapabilities{ports.ChatCapabilityReadOnly: true},
 		Configure:            configure,
 		SessionOptions:       sessionOptions,
 		ValidateTurnSettings: validateTurnSettings,
@@ -28,7 +29,7 @@ func New(plugin nativeacp.Plugin, log *slog.Logger) ports.ChatDriver {
 }
 
 func configure(_ context.Context, cfg acpdriver.LaunchConfig) ([]string, map[string]string, error) {
-	if cfg.SystemPrompt == "" && ports.NormalizePermissionMode(cfg.Permissions) != ports.PermissionModeBypassPermissions {
+	if cfg.SystemPrompt == "" && cfg.Permissions != ports.PermissionModeReadOnly && ports.NormalizePermissionMode(cfg.Permissions) != ports.PermissionModeBypassPermissions {
 		return []string{"acp"}, nil, nil
 	}
 	content, err := opencode.PrepareACPConfigContent(

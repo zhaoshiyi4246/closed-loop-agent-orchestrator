@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"strings"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
@@ -40,7 +39,7 @@ func (s *Service) claoApproval(ctx context.Context, rec domain.SessionRecord, re
 			if offered.Kind == ports.ChatDecisionRejectOnce || offered.Kind == ports.ChatDecisionRejectAlways {
 				return nil
 			}
-			if offered.Kind == ports.ChatDecisionAllowOnce && !strings.HasSuffix(rec.Metadata.CLAOMissionID, ":verifier") {
+			if offered.Kind == ports.ChatDecisionAllowOnce && !ports.CLAOSemanticOwner(rec.Metadata.CLAOMissionID) {
 				if s.claoApprovalPolicy == nil {
 					return errors.New("闭环审批策略不可用；可拒绝请求或取消任务")
 				}
@@ -56,4 +55,16 @@ func (s *Service) claoApproval(ctx context.Context, rec domain.SessionRecord, re
 // and request lifecycle; this hook only checks the immutable mission scope.
 func (s *Service) SetCLAOApprovalPolicy(policy func(context.Context, domain.SessionRecord, domain.ConversationActivity) error) {
 	s.claoApprovalPolicy = policy
+}
+
+// CLAO reads already-observed model facts; never infer them from requested settings.
+func (s *Service) ReportedModel(id domain.SessionID) (string, string) {
+	controller, err := s.Controller(id)
+	if err != nil {
+		return "", ""
+	}
+	if reader, ok := controller.conv.(ports.ChatReportedModelReader); ok {
+		return reader.ReportedModel()
+	}
+	return "", ""
 }

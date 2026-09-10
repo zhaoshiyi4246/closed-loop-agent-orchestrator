@@ -358,7 +358,7 @@ export function TaskComposer({
 				// The visible selection is authoritative: it is either the user's pick
 				// or the resolved default, so spawning names it explicitly.
 				agent: selectedAgent ? (selectedAgent as CreateTaskInput["agent"]) : undefined,
-				model: requestedModel,
+				model: createClosedLoop ? cleanModel || cleanMode || "" : requestedModel,
 				mode: interfaceMode,
 				approvalMode,
 				attachments: attachmentPayloads.length > 0 ? attachmentPayloads : undefined,

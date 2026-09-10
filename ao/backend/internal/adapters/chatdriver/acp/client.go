@@ -59,6 +59,9 @@ func (c *conversation) RequestPermission(
 	c.mu.Lock()
 	policy, mode := c.permissionFor, c.permissionMode
 	c.mu.Unlock()
+	if mode == ports.PermissionModeReadOnly {
+		return acpsdk.RequestPermissionResponse{Outcome: acpsdk.NewRequestPermissionOutcomeCancelled()}, nil
+	}
 	if policy != nil {
 		if selected, handled := policy(mode, params); handled {
 			for _, option := range params.Options {

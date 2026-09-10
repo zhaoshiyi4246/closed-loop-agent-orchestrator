@@ -45,6 +45,47 @@ func options() []any {
 	return []any{map[string]any{"id": "model", "name": "Model", "type": "select", "currentValue": "test/native", "options": []any{map[string]any{"value": "test/native", "name": "Native fixture"}, map[string]any{"value": "test/second", "name": "Second fixture"}}}}
 }
 func promptText(params map[string]any) string { b, _ := json.Marshal(params); return string(b) }
+func roleInput(text string) map[string]any {
+	for i := 0; i < len(text); i++ {
+		if text[i] == '{' {
+			var obj map[string]any
+			if json.Unmarshal([]byte(text[i:]), &obj) == nil && (obj["audit_id"] != nil || obj["action_id"] != nil || obj["verify_id"] != nil) {
+				return obj
+			}
+		}
+	}
+	return nil
+}
+func roleResult(in map[string]any, text string) string {
+	var out map[string]any
+	if in["audit_id"] != nil {
+		decision := "LOCAL_FIX"
+		if strings.Contains(text, "PLAN_HUMAN") {
+			decision = "HUMAN"
+		}
+		out = map[string]any{"audit_id": in["audit_id"], "task_id": in["task_id"], "decision": decision, "diagnosis": "实际 Gate 失败；按输入中的差异和失败输出定位", "confidence": 0.9, "failed_criteria": []any{}, "evidence": []any{map[string]any{"type": "test_failure", "summary": "Gate did not accept result.txt", "reference": "evidence_bundle.evidence.test_output"}}, "recommended_action": "Fix result.txt without changing check.py"}
+	} else {
+		action := "SEND_LOCAL_FIX"
+		for marker, choice := range map[string]string{"PLAN_REPLACE": "REPLAN_SPAWN", "PLAN_HUMAN": "HUMAN", "PLAN_CANDIDATE": "CANDIDATE_DONE", "PLAN_CONTINUE": "CONTINUE"} {
+			if strings.Contains(text, marker) {
+				action = choice
+			}
+		}
+		out = map[string]any{"action_id": in["action_id"], "task_id": in["task_id"], "action": action, "reason": "使用本次审核证据与剩余预算"}
+		if action == "SEND_LOCAL_FIX" {
+			out["target_session_id"] = in["target_session_id"]
+			out["message"] = "Fix result.txt to accepted; retain original constraints."
+		}
+		if action == "REPLAN_SPAWN" {
+			out["replacement_task_spec"] = map[string]any{"objective": "replacement-pass: rebuild accepted result under original contract"}
+		}
+	}
+	if strings.Contains(text, "BAD_ROLE_ID") {
+		out["task_id"] = "wrong-task"
+	}
+	b, _ := json.Marshal(out)
+	return string(b)
+}
 func reviewResult(text string) string {
 	// The prompt contains the normal retained VerifierInput JSON. Find the
 	// correlated identity from its trailing object rather than fabricate an ID.
@@ -93,13 +134,21 @@ func complete(m message, codex bool) {
 	text := extractText(m.Params)
 	trace("prompt", text)
 	answer := "Worker turn complete; await program acceptance."
-	if strings.Contains(text, "verify_id") && strings.Contains(text, "verifier_input") {
+	if in := roleInput(text); in != nil && (in["audit_id"] != nil || in["action_id"] != nil) {
+		answer = roleResult(in, text)
+	} else if strings.Contains(text, "verify_id") && strings.Contains(text, "verifier_input") {
 		answer = reviewResult(text)
 		if strings.Contains(text, "EMPTY_REVIEW") {
 			answer = ""
 		}
 	} else {
 		value := "accepted\n"
+		if strings.Contains(text, "REPAIR_ONCE") || strings.Contains(text, "PLAN_") || strings.Contains(text, "BAD_ROLE_ID") || strings.Contains(text, "HOLD_") {
+			value = "broken\n"
+		}
+		if strings.Contains(text, "replacement-pass") {
+			value = "accepted\n"
+		}
 		if strings.Contains(text, "FAIL_GATE") {
 			value = "broken\n"
 			_ = os.WriteFile(filepath.Join(workspace, ".fixture-failure"), []byte("fail"), 0600)
@@ -116,6 +165,11 @@ func complete(m message, codex bool) {
 		event("item/completed", map[string]any{"threadId": session, "turnId": tid, "item": map[string]any{"id": "answer-" + tid, "type": "agentMessage", "text": answer}})
 		event("turn/completed", map[string]any{"threadId": session, "turn": map[string]any{"id": tid, "status": "completed", "items": []any{}}})
 	} else {
+		if strings.Contains(text, "REPORT_MODEL") {
+			opts := options()
+			opts[0].(map[string]any)["currentValue"] = "test/provider-confirmed"
+			event("session/update", map[string]any{"sessionId": session, "update": map[string]any{"sessionUpdate": "config_option_update", "configOptions": opts}})
+		}
 		event("session/update", map[string]any{"sessionId": session, "update": map[string]any{"sessionUpdate": "agent_message_chunk", "content": map[string]any{"type": "text", "text": answer}}})
 		reply(m.ID, map[string]any{"stopReason": "end_turn"})
 	}
@@ -140,6 +194,7 @@ func main() {
 	}
 	codex := strings.Contains(strings.ToLower(filepath.Base(os.Args[0])), "codex")
 	workspace, _ = os.Getwd()
+	trace("policy", os.Getenv("OPENCODE_CONFIG_CONTENT"))
 	scan := bufio.NewScanner(os.Stdin)
 	scan.Buffer(make([]byte, 4096), 4<<20)
 	for scan.Scan() {
@@ -171,6 +226,8 @@ func main() {
 		case "initialized":
 		case "model/list":
 			reply(m.ID, map[string]any{"data": []any{map[string]any{"id": "test/native", "model": "test/native", "displayName": "Native fixture", "isDefault": true, "supportedReasoningEfforts": []any{}}}, "nextCursor": nil})
+		case "config/read":
+			reply(m.ID, map[string]any{"config": map[string]any{}})
 		case "account/read":
 			reply(m.ID, map[string]any{"account": map[string]any{"type": "chatgpt", "email": "fixture@example.invalid", "planType": "plus"}, "requiresOpenaiAuth": false})
 		case "session/new", "session/load", "session/resume":
@@ -191,6 +248,7 @@ func main() {
 			}
 			reply(m.ID, map[string]any{"sessionId": session, "configOptions": options(), "models": map[string]any{"currentModelId": "test/native", "availableModels": []any{map[string]any{"modelId": "test/native", "name": "Native fixture"}}}})
 		case "session/set_config_option", "session/set_model", "session/set_mode":
+			trace("selection", promptText(m.Params))
 			reply(m.ID, map[string]any{"configOptions": options()})
 		case "thread/start", "thread/resume":
 			if cwd, ok := m.Params["cwd"].(string); ok {
@@ -199,7 +257,9 @@ func main() {
 			reply(m.ID, map[string]any{"thread": map[string]any{"id": session, "turns": []any{}, "cwd": workspace}, "model": "test/native", "modelProvider": "fixture", "cwd": workspace})
 		case "session/prompt", "turn/start":
 			text := extractText(m.Params)
-			if strings.Contains(text, "WAIT_CANCEL") {
+			role := roleInput(text)
+			waitRole := role != nil && (role["audit_id"] != nil && strings.Contains(text, "HOLD_AUDITOR") || role["action_id"] != nil && strings.Contains(text, "HOLD_PLANNER"))
+			if strings.Contains(text, "WAIT_CANCEL") || waitRole {
 				pending = &m
 				trace("waiting", text)
 				continue

@@ -147,6 +147,7 @@ func schemaName(_ reflect.Type, defaultName string) string {
 var schemaNames = map[string]string{ //nolint:gosec // Public OpenAPI type names include reset-credit contracts; no credential value is stored here.
 	"ClaoloopRequest": "CLAORequest", "ClaoloopMission": "CLAOMission", "ClaoloopCriterion": "CLAOCriterion",
 	"ClaoloopEvidence": "CLAOEvidence", "ClaoloopOperation": "CLAOOperation",
+	"ClaoloopRoleChoice": "CLAORoleChoice", "ClaoloopFrozenRole": "CLAOFrozenRole", "ClaoloopRoleCall": "CLAORoleCall", "ClaoloopDecision": "CLAODecision",
 	"ControllersCLAONonceResponse": "CLAONonceResponse", "ControllersCLAOMissionResponse": "CLAOMissionResponse",
 	"ControllersCLAOMissionListResponse": "CLAOMissionListResponse",
 

@@ -103,3 +103,12 @@ func (a PythonAcceptance) run(ctx context.Context, request map[string]any) (Evid
 	}
 	return out, nil
 }
+
+func (a PythonAcceptance) Role(ctx context.Context, m Mission, role string, data map[string]any, text *string) (Evidence, error) {
+	spec := map[string]any{"task_id": m.Request.ID, "project_id": m.Request.ProjectID, "objective": m.Request.Objective, "allowed_paths": m.Request.AllowedPaths, "forbidden_paths": m.Request.ForbiddenPaths, "acceptance_criteria": m.Request.Criteria, "gate_commands": m.Request.GateCommands}
+	req := map[string]any{"workspace": m.Workspace, "base": m.Base, "task": spec, "role": role, "roleContext": data}
+	if text != nil {
+		req["roleText"] = *text
+	}
+	return a.run(ctx, req)
+}

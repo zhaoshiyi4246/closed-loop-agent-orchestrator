@@ -13,6 +13,7 @@ const (
 	// PermissionModeDefault is special: adapters choose their own baseline
 	// behavior for it. Most defer to the agent's own config; some managed
 	// adapters may map it to a safer non-interactive default.
+	PermissionModeReadOnly          PermissionMode = "read-only"
 	PermissionModeDefault           PermissionMode = "default"
 	PermissionModeAcceptEdits       PermissionMode = "accept-edits"
 	PermissionModeAuto              PermissionMode = "auto"
@@ -45,7 +46,7 @@ func (c AgentConfig) IsZero() bool {
 // one.
 func (m PermissionMode) Valid() bool {
 	switch m {
-	case "", PermissionModeDefault, PermissionModeAcceptEdits,
+	case "", PermissionModeReadOnly, PermissionModeDefault, PermissionModeAcceptEdits,
 		PermissionModeAuto, PermissionModeBypassPermissions:
 		return true
 	default:

@@ -218,3 +218,15 @@ func readWireResponse(t *testing.T, reader *bufio.Reader) wireResponse {
 	}
 	return wireResponse{}
 }
+
+func TestCLAOReadOnlyCannotAskToElevateToolPermission(t *testing.T) {
+	conv := &conversation{permissionMode: ports.PermissionModeReadOnly}
+	response, err := conv.RequestPermission(context.Background(), acpsdk.RequestPermissionRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, _ := json.Marshal(response)
+	if !strings.Contains(string(encoded), "cancelled") {
+		t.Fatal(string(encoded))
+	}
+}

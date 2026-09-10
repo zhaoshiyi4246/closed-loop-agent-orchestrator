@@ -2,7 +2,7 @@
 
 Closed-Loop Agent Orchestrator
 
-> 本目录保留旧产品及可复用核心。[AO 原生底座 + 单 Worker 验收闭环基础集成](../ao/CLAO.md) 已经 PR #46 返修外部代码审计 PASS 并合入（DONE）；整体迁移与 M4 仍 IN_PROGRESS，唯一下一开发内容为 Planner/Auditor 决策与独立角色配置迁移（TODO）。开发入口不启动本 Panel/Controller。以下旧产品功能与历史完成状态不等于已迁移；配置、凭据和 runtime 原样保留，新数据不写入旧数据库。正式默认入口未切换；空账户隔离启动命令与未迁移边界见上述说明，真实账户/模型及完整体验尚未验收。
+> 本目录保留旧产品及可复用核心。[AO 原生底座 + 单 Worker 验收闭环基础集成](../ao/CLAO.md) 已经 PR #46 返修外部代码审计 PASS 并合入（DONE）；整体迁移与 M4 仍 IN_PROGRESS，当前执行内容为 Planner/Auditor 决策与独立角色配置迁移（IN_REVIEW）。开发入口不启动本 Panel/Controller。以下旧产品功能与历史完成状态不等于已迁移；配置、凭据和 runtime 原样保留，新数据不写入旧数据库。正式默认入口未切换；空账户隔离启动命令与未迁移边界见上述说明，真实账户/模型及完整体验尚未验收。
 
 CLAO 是本地闭环软件开发控制层。新本地任务通过 Codex App Server 执行，无需 AO。它把用户的
 Mission 交给受控的 Codex Worker，在确定性观察、Gate 和最终验证后生成可审计结果。

@@ -10,7 +10,7 @@ cp.execFileSync('go', ['build', '-o', path.join(engine, 'opencode.exe'), path.jo
 for (const key of ['PATH', 'SystemRoot', 'WINDIR', 'COMSPEC', 'TEMP', 'TMP', 'PATHEXT']) if (process.env[key]) env[key] = process.env[key];
 Object.assign(env, {
   CLAO_NATIVE_HOME: home, CLAO_NATIVE_PORT: process.env.CLAO_DESKTOP_TEST_PORT || '7314',
-  AO_DEV_DAEMON_BINARY: path.join(front, 'daemon/ao.exe'),
+  AO_DEV_DAEMON_BINARY: process.env.CLAO_NATIVE_BINARY || path.join(front, 'daemon/ao.exe'),
   CLAO_CORE_PYTHON: process.env.CLAO_CORE_PYTHON, CLAO_CORE_ROOT: path.join(root, 'clao'),
   HOME: home, USERPROFILE: home, APPDATA: path.join(home, 'appdata'), LOCALAPPDATA: path.join(home, 'local'),
   XDG_CONFIG_HOME: path.join(home, 'config'), XDG_DATA_HOME: path.join(home, 'share'),
@@ -64,6 +64,20 @@ fs.mkdirSync(evidence, { recursive: true });
       await page.getByLabel('Gate 命令（每行一条）').fill('python check.py');
       await page.getByLabel('允许修改范围').fill('**');
       await page.getByLabel('最多修复次数').fill('1');
+      if (process.env.CLAO_TEST_ROLES === '1') {
+        const details=page.getByText('角色与决策预算',{exact:true});
+        await details.click();
+        for(const [role,model] of [['auditor','test/second'],['planner','test/native'],['verifier','test/second']]) {
+          const row=page.getByTestId('clao-role-'+role);
+          await row.getByRole('checkbox').uncheck();
+          await row.getByRole('button',{name:'Model',exact:true}).click();
+          await page.getByPlaceholder('Search models…').fill(model.split('/')[1]);
+          await page.getByRole('menu').getByText(model,{exact:true}).waitFor();
+          if(role==='verifier') await page.screenshot({path:path.join(evidence,'roles-native-model-menu.png')});
+          await page.getByRole('menu').getByText(model,{exact:true}).click();
+        }
+        await details.click();
+      }
       await page.getByRole('textbox', { name: 'Task', exact: true }).fill(objective);
       await page.getByRole('button', { name: 'Start task', exact: true }).click();
     };
@@ -133,6 +147,37 @@ with sqlite3.connect(sys.argv[1]) as db:
       console.log('STARTUP_REPAIR_DESKTOP_PASS', JSON.stringify({ first: first.request.id, second: second.request.id, posts }), evidence);
       return;
     }
+    if (process.env.CLAO_TEST_ROLES === '1') {
+      const missions=async()=>(await(await fetch(base+'/api/v1/clao/missions')).json()).missions;
+      await start('正常任务：独立 Verifier 检查 result.txt');
+      await page.getByText('CLAO · 验收通过',{exact:true}).waitFor({timeout:90000});
+      let first=(await missions())[0];
+      if(first.roleCalls.length!==1||first.roleCalls[0].role!=='verifier'||first.roleCalls[0].choice.model!=='test/second')throw Error('normal gate-first role isolation failed');
+      await page.getByText('角色与决策',{exact:true}).click();
+      await page.screenshot({path:path.join(evidence,'roles-independent-verifier.png')});
+      await page.getByRole('button',{name:'打开原生 Session',exact:true}).click();
+      await open();await page.getByRole('menu').getByText('test/native',{exact:true}).click();
+      await start('REPAIR_ONCE：依据 Gate 和代码证据修复');
+      await page.getByText('CLAO · 验收通过',{exact:true}).waitFor({timeout:90000});
+      const repair=(await missions()).find(m=>m.request.objective.startsWith('REPAIR_ONCE'));
+      if(repair.roleCalls.map(c=>c.role).join(',')!=='auditor,planner,verifier'||repair.decisions[0].action!=='SEND_LOCAL_FIX'||repair.decisions[0].state!=='APPLIED'||repair.repairs!==1)throw Error('UI repair decision did not reach native services');
+      for(const c of repair.roleCalls)if(c.choice.model!==repair.request.roles[c.role].model||c.choice.agent!==repair.request.roles[c.role].agent)throw Error('role config changed at execution');
+      await page.getByText('角色与决策',{exact:true}).click();
+      await page.getByText('实际 Gate 失败；按输入中的差异和失败输出定位',{exact:true}).waitFor();
+      await page.screenshot({path:path.join(evidence,'roles-audit-planner-repair.png')});
+      await page.getByRole('button',{name:'打开 auditor 会话',exact:true}).click();
+      await page.getByTestId('clao-result').waitFor();
+      await open();await page.getByRole('menu').getByText('test/native',{exact:true}).click();
+      await start('PLAN_HUMAN：保留证据并交给用户处理');
+      await page.getByText('CLAO · 需要处理',{exact:true}).waitFor({timeout:90000});
+      await page.getByText('角色与决策',{exact:true}).click();
+      const human=(await missions()).find(m=>m.request.objective.startsWith('PLAN_HUMAN'));
+      if(human.state!=='HUMAN'||human.resultHead||human.repairs||human.roleCalls.length!==2)throw Error('legal human decision did not stop');
+      await page.getByRole('button',{name:'创建新的尝试（保留草稿）',exact:true}).waitFor();
+      await page.screenshot({path:path.join(evidence,'roles-human-decision.png')});
+      if(git('status','--porcelain')||git('rev-parse','HEAD')!==sourceHead||!fs.readFileSync(path.join(project,'.git/index')).equals(sourceIndex))throw Error('original source changed');
+      console.log('ROLE_DESKTOP_PASS',JSON.stringify({normal:first.request.id,repair:repair.request.id,human:human.request.id}),evidence);return;
+    }
     await start('创建 result.txt，写入 accepted 和换行。');
     await page.getByText('CLAO · 验收通过', { exact: true }).waitFor({ timeout: 60000 });
     await page.getByText('验收条件、文件与证据', { exact: true }).click();
@@ -142,11 +187,11 @@ with sqlite3.connect(sys.argv[1]) as db:
     await page.getByRole('button', { name: '打开原生 Session', exact: true }).click();
     await open(); await page.getByRole('menu').getByText('test/native', { exact: true }).click();
     await start('FAIL_GATE：保留失败，验证有界修复。');
-    await page.getByText('CLAO · 验收未通过', { exact: true }).waitFor({ timeout: 60000 });
+    await page.getByText('CLAO · 需要处理', { exact: true }).waitFor({ timeout: 60000 });
     await page.getByText('验收条件、文件与证据', { exact: true }).click();
     await page.screenshot({ path: path.join(evidence, 'closed-loop-fail.png') });
     const rows = (await (await fetch(base + '/api/v1/clao/missions')).json()).missions;
-    const pass = rows.find(m => m.state === 'DONE'), fail = rows.find(m => m.state === 'FAILED');
+    const pass = rows.find(m => m.state === 'DONE'), fail = rows.find(m => m.state === 'HUMAN');
     if (pass?.request.model !== 'test/second' || fail?.repairs !== 1 || fail.resultHead || fail.operations.filter(o => o.kind === 'repair_send').length !== 1) throw Error('UI choice or acceptance facts mismatch');
     if (git('status', '--porcelain') || git('rev-parse', 'HEAD') !== sourceHead || !fs.readFileSync(path.join(project, '.git/index')).equals(sourceIndex) || fs.existsSync(path.join(project, 'result.txt'))) throw Error('source changed');
     console.log('FAIL', await page.getByTestId('clao-result').innerText());

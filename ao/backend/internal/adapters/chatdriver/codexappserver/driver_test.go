@@ -224,10 +224,11 @@ func nextEvent(t *testing.T, events <-chan ports.ChatEvent, want ports.ChatEvent
 
 func TestStartCompletesHandshakeAndOpensThread(t *testing.T) {
 	d, srv := newTestDriver(t)
+	workspace := t.TempDir()
 
 	conv, err := d.Start(context.Background(), ports.ChatStartConfig{
 		SessionID:     "ao-1",
-		WorkspacePath: "/tmp/ws",
+		WorkspacePath: workspace,
 		Permissions:   ports.PermissionModeDefault,
 		SystemPrompt:  "standing rules",
 	})
@@ -253,7 +254,7 @@ func TestStartCompletesHandshakeAndOpensThread(t *testing.T) {
 	if err := json.Unmarshal(start.Params, &params); err != nil {
 		t.Fatalf("thread/start params: %v", err)
 	}
-	if params.Cwd != "/tmp/ws" {
+	if params.Cwd != workspace {
 		t.Errorf("cwd = %q", params.Cwd)
 	}
 	if params.DeveloperInstructions != "standing rules" {
@@ -1438,5 +1439,31 @@ func TestEnvSliceWithNoOverlayStillInheritsTheEnvironment(t *testing.T) {
 	}
 	if !sawHome {
 		t.Error("an empty overlay produced an environment with no HOME")
+	}
+}
+
+func TestCLAOReadOnlyThreadDisablesToolsWithoutChangingDefault(t *testing.T) {
+	d, srv := newTestDriver(t)
+	workspace := t.TempDir()
+	srv.reply("config/read", `{"config":{"mcp_servers":{"external-write":{"enabled":true}}}}`)
+	conv, err := d.Start(context.Background(), ports.ChatStartConfig{SessionID: "review", WorkspacePath: workspace, Permissions: ports.PermissionModeReadOnly})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conv.Close()
+	frame := srv.awaitFrame(func(f frame) bool { return f.Method == "thread/start" })
+	var params map[string]any
+	if err = json.Unmarshal(frame.Params, &params); err != nil {
+		t.Fatal(err)
+	}
+	if params["sandbox"] != "read-only" || params["approvalPolicy"] != "never" {
+		t.Fatal(params)
+	}
+	config := params["config"].(map[string]any)
+	if config["mcp_servers"].(map[string]any)["external-write"].(map[string]any)["enabled"] != false {
+		t.Fatal(config)
+	}
+	if config["features"].(map[string]any)["multi_agent"] != false || config["web_search"] != "disabled" {
+		t.Fatal(config)
 	}
 }

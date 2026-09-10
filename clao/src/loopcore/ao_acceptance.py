@@ -41,6 +41,9 @@ def evaluate(request):
     spec = TaskSpec.from_dict(request["task"])
     if not spec.allowed_paths or not spec.acceptance_criteria or not spec.gate_commands:
         raise ValueError("explicit scope, AC and Gate are required")
+    if "role" in request:
+        from .ao_roles import evaluate as role_evaluate
+        return role_evaluate(request, spec, root)
     if "approval" in request:
         activity = request["approval"]
         detail = activity.get("detail", {})

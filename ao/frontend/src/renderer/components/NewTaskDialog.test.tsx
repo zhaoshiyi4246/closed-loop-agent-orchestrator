@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { agentReadiness } from "../test/agent-readiness-fixtures";
 import { NewTaskDialog } from "./NewTaskDialog";
+import { createAcceptance } from "./CLAOAcceptance";
 
 const { getMock, postMock, ensureAgentReadinessMock } = vi.hoisted(() => ({
 	getMock: vi.fn(),
@@ -341,4 +342,10 @@ describe("NewTaskDialog", () => {
 
 		expect(await screen.findByText(`${message} (${code})`)).toBeInTheDocument();
 	});
+});
+
+it("rejects an empty/non-finite role budget before submitting a receipt", async () => {
+ const fields={criteria:"AC",allowed:"**",forbidden:"",gates:"python check.py",repairs:1,replans:Number.NaN,timeout:10};
+ await expect(createAcceptance("new-id",fields,{projectId:"p",brief:"goal",agent:"opencode"})).rejects.toThrow("修复/替换次数");
+ expect(postMock).not.toHaveBeenCalled();
 });
