@@ -4,7 +4,7 @@
 
 保留 [Apache-2.0 LICENSE](LICENSE) 及各目录原有归属/许可；AO 原 README、作者与组件来源不改成 CLAO 原创。CLAO 修改范围为独立应用身份、原生 Session 的可选闭环所有权、SQLite 验收记录、验收入口/结果以及原 Python 纯逻辑桥接。云服务、官方更新与发布目标不用于此开发版。
 
-“AO 原生底座 + 单 Worker 验收闭环基础集成” **DONE**：[PR #46](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/46) 启动失败返修通过外部代码审计，2026-09-10 已 rebase 合入 main。整体迁移与 M4 仍 IN_PROGRESS；当前切片为 **Planner/Auditor 决策与独立角色配置迁移，IN_REVIEW**。迁移工作树、依赖及独立开发数据保留。
+“AO 原生底座 + 单 Worker 验收闭环基础集成” **DONE**：[PR #46](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/46) 启动失败返修通过外部代码审计，2026-09-10 已 rebase 合入 main。整体迁移与 M4 仍 IN_PROGRESS；角色决策切片 **DONE**（[PR #47](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/47) 再次外部代码审计 PASS，2026-09-10 已 rebase 合入）；唯一下一开发内容为 **运行恢复与用户指令回执迁移，TODO**，本轮不开始。迁移工作树、依赖及独立开发数据保留。
 
 ## 启动
 
@@ -64,18 +64,18 @@ $env:CODEX_HOME = Join-Path $profileDir '.codex'
 
 每个 Worker/语义角色回合等待上限 30 分钟，Gate 每条 1–600 秒、输出上限 20000 字符；超限/截断保留原证据规则，过大的 Verifier 输入明确失败，不以片段当完整证据。单 Worker 是当前迁移范围；本轮四角色原生选择/决策接线见下节，旧 HTTP 连接/凭据导入未实施。
 
-当前已接：**原生项目/模型入口、单 Worker 的 Session/工作区接线、Gate/范围/完整性、有界修复、独立 Verifier、启动请求可见/失败处理及验收面板**。本轮另接入下面的角色决策切片（IN_REVIEW）。未接：**多子任务分解/并行、完整恢复与用户指令回执、旧历史/连接导入、普通目录/未提交来源支持、独立导出与结果中心、闭环运行图及正式发布入口**；旧底座完成记录不替代这些迁移验收。
+当前已接：**原生项目/模型入口、单 Worker 的 Session/工作区接线、Gate/范围/完整性、有界修复、独立 Verifier、启动请求可见/失败处理及验收面板**。下述单 Worker 角色决策切片已审计合入（DONE）。未接：**多子任务分解/并行、完整恢复与用户指令回执、旧历史/连接导入、普通目录/未提交来源支持、独立导出与结果中心、闭环运行图及正式发布入口**；旧底座完成记录不替代这些迁移验收。
 
 ## 数据与验证
 
 旧 `clao/config`、系统凭据、runtime 和官方 AO 数据不读取/迁移到新数据库，也不删除。新页面为空不代表旧连接丢失；将来如需迁移须有明确导入。用户实际调用原生工具时仍使用该工具官方认证；本轮自动验证全部用临时 HOME/APPDATA、测试进程，不使用用户账号或 Key。
 
-验证与实际截图见 [原生集成证据](../docs/reference/ao-native/README.md)。沿用既有 Windows/离线集成、开发构建、Electron 操作及 Codex 截图自查；PR #46 外部代码审计 PASS 不代表负责人已完成完整体验；本轮角色切片等待独立审计。OpenCode ACP 路径经过实际 AO 服务，外部进程/模型使用替身；Codex 隔离环境的 `account_storage_unsafe` 仍待解决，xfailed 不是执行通过。真实账户/模型、套餐计费、全部执行器/角色兼容、全量、安装与发布验收尚未完成。PR #46 收尾未重跑测试或构建；本轮角色迁移有下述直接证据。正式默认入口和发布 manifest 未切换。
+验证与实际截图见 [原生集成证据](../docs/reference/ao-native/README.md)。沿用既有 Windows/离线集成、开发构建、Electron 操作及 Codex 截图自查；PR #46 外部代码审计 PASS 不代表负责人已完成完整体验；本角色切片也已再次外部代码审计 PASS 并合入；两次源码审计均不等于负责人完整体验。OpenCode ACP 路径经过实际 AO 服务，外部进程/模型使用替身；Codex 隔离环境的 `account_storage_unsafe` 仍待解决，xfailed 不是执行通过。真实账户/模型、套餐计费、全部执行器/角色兼容、全量、安装与发布验收尚未完成。PR #46 收尾未重跑测试或构建；本轮角色迁移有下述直接证据。正式默认入口和发布 manifest 未切换。
 
 
 ## 角色决策与配置切片
 
-状态 IN_REVIEW（本轮独立 PR）；基础集成 DONE，整体迁移/M4 IN_PROGRESS。
+状态 **DONE**：[PR #47](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/47) 再次外部代码审计 PASS，2026-09-10 已 rebase 合入；基础集成 DONE，整体迁移/M4 IN_PROGRESS。完成范围限于单 Worker 异常诊断、五类动作、独立只读语义会话、四角色配置、冻结选择贯通实际启动/恢复与原生决策展示，不等于全部 Planner 或完整恢复。
 
 创建时展开“角色与决策预算”，为 Auditor、Planner、Verifier 选择“沿用 Worker”，或使用原生 Agent / Model 菜单单独搜索、点击型号。继承只复制当次配置，每次角色调用都有独立 Session/工作区/上下文。模型留空仍表示原生默认，不强填型号；实际选择、AO 配置解析值和执行器明确报告值分别显示。ACP 仅设置成功但没有回传当前型号时显示 unknown，不能从请求值推断；Codex 记录 thread/start resolved 事实，不冒充每一次 provider 请求型号。角色开始/结束计时来自真实调用边界，不是 Mission 总耗时，用量/费用未提供时为 unknown。
 
@@ -103,7 +103,7 @@ $env:CODEX_HOME = Join-Path $profileDir '.codex'
 
 2026-09-10：Windows AO/Git/SQLite/HTTP 产品入口 **27 passed、1 xfailed**；纯角色契约 **15 passed**；原生创建对话框 **16 passed**，另补预算输入与历史角色字段兼容各 **1 passed**。新增无进展与恢复/模型事实定向检查单独记录在台账，不累计为全量。Go 修改相关包定向检查、Go daemon 开发构建、TypeScript 和实际 Electron 开发启动完成。Electron 实际展开/搜索/点击原生模型菜单，完成正常独立复核、Gate 失败 → Auditor/Planner → 修复、合法 HUMAN，并核对冻结记录、真实角色 Session 与原项目未变化。
 
-截图：[角色模型菜单](../docs/reference/ao-native/roles/roles-native-model-menu.png)、[独立 Verifier](../docs/reference/ao-native/roles/roles-independent-verifier.png)、[审核与修复](../docs/reference/ao-native/roles/roles-audit-planner-repair.png)、[HUMAN](../docs/reference/ao-native/roles/roles-human-decision.png)。已由 Codex 自查，负责人体验/外部代码审计尚待完成。
+截图：[角色模型菜单](../docs/reference/ao-native/roles/roles-native-model-menu.png)、[独立 Verifier](../docs/reference/ao-native/roles/roles-independent-verifier.png)、[审核与修复](../docs/reference/ao-native/roles/roles-audit-planner-repair.png)、[HUMAN](../docs/reference/ao-native/roles/roles-human-decision.png)。已由 Codex 自查；外部代码审计已通过，负责人完整体验仍待完成。默认模型返修仅做相关后端/协议检查，未重测浏览器；本次合并收尾未重跑测试或开发构建。
 
 可重复的离线入口（在上述开发入口已经启动、Vite 正常服务后，于另一 PowerShell 窗口执行）：
 
