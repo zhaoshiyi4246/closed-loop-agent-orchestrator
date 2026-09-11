@@ -1078,6 +1078,62 @@ paths:
       summary: Check whether the desktop browser runtime is connected for a session
       tags:
       - browser
+  /api/v1/clao/imports:
+    get:
+      operationId: listCLAOImports
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClaoloopLegacyCatalog'
+          description: OK
+      summary: Read explicitly imported legacy facts
+      tags:
+      - clao
+    post:
+      operationId: importCLAOLegacy
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClaoloopLegacyImportRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClaoloopLegacyCatalog'
+          description: OK
+      summary: Explicitly import supported legacy facts
+      tags:
+      - clao
+  /api/v1/clao/imports/{id}/credential:
+    post:
+      operationId: reconnectCLAOLegacy
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ControllersCLAOCredentialRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClaoloopLegacyCredentialStatus'
+          description: OK
+      summary: Explicitly connect a new OS credential generation
+      tags:
+      - clao
   /api/v1/clao/missions:
     get:
       operationId: listCLAOMissions
@@ -1195,6 +1251,125 @@ paths:
                 $ref: '#/components/schemas/CLAODirectiveResponse'
           description: Conflict
       summary: Receive a scoped instruction before delivery
+      tags:
+      - clao
+  /api/v1/clao/missions/{id}/export:
+    post:
+      operationId: exportCLAOResult
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ControllersCLAOExportResponse'
+          description: OK
+      summary: Save a complete independent patch package
+      tags:
+      - clao
+  /api/v1/clao/missions/{id}/exports/{identity}:
+    get:
+      operationId: downloadCLAOResult
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      - in: path
+        name: identity
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/zip:
+              schema:
+                type: string
+          description: OK
+      summary: Download a saved immutable result package
+      tags:
+      - clao
+  /api/v1/clao/missions/{id}/open-result:
+    post:
+      operationId: openCLAOResult
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ControllersCLAOLocationResponse'
+          description: OK
+      summary: Open this mission result directory
+      tags:
+      - clao
+  /api/v1/clao/missions/{id}/result:
+    get:
+      operationId: getCLAOResult
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ControllersCLAOResultResponse'
+          description: OK
+      summary: Read frozen delivery and acceptance
+      tags:
+      - clao
+  /api/v1/clao/projects:
+    post:
+      operationId: openCLAOProject
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClaoloopLocalProjectRequest'
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ControllersCLAOProjectResponse'
+          description: Created
+      summary: Open or create a local directory without modifying Git
+      tags:
+      - clao
+  /api/v1/clao/projects/{projectId}/source:
+    get:
+      operationId: previewCLAOSource
+      parameters:
+      - in: path
+        name: projectId
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ControllersCLAOSourceResponse'
+          description: OK
+      summary: Read current source contents before confirmation
       tags:
       - clao
   /api/v1/clao/session:
@@ -7518,6 +7693,12 @@ components:
           type: string
         agent:
           type: string
+        connection:
+          $ref: '#/components/schemas/ClaoloopLegacyConnection'
+        connectionId:
+          type: string
+        connectionRevision:
+          type: integer
         inherited:
           type: boolean
         model:
@@ -7529,12 +7710,16 @@ components:
       type: object
     CLAOMission:
       properties:
+        activeWait:
+          type: string
         base:
           type: string
         cancelRequested:
           type: boolean
         checkpoint:
           $ref: '#/components/schemas/CLAOCheckpoint'
+        coordinatorId:
+          type: string
         decisions:
           items:
             $ref: '#/components/schemas/CLAODecision'
@@ -7547,10 +7732,15 @@ components:
           items:
             $ref: '#/components/schemas/CLAOEvidence'
           type: array
+        exports:
+          items:
+            $ref: '#/components/schemas/ClaoloopResultPackage'
+          type: array
         operations:
           items:
             $ref: '#/components/schemas/CLAOOperation'
           type: array
+        plan: {}
         reason:
           type: string
         recovery:
@@ -7578,10 +7768,16 @@ components:
           type: object
         sessionId:
           type: string
+        source:
+          $ref: '#/components/schemas/ClaoloopSourceSnapshot'
         sourcePath:
           type: string
         state:
           type: string
+        subtasks:
+          items:
+            $ref: '#/components/schemas/CLAOMission'
+          type: array
         updatedAt:
           type: string
         verifierSessionId:
@@ -7667,6 +7863,10 @@ components:
           items:
             $ref: '#/components/schemas/CLAOCriterion'
           type: array
+        externalServiceConsent:
+          items:
+            type: string
+          type: array
         forbiddenPaths:
           items:
             type: string
@@ -7684,6 +7884,8 @@ components:
           type: integer
         maxReplans:
           type: integer
+        maxTasks:
+          type: integer
         model:
           type: string
         objective:
@@ -7696,6 +7898,8 @@ components:
           additionalProperties:
             $ref: '#/components/schemas/CLAORoleChoice'
           type: object
+        sourceRevision:
+          type: string
       required:
       - maxReplans
       - id
@@ -7761,6 +7965,10 @@ components:
       properties:
         agent:
           type: string
+        connectionId:
+          type: string
+        connectionRevision:
+          type: integer
         model:
           type: string
       required:
@@ -7823,6 +8031,285 @@ components:
       - prs
       - branchChanged
       - takenOverFrom
+      type: object
+    ClaoloopLegacyCatalog:
+      properties:
+        configurations:
+          items:
+            $ref: '#/components/schemas/ClaoloopLegacyItem'
+          type: array
+        connections:
+          items:
+            $ref: '#/components/schemas/ClaoloopLegacyConnection'
+          type: array
+        histories:
+          items:
+            $ref: '#/components/schemas/ClaoloopLegacyItem'
+          type: array
+        issues:
+          items:
+            type: string
+          type: array
+      required:
+      - histories
+      - connections
+      - configurations
+      - issues
+      type: object
+    ClaoloopLegacyConnection:
+      properties:
+        authPending:
+          type: boolean
+        authRevision:
+          type: integer
+        billing:
+          type: string
+        compatible:
+          type: boolean
+        endpoint:
+          type: string
+        id:
+          type: string
+        model:
+          type: string
+        name:
+          type: string
+        profile: {}
+        reason:
+          type: string
+        roles:
+          items:
+            type: string
+          type: array
+        service:
+          type: string
+      required:
+      - authRevision
+      - id
+      - name
+      - service
+      - model
+      - billing
+      - compatible
+      - reason
+      - roles
+      type: object
+    ClaoloopLegacyCredentialStatus:
+      properties:
+        authRevision:
+          type: integer
+        id:
+          type: string
+        status:
+          type: string
+      required:
+      - authRevision
+      - id
+      - status
+      type: object
+    ClaoloopLegacyImportRequest:
+      properties:
+        configPath:
+          type: string
+        historyPath:
+          type: string
+      type: object
+    ClaoloopLegacyItem:
+      properties:
+        document: {}
+        id:
+          type: string
+        importedAt:
+          type: string
+        kind:
+          type: string
+      required:
+      - id
+      - kind
+      - document
+      type: object
+    ClaoloopLocalProject:
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        path:
+          type: string
+      required:
+      - id
+      - path
+      - name
+      type: object
+    ClaoloopLocalProjectRequest:
+      properties:
+        create:
+          type: boolean
+        name:
+          type: string
+        path:
+          type: string
+      required:
+      - path
+      - name
+      - create
+      type: object
+    ClaoloopResultLocation:
+      properties:
+        path:
+          type: string
+        status:
+          type: string
+      required:
+      - status
+      - path
+      type: object
+    ClaoloopResultPackage:
+      properties:
+        accepted:
+          type: boolean
+        base_commit:
+          type: string
+        bytes:
+          format: int64
+          type: integer
+        created_at:
+          type: string
+        identity:
+          type: string
+        reason:
+          type: string
+        result_commit:
+          type: string
+        sha256:
+          type: string
+        status:
+          type: string
+      required:
+      - identity
+      - sha256
+      - bytes
+      - created_at
+      - base_commit
+      - result_commit
+      - accepted
+      type: object
+    ClaoloopResultView:
+      properties:
+        baseCommit:
+          type: string
+        changes: {}
+        diff:
+          type: string
+        diffBytes:
+          format: int64
+          type: integer
+        diffSHA256:
+          type: string
+        diffTruncated:
+          type: boolean
+        evidence: {}
+        exports:
+          items:
+            $ref: '#/components/schemas/ClaoloopResultPackage'
+          type: array
+        location:
+          $ref: '#/components/schemas/ClaoloopResultLocation'
+        missionId:
+          type: string
+        noChanges:
+          type: boolean
+        reason:
+          type: string
+        resultCommit:
+          type: string
+        status:
+          type: string
+      required:
+      - missionId
+      - status
+      - location
+      - evidence
+      - changes
+      - exports
+      - diffTruncated
+      - diffBytes
+      - noChanges
+      type: object
+    ClaoloopSourceExcluded:
+      properties:
+        path:
+          type: string
+        reason:
+          type: string
+      required:
+      - path
+      - reason
+      type: object
+    ClaoloopSourcePreview:
+      properties:
+        bytes:
+          format: int64
+          type: integer
+        excluded:
+          items:
+            $ref: '#/components/schemas/ClaoloopSourceExcluded'
+          type: array
+        fileCount:
+          type: integer
+        kind:
+          type: string
+        originalPath:
+          type: string
+        policy:
+          type: string
+        projectId:
+          type: string
+        revision:
+          type: string
+      required:
+      - projectId
+      - originalPath
+      - kind
+      - revision
+      - policy
+      - fileCount
+      - bytes
+      - excluded
+      type: object
+    ClaoloopSourceSnapshot:
+      properties:
+        base:
+          type: string
+        bytes:
+          format: int64
+          type: integer
+        excluded:
+          items:
+            $ref: '#/components/schemas/ClaoloopSourceExcluded'
+          type: array
+        fileCount:
+          type: integer
+        originalPath:
+          type: string
+        policy:
+          type: string
+        projectId:
+          type: string
+        projectPath:
+          type: string
+        revision:
+          type: string
+      required:
+      - projectId
+      - originalPath
+      - projectPath
+      - revision
+      - base
+      - policy
+      - fileCount
+      - bytes
+      - excluded
       type: object
     CleanupSessionsResponse:
       properties:
@@ -8426,6 +8913,48 @@ components:
       properties:
         disabled:
           type: boolean
+      type: object
+    ControllersCLAOCredentialRequest:
+      properties:
+        apiKey:
+          type: string
+      required:
+      - apiKey
+      type: object
+    ControllersCLAOExportResponse:
+      properties:
+        package:
+          $ref: '#/components/schemas/ClaoloopResultPackage'
+      required:
+      - package
+      type: object
+    ControllersCLAOLocationResponse:
+      properties:
+        location:
+          $ref: '#/components/schemas/ClaoloopResultLocation'
+      required:
+      - location
+      type: object
+    ControllersCLAOProjectResponse:
+      properties:
+        project:
+          $ref: '#/components/schemas/ClaoloopLocalProject'
+      required:
+      - project
+      type: object
+    ControllersCLAOResultResponse:
+      properties:
+        result:
+          $ref: '#/components/schemas/ClaoloopResultView'
+      required:
+      - result
+      type: object
+    ControllersCLAOSourceResponse:
+      properties:
+        source:
+          $ref: '#/components/schemas/ClaoloopSourcePreview'
+      required:
+      - source
       type: object
     ControllersRequestRereviewRequest:
       properties:

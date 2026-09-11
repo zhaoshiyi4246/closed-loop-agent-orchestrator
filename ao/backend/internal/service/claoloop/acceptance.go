@@ -7,17 +7,18 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
+	"github.com/aoagents/agent-orchestrator/backend/internal/process"
 )
 
 // PythonAcceptance runs only the retained pure acceptance/Git core. It has no
 // API server, scheduler, model credentials or separate StateStore database.
 type PythonAcceptance struct {
+	DataDir  string
 	Python   string
 	CoreRoot string
 }
@@ -36,7 +37,7 @@ func (a PythonAcceptance) Source(ctx context.Context, root string) (string, erro
 		return "", errors.New("source path must be absolute")
 	}
 	probe := func(args ...string) (string, error) {
-		cmd := exec.CommandContext(ctx, "git", append([]string{"--no-optional-locks", "-C", root}, args...)...)
+		cmd := process.CommandContext(ctx, "git", append([]string{"--no-optional-locks", "-C", root}, args...)...)
 		cmd.Env = gateEnv()
 		b, err := cmd.Output()
 		if err != nil {
@@ -59,7 +60,11 @@ func (a PythonAcceptance) Check(ctx context.Context, m Mission, materialize bool
 		return Evidence{}, errors.New("CLAO Python acceptance core is not configured")
 	}
 	spec := map[string]any{"task_id": m.Request.ID, "project_id": m.Request.ProjectID, "objective": m.Request.Objective, "allowed_paths": m.Request.AllowedPaths, "forbidden_paths": m.Request.ForbiddenPaths, "acceptance_criteria": m.Request.Criteria, "gate_commands": m.Request.GateCommands}
-	request := map[string]any{"workspace": m.Workspace, "base": m.Base, "task": spec, "timeout": m.Request.GateTimeout, "outputLimit": 20000, "materialize": materialize, "expectedDigest": digest, "verificationText": verification, "expectedHead": m.ResultHead}
+	phase := "task"
+	if m.Checkpoint != nil && (m.Checkpoint.Stage == "integration_gate" || m.Checkpoint.Stage == "final") {
+		phase = "final"
+	}
+	request := map[string]any{"phase": phase, "workspace": m.Workspace, "base": m.Base, "task": spec, "timeout": m.Request.GateTimeout, "outputLimit": 20000, "materialize": materialize, "expectedDigest": digest, "verificationText": verification, "expectedHead": m.ResultHead}
 	return a.run(ctx, request)
 }
 
@@ -87,7 +92,7 @@ func (a PythonAcceptance) run(ctx context.Context, request map[string]any) (Evid
 	if err != nil {
 		return Evidence{}, err
 	}
-	cmd := exec.CommandContext(ctx, a.Python, "-m", "loopcore.ao_acceptance")
+	cmd := process.CommandContext(ctx, a.Python, "-m", "loopcore.ao_acceptance")
 	cmd.Env = append(gateEnv(), "PYTHONPATH="+filepath.Join(a.CoreRoot, "src"))
 	cmd.Dir = a.CoreRoot
 	cmd.Stdin = bytes.NewReader(data)

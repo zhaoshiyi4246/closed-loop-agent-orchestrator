@@ -1,9 +1,10 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render as renderBase, screen, waitFor, type RenderOptions } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
 import { useState, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CreateProjectFlow, type CloneProjectInput, type CreateProjectInput } from "./CreateProjectFlow";
+vi.mock("@tanstack/react-router", () => ({ useNavigate: () => vi.fn() }));
 
 const bridgeMocks = vi.hoisted(() => ({
 	checkAncestorRepo: vi.fn(),
@@ -77,12 +78,12 @@ vi.mock("../hooks/useCloudOrg", () => ({
 	}),
 }));
 
-// The cloud form invalidates the workspace query via useQueryClient, so cloud
-// tests render inside a provider. Local-only tests don't need one.
+// Native and CLAO local project creation both invalidate workspace queries.
 function CloudTestProviders({ children }: { children: ReactNode }) {
 	const [queryClient] = useState(() => new QueryClient());
 	return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
 }
+const render = (ui: React.ReactElement, options?: RenderOptions) => renderBase(ui, {wrapper: CloudTestProviders, ...options});
 
 // Probe stand-in: the real sheet needs a QueryClientProvider + agent catalog to
 // render. These tests only care which path/kind CreateProjectFlow hands it and

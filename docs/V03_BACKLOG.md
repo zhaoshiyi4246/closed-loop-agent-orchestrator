@@ -1,6 +1,6 @@
 # CLAO v0.3 任务与验收台账
 
-版本：0.3-plan-r1 · 2026-09-06。状态：已批准 / IN EFFECT。DOC-00、F01–F05、R01 / R02 已完成（DONE），M0 / M1 / M2 为 `COMPLETE`；U01 / U02 / U03 均已审计合入（`DONE`），U02 两个切片保持 `DONE`；M3 `COMPLETE` 表示本阶段开发与代码审计完成，完整体验与发布验收尚未完成；M4 `IN_PROGRESS`，P01/P02 工程切片均已审计合入（`DONE`），两张整卡保持 `IN_PROGRESS`；原生底座基础集成已完成，整体迁移仍 IN_PROGRESS；角色决策切片 DONE；当前唯一切片为 原生迁移收官大阶段（IN_PROGRESS）；PR #48 恢复/指令回执 DONE，外部代码审计 PASS 并已合入，联合真实评测暂缓；其余功能卡状态见下表，原报告的发现不等于已复现或已修复。
+版本：0.3-plan-r1 · 2026-09-06。状态：已批准 / IN EFFECT。DOC-00、F01–F05、R01 / R02 已完成（DONE），M0 / M1 / M2 为 `COMPLETE`；U01 / U02 / U03 均已审计合入（`DONE`），U02 两个切片保持 `DONE`；M3 `COMPLETE` 表示本阶段开发与代码审计完成，完整体验与发布验收尚未完成；M4 `IN_PROGRESS`，P01/P02 工程切片均已审计合入（`DONE`），两张整卡保持 `IN_PROGRESS`；原生底座基础集成已完成，整体迁移仍 IN_PROGRESS；角色决策切片 DONE；当前唯一切片为 原生迁移收官大阶段（IN_REVIEW）；PR #48 恢复/指令回执 DONE，外部代码审计 PASS 并已合入，联合真实评测暂缓；其余功能卡状态见下表，原报告的发现不等于已复现或已修复。
 
 设计以 [V03_PLAN.md](V03_PLAN.md) 为准。当前唯一任务由根目录 [PLANS.md](../PLANS.md) 指定。本文件保存每张卡的详细状态和证据，PLANS 不重复整张台账。
 
@@ -20,14 +20,27 @@
 - 实际入口、控制权、当前支持及未迁移能力见 [ao/CLAO.md](../ao/CLAO.md)，直接验证与截图见 [原生证据](reference/ao-native/README.md)。真实模型/账户/套餐未运行；Codex 隔离账户安全阻塞单列，不假称全执行器兼容。
 - PR #46 局部返修：项目页直接查询持久 Mission，启动失败无 Session 也可查看原因和原请求；原生 owner 关联回执丢失保持 UNKNOWN/停止入口，已确认未启动记 FAILED 并允许新尝试。新提交身份与分支不复用旧请求，保留草稿；不放宽 `account_storage_unsafe`。本次定向故障/桌面证据及准确启动命令见上述入口。
 - 已接：原生项目/模型入口、单 Worker 的 Session/工作区接线、Gate/范围/完整性、有界修复、独立 Verifier、启动请求可见/失败处理及验收面板。
-- 当前唯一切片：**原生迁移收官大阶段，IN_PROGRESS**；PR #48 恢复/指令回执已审计 PASS 并合入（DONE）。角色决策切片已审计合入（DONE）。另未迁移：任意在途执行恢复、旧历史/连接导入、普通目录/未提交来源支持、独立导出与结果中心、闭环运行图及正式发布入口。P01/P02 联合真实评测继续暂缓，P03 不开始。
+- 当前唯一切片：**原生迁移收官大阶段，IN_REVIEW**；PR #48 恢复/指令回执已审计 PASS 并合入（DONE）。角色决策切片已审计合入（DONE）。上述来源、结果、导入与运行图纳入本阶段；任意在途执行恢复、真实准入及正式发行入口仍未完成。P01/P02 联合真实评测继续暂缓，P03 不开始。
 - PR #46 收尾仅检查文档链接与差异，不重跑既有验证。沿用 Windows/离线集成与 Electron 检查、Codex 截图自查；本次为外部代码审计 PASS，负责人完整体验、真实账户/模型及发布验收尚未完成。`account_storage_unsafe` 保持待解决，xfailed 不是执行通过；保留空账户隔离开发入口，不切换正式发行入口。
 
 ### 原生迁移收官大阶段（2026-09-11 授权）
 
-- 状态 IN_PROGRESS；唯一当前实施内容。内部实施并行分工与独立审查，集成后一个阶段 PR；不逐个内部子任务另设外部审计关卡。
+- 状态 IN_REVIEW；唯一当前阶段，已完成内部实施、交叉复核与集成检查，提交一个阶段 PR 等待外部审计；不逐个内部子任务另设外部审计关卡。
 - 范围：普通/空/无远端/未提交来源的隔离快照；有价值且无依赖的最多两个子任务与最终集成；固定结果/独立补丁包；显式、幂等、只读的旧历史导入及实际连接消费者；只读运行图；统一原生旅程与稳定开发入口。
 - 本轮不使用真实账户/Key/收费模型，不修改主目录 default.yaml、官方 AO/.ao 或旧数据；整体迁移/M4 不提前完成。沿用 PR #46/#47/#48 证据，合并收尾不重跑测试/构建。
+
+- 实现与接线：AO 管理本地目录入口；确认磁盘 revision 后调用原来源过滤/快照，私有 Git 基线承载源内容，无需 origin/先提交。原目录/index/分支不写回。最多两个无依赖、范围与 AC 可分离的 Planner 子任务，嵌入同一 Mission 持久记录/调度 owner，共享修复预算；子任务 Gate 通过后集成精确净交付 commit，再运行 Mission 全部 Gate/独立 Verifier。
+- 结果：原生文件差异组件读取固定 base/result；独立 ZIP 为完整补丁、清单、必要摘要、说明，包不含完整基线/依赖。沿用文本及敏感规则，二进制/链接/子模块不扩范围；子任务仅看差异和 Gate，不能独立导出为 Mission 验收通过。原目录失效后已保存包按记录校验下载。
+- 旧记录：用户明确选择旧文件/runtime，只读投影保存到当前 AO SQLite；历史不变成可恢复原生任务。配置按内容版本幂等导入，连接身份不覆盖。GLM/Kimi 旧标准 API 可用于 Planner 两类调用、Auditor、Verifier，模型/参数/计费/服务冻结；不替代原生模型目录。重新连接保存独立 OS 引用版本，不覆盖旧 Key；旧外发同意失效，旧任务不静默换账号。原重试参数仅保留兼容说明，本原生语义通道单次调用、不盲重发。
+- 内部审查与修正：子任务最终验收误标；运行图父 Worker/集成 Gate/等待字段；配置修正重导入死路；连接更换 Key 的确认与冻结版本；Session 恢复丢私有仓库路径；AO 后台恢复在闭环 owner 前重建/移动工作区。相应消费者与负例一并修正，不削弱未知动作、停止、范围和角色权限。
+- Windows 正式 API/Git/SQLite 阶段旅程：`test_ao_native_closeout.py` 初批 **7 passed / 167.52s**，含普通/未提交/空来源、原项目不变、ZIP 下载解压与独立补丁应用、两个真实 Session、实际 daemon 重启/双继续、取消和共享一次修复预算。新增子任务成功但 Mission 最终 FAIL 的导出负例通过。仅替换外部引擎，非整套假 Controller。
+- 旧连接正式 HTTP：`test_ao_native_legacy_integration.py` **2 passed / 36.01s**，真实 AO/角色/SQLite/Git/Gate→GLM Auditor/Kimi Planner/GLM Verifier 本地 HTTP 边界，缺服务同意零外发，配置版本、系统凭据 generation 与旧引用保留。只创建随机隔离测试凭据，finally 精确清理；未读取用户 Key。
+- 验证中发现并保留的首轮失败：nil exports 读取、固定结果目录被 Session 关联覆盖、空基线测试 archive 解析、重新连接引用超出 48 字符、原生后台恢复错误 repo 移动测试 worktree、空首页缺本地项目入口。已针对原因修正；后续最终检查与原生截图见本卡下方及 [原生证据](reference/ao-native/README.md)。
+- 最后恢复复查：真实 daemon 重启的 Gate 前、已保存决策、固定成果、已完成 Verifier 四个检查点通过；发送 intent 写入失败后的未发送修复、原生 Chat/语义镜像消费者、Worker 交付 ACK 丢失恢复 **3 passed / 96.64s**。发送未发生时在原进程确认停止，真正丢失进程事实仍 UNKNOWN；六个 SQLite 故障子例与实际消费者经独立交叉复核。
+- 开发/界面：Go 开发 daemon 构建、相关 claoloop/process/SessionManager/worktree 定向、TypeScript、Python compileall、JS 语法和文档/差异检查通过；specgen 本次按名称过滤未选中测试，仅编译，不计行为测试。前端创建/来源/结果/连接确认最终选集分别 21 passed、29 passed（有重叠，不累计）。实际 Electron 完成原生模型菜单搜索点击、普通目录完整任务/差异/AC/结果包下载解压及独立 git apply/Gate、旧配置显式导入、真实双 Worker 运行高亮与父 Mission 最终验收。七张当前截图已自查，非负责人体验验收。
+- 集成中 Electron 的并发验收进程曾返回 Windows 0xc0000142；非交互 Git/Python 改为复用上游 process.CommandContext 隐藏进程启动后，同一完整旅程通过。另一次最终回归入口遗漏 Go PATH，只有 fixture setup 失败，补齐既有工具路径后重跑原断言通过。无新增 Gate 自动重试、无安全条件放宽。
+- 内部交付审查：Coordinator 集成并检查实际代码/截图；Implementer 交叉审阅非本人模块，独立 Reviewer 发现的问题修正后再次复核。覆盖父/子结果、scope/共享预算、冻结连接、持久来源恢复、异步界面归属及未发送修复停止，不以子智能体完成报告代替最终验证。没有未处置的内部代码 blocker。
+- NOT_RUN：真实账户/模型/套餐与质量/用量准入、全量、安装器/发行打包、smoke、负责人完整体验。Codex account_storage_unsafe 的上游祖先 ACL 条件仍阻塞本机空账户路径；未更改 ACL、官方 AO 或账户，不将 xfailed 计为运行通过。正式入口未切换，整体迁移/M4 IN_PROGRESS。
 
 ### 原生运行恢复与用户指令回执切片（2026-09-10）
 
@@ -38,7 +51,7 @@
 - Go：claoloop 包定向通过（含取消在恢复检查失败时仍有 owner、主消费与镜像/后续 UNKNOWN 分离）；Chat 的 Send/Steer/Queue 与 HTTP 受影响定向通过。API schema 生成及 TypeScript 检查通过；Python compileall、差异与文档链接检查通过。新增前端回执 + 原生创建测试 **17 passed**，包含 A/B 同文/异文草稿、原 Worker 目标与后续同文编辑保护。
 - 实际 Electron：开发构建、原生菜单展开/搜索/点击、同一数据 daemon 重启后继续原任务、专用输入与原生 Chat 交付、Planner 镜像及 A/B 历史切换/延迟响应通过；[继续原任务](reference/ao-native/recovery/continue-original.png)、[验收结果](reference/ao-native/recovery/continued-result.png)、[消费回执](reference/ao-native/recovery/directive-consumers.png) 已由 Codex 自查。脚本修正了重启后的原生弹层关闭和 Lexical combobox 定位；不是生成图或整套假 Controller。
 - 故障检查也修正了存储错误误落 HUMAN、动作恢复重复扣预算风险、恢复/取消 owner 交接和 Worker 新消息与停止的竞争窗口。角色 fixture 只从实际输入对象解析，支持追加指令后仍校验原 Schema；没有删失败用例或放松安全断言。
-- NOT_RUN：真实账号/Key/登录/模型/套餐、全量、smoke、发行构建/安装、完整体验/全执行器兼容。`account_storage_unsafe` 原样保留，xfailed 不算执行通过。历史缺 checkpoint 只读，任意未确认在途执行、旧数据导入、普通目录来源、独立导出/结果中心、运行图与正式入口仍待迁移。本 PR 等待外部审计，不开始下一任务。
+- NOT_RUN：真实账号/Key/登录/模型/套餐、全量、smoke、发行构建/安装、完整体验/全执行器兼容。`account_storage_unsafe` 原样保留，xfailed 不算执行通过。PR #48 交付时这些来源/导入/结果/运行图尚未迁移；现已审计合入，新增能力见当前收官阶段。历史缺 checkpoint 只读，任意未确认执行与正式发布边界仍保留。
 
 ### 原生 Planner/Auditor 与角色配置切片（2026-09-10）
 

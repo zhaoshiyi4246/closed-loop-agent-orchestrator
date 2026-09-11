@@ -16,10 +16,13 @@ import (
 
 // A missing semantic choice inherits the Worker at admission, not at call time.
 type RoleChoice struct {
-	Agent domain.AgentHarness `json:"agent"`
-	Model string              `json:"model"`
+	ConnectionRevision int                 `json:"connectionRevision,omitempty"`
+	ConnectionID       string              `json:"connectionId,omitempty"`
+	Agent              domain.AgentHarness `json:"agent"`
+	Model              string              `json:"model"`
 }
 type FrozenRole struct {
+	Connection *LegacyConnection `json:"connection,omitempty"`
 	RoleChoice
 	Inherited  bool   `json:"inherited"`
 	AccountRef string `json:"accountRef,omitempty"`
@@ -76,6 +79,14 @@ func (s *Service) freezeRoles(ctx context.Context, r Request) (map[string]Frozen
 		if chosen, ok := r.Roles[key]; ok {
 			c.RoleChoice, c.Inherited = chosen, false
 		}
+		if c.ConnectionID != "" {
+			frozen, err := s.freezeLegacyRole(ctx, key, c.RoleChoice, r.ExternalServiceConsent)
+			if err != nil {
+				return nil, err
+			}
+			out[key] = frozen
+			continue
+		}
 		if c.Agent == "" || len(c.Model) > 512 || strings.ContainsAny(c.Model, "\x00\r\n") {
 			return nil, fmt.Errorf("%s 执行器/模型无效", key)
 		}
@@ -113,6 +124,9 @@ func (m Mission) choice(role string) FrozenRole {
 	return FrozenRole{RoleChoice: RoleChoice{Agent: m.Request.Agent, Model: model}, Inherited: role != "worker"}
 }
 func (s *Service) checkAccount(c FrozenRole) error {
+	if c.Connection != nil {
+		return nil
+	}
 	if c.AccountRef == "" {
 		return nil
 	}
@@ -203,6 +217,9 @@ func (s *Service) semantic(id, role, callID, incident, prompt string) (string, e
 	if call.InputDigest == "" || call.InputDigest != fmt.Sprintf("%x", sha256.Sum256([]byte(prompt))) {
 		return "", errors.New("角色原输入与当前证据不一致，不复用或重发")
 	}
+	if choice.Connection != nil {
+		return s.semanticLegacy(id, role, call, prompt)
+	}
 	if call.Text != "" {
 		rec, ok, e := s.store.GetSession(s.ctx, call.SessionID)
 		if e != nil || !ok {
@@ -226,7 +243,7 @@ func (s *Service) semantic(id, role, callID, incident, prompt string) (string, e
 	owner := call.Owner
 	err = s.namedOperation(id, owner+":spawn", "spawn_"+role, owner, "", func() error {
 		var e error
-		rec, _, _, e = s.sessions.Spawn(ports.WithCLAOOwner(s.ctx, id), ports.SpawnConfig{ProjectID: m.Request.ProjectID, Branch: "clao/" + id + "/" + role + "-" + call.ID[strings.LastIndex(call.ID, ":")+1:] + "-" + fmt.Sprint(len(m.RoleCalls)), Kind: domain.KindWorker, Harness: choice.Agent, RequestedMode: domain.SessionModeChat, CLAOMissionID: owner, CLAOBaseSHA: base, CLAOReview: true, AgentConfig: ports.AgentConfig{Model: choice.Model, Permissions: domain.PermissionModeReadOnly}, Prompt: prompt, DisplayName: role + " · " + m.Request.Objective})
+		rec, _, _, e = s.sessions.Spawn(ports.WithCLAOOwner(s.ctx, id), ports.SpawnConfig{ProjectID: m.Request.ProjectID, Branch: "clao/" + id + "/" + role + "-" + call.ID[strings.LastIndex(call.ID, ":")+1:] + "-" + fmt.Sprint(len(m.RoleCalls)), Kind: domain.KindWorker, Harness: choice.Agent, RequestedMode: domain.SessionModeChat, CLAOMissionID: owner, CLAOBaseSHA: base, CLAOSourcePath: m.sourceRepository(), CLAOReview: true, AgentConfig: ports.AgentConfig{Model: choice.Model, Permissions: domain.PermissionModeReadOnly}, Prompt: prompt, DisplayName: role + " · " + m.Request.Objective})
 		return e
 	})
 	if err != nil {
@@ -264,8 +281,10 @@ func (s *Service) semantic(id, role, callID, incident, prompt string) (string, e
 		waitErr = errors.New("角色未提供正式结构化回复")
 	}
 	clean, e := s.acceptance.Source(s.ctx, rec.Metadata.WorkspacePath)
-	if e != nil || clean != base {
-		waitErr = errors.New("只读角色工作区有改动或无法取证")
+	if e != nil {
+		waitErr = fmt.Errorf("只读角色取证失败：%w", e)
+	} else if clean != base {
+		waitErr = errors.New("只读角色工作区与冻结基线不一致")
 	}
 	_, err = s.callUpdate(id, callID, func(c *RoleCall) {
 		c.FinishedAt = time.Now().UTC().Format(time.RFC3339Nano)

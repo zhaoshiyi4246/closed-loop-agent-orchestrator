@@ -739,7 +739,7 @@ func Run() error {
 
 	bs.HostID = hostIdentity.HostID
 
-	claoSvc := claoloop.New(ctx, store, wiredSessMgr, chatSvc, claoloop.PythonAcceptance{Python: os.Getenv("CLAO_CORE_PYTHON"), CoreRoot: os.Getenv("CLAO_CORE_ROOT")}, log)
+	claoSvc := claoloop.New(ctx, store, wiredSessMgr, chatSvc, claoloop.PythonAcceptance{DataDir: cfg.DataDir, Python: os.Getenv("CLAO_CORE_PYTHON"), CoreRoot: os.Getenv("CLAO_CORE_ROOT")}, log)
 	chatSvc.SetCLAOApprovalPolicy(claoSvc.CheckApproval)
 	chatSvc.SetCLAODirective(claoSvc.NativeDirective)
 	if err := claoSvc.Recover(); err != nil {

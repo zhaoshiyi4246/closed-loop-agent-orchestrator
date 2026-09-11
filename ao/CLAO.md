@@ -4,51 +4,50 @@
 
 保留 [Apache-2.0 LICENSE](LICENSE) 及各目录原有归属/许可；AO 原 README、作者与组件来源不改成 CLAO 原创。CLAO 修改范围为独立应用身份、原生 Session 的可选闭环所有权、SQLite 验收记录、验收入口/结果以及原 Python 纯逻辑桥接。云服务、官方更新与发布目标不用于此开发版。
 
-“AO 原生底座 + 单 Worker 验收闭环基础集成” **DONE**：[PR #46](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/46) 启动失败返修通过外部代码审计，2026-09-10 已 rebase 合入 main。整体迁移与 M4 仍 IN_PROGRESS；角色决策切片 **DONE**（[PR #47](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/47) 再次外部代码审计 PASS，2026-09-10 已 rebase 合入）；当前唯一切片为 **原生迁移收官大阶段，IN_PROGRESS**；PR #48 恢复/指令回执已审计 PASS 并合入（DONE）。迁移工作树、依赖及独立开发数据保留。
+“AO 原生底座 + 单 Worker 验收闭环基础集成” **DONE**：[PR #46](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/46) 启动失败返修通过外部代码审计，2026-09-10 已 rebase 合入 main。整体迁移与 M4 仍 IN_PROGRESS；角色决策切片 **DONE**（[PR #47](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/47) 再次外部代码审计 PASS，2026-09-10 已 rebase 合入）；当前唯一切片为 **原生迁移收官大阶段，IN_REVIEW**；PR #48 恢复/指令回执已审计 PASS 并合入（DONE）。迁移工作树、依赖及独立开发数据保留。
 
 ## 启动
 
 需要 Windows、Git、Node（此次构建 24.19.0）、Go（此次构建 1.26.5）、Python 3.12 与原 `clao` 的依赖。Frontend 依赖/锁文件及 Vite/Forge 构建结构沿用上游；未自动安装编码工具、登录或调用模型。
 
-首次准备依赖：在本目录运行 `npm ci`，在 `packages/product-ui` 和 `frontend` 分别运行 `npm ci`。原 Python venv 可通过 `-Python` 明确传入。开发入口不自动安装缺少的依赖。
-
-```powershell
-# 从仓库根目录执行；Python 应指向已经具备 clao 依赖的 venv。
-./ao/dev-clao.ps1 -Python ./clao/.venv/Scripts/python.exe
-```
-
-本机已验证的完整命令（本 PR 的开发 daemon 已构建，故使用 `-SkipBuild`）。在一个新的 PowerShell 窗口执行；下列环境只作用于该窗口及开发子进程。启动器直接使用现有 Forge start 入口，不要求另装 npm；需要已保留的前端依赖。此命令使用独立、空账户 profile，不读取官方 AO 或旧 CLAO 配置：
+普通手动使用入口（从仓库根运行）：
 
 ```powershell
 Set-Location 'E:\Projects\clao-ao-native'
-$env:PATH = 'C:\Users\Lenovo\go\pkg\mod\golang.org\toolchain@v0.0.1-go1.26.5.windows-amd64\bin;' + $env:PATH
-$profileDir = 'E:\Projects\clao-ao-native\.native-dev\recovery-manual-profile'
-$env:USERPROFILE = $profileDir
-$env:HOME = $profileDir
-$env:APPDATA = Join-Path $profileDir 'appdata'
-$env:LOCALAPPDATA = Join-Path $profileDir 'local'
-$env:XDG_CONFIG_HOME = Join-Path $profileDir 'config'
-$env:XDG_DATA_HOME = Join-Path $profileDir 'share'
-$env:CODEX_HOME = Join-Path $profileDir '.codex'
-./ao/dev-clao.ps1 -SkipBuild `
-  -Node 'C:\Users\Lenovo\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe' `
-  -Python 'E:\Projects\closed-loop-agent-orchestrator\clao\.venv\Scripts\python.exe' `
-  -DataHome 'E:\Projects\clao-ao-native\.native-dev\recovery-manual-data' -Port 7317
+./ao/dev-clao.ps1
 ```
 
-打开的是原生 Electron 窗口；数据位于所列 `recovery-manual-data`，不是其他工作树的 Panel。该隔离 profile 没有导入用户登录；Codex 的 `account_storage_unsafe` 仍如实阻止启动，需后续处理上游支持的账户存储条件，不能跳过检查。自动验证仅使用协议进程替身，不表示该 profile 已能调用真实模型。
+启动器解析本机已有 Node、Go 和 Python venv，开发构建后打开原生 Electron；不自动安装编码工具或登录。普通模式使用独立 CLAO 应用数据，原生工具仍按自己的官方机制选择账号。**本轮没有用真实账号执行该路径**，不能把页面能打开等同模型已就绪。
 
-可用 `-Node`、`-Go`、`-Python` 指定可执行文件；`-SkipBuild` 使用已经构建的 `ao/frontend/daemon/ao.exe`。这是实际 Electron + Vite + Go 开发入口，不是旧 Panel，也不构建发行安装包。默认名称 **CLAO Native**、应用 ID `dev.clao.native.desktop`、数据根 `~/.clao-ao`、端口 7312，可用 `-DataHome` / `-Port` 指定另外的开发目录/端口。拒绝把数据根设为官方 `~/.ao` 或其子目录；不会发现官方的 running.json、接管其 daemon 或使用官方更新目标。
+本机已实际启动的空账户检查入口（开发 daemon 已构建）：
+
+```powershell
+Set-Location 'E:\Projects\clao-ao-native'
+./ao/dev-clao.ps1 -SkipBuild -IsolatedAccount `
+  -DataHome 'E:\Projects\clao-ao-native\.native-dev\closeout-manual-data' -Port 7318
+```
+
+`-IsolatedAccount` 只对开发子进程设置该数据目录下的 `empty-account-profile`，不使用或搬运现有登录；协议替身旅程由测试脚本另建临时项目和数据，不是正常用户模式。这个命令打开的是原生 Electron，不是旧 7100 Panel。缺少依赖时按错误定位，启动器不会安装；首次依赖准备仍为本目录、`packages/product-ui`、`frontend` 各自的 `npm ci`，需要明确环境准备后执行。
+
+本机已采用工具路径如下；启动器可自动找到，也可用 `-Node`、`-Go`、`-Python` 显式指定：
+
+- Node：`C:\Users\Lenovo\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe`
+- Go：`C:\Users\Lenovo\go\pkg\mod\golang.org\toolchain@v0.0.1-go1.26.5.windows-amd64\bin\go.exe`
+- Python：`E:\Projects\closed-loop-agent-orchestrator\clao\.venv\Scripts\python.exe`
+
+默认名称 **CLAO Native**、应用 ID `dev.clao.native.desktop`、数据根 `~/.clao-ao`、端口 7312；`-DataHome` / `-Port` 可指定独立开发目录与端口。拒绝官方 `~/.ao` 或其子目录；不发现、接管官方 daemon 或使用官方更新目标。`-SkipBuild` 使用已有 `ao/frontend/daemon/ao.exe`，不代表发行安装包。
+
+Codex 的 `account_storage_unsafe` 仍是实际外部环境阻塞。上游 [Windows 账户目录检查](backend/internal/service/agent/codex_secure_fs_windows.go) 检查全部祖先；本机只读定位发现 `C:\` 所有者 TrustedInstaller 不在该实现的可信集合内，AuthenticatedUsers 还有有效 CreateDirectories 权限；`E:\` 的 AuthenticatedUsers 有效 Modify 权限也被拒绝。未修改 ACL、放宽检查、伪造登录或借用用户账号。需要负责人按上游支持条件准备安全的祖先路径，或待上游修正后再做真实账户验证；xfailed 不是执行通过。
 
 原生项目、27 个 registry 入口、模型目录/搜索/默认选择、认证、普通 Session、Chat/终端与文件查看由 AO 源码提供。没有复制一张工具映射表替代执行器，也没有把 Python Panel 嵌入窗口。普通工具仍按上游表达安装、登录、Chat 或 TUI 能力；未验证的执行器不计为 CLAO 闭环准入。
 
 ## 创建闭环任务
 
-在原生项目选择 **New task**，使用原生 **Agent / Model** 菜单，勾选 **CLAO 闭环验收**，填写目标、AC、允许/禁止范围和 Gate。当前闭环要求干净的单仓库 Git 项目（不要求 remote/origin），明确拒绝脏目录、scratch、多仓库、TUI 降级、跳过审批及附件。普通 AO 项目操作原样保留。
+在原生项目选择 **New task**，使用原生 **Agent / Model** 菜单，勾选 **CLAO 闭环验收**，填写目标、AC、允许/禁止范围和 Gate。可打开/创建本机目录，支持无远端 Git、普通目录、空项目及包含暂存/未提交修改的项目。读取并确认本次磁盘来源后启动；多仓库、TUI 降级、跳过审批及附件仍明确拒绝，普通 AO 项目操作原样保留。
 
-原生 AO 创建固定 base 的 Worker/worktree。回合结束后，程序先确认 Controller 已终止，再执行范围、仓库完整性与 Gate。需要诊断的失败进入下述 Auditor/Planner 决策，最多修复/替换合计 0–3 次；范围/取证失败不靠模型覆盖。通过后固定结果，在另一原生只读复核 Session 中使用原 Verifier schema/关联/AC/一致性约束，重新核对最终 Gate，全部通过才标“验收通过”。空回复、普通完成事件、已有结果 commit 都不等于通过。
+来源确认复用旧 CLAO 过滤规则，在独立数据目录 `clao/missions/<id>/source` 建立私有 Git，再由原生 AO 从固定 base 创建 Worker/worktree。原目录内容、index、分支、ignore 与 Git 全局配置不改变；来源变化需重新确认，不要求提交或创建 origin。回合结束后，程序先确认 Controller 已终止，再执行范围、仓库完整性与 Gate。需要诊断的失败进入下述 Auditor/Planner 决策，最多修复/替换合计 0–3 次；范围/取证失败不靠模型覆盖。通过后固定结果，在另一原生只读复核 Session 中使用原 Verifier schema/关联/AC/一致性约束，重新核对最终 Gate，全部通过才标“验收通过”。空回复、普通完成事件、已有结果 commit 都不等于通过。
 
-提交被持久接收后即可在对话框查看原请求，不必等到 Session 创建成功。项目页的“闭环任务”也保留所有请求（包括启动失败、没有 Session 的记录），点击目标打开验收详情；有 Session 时可选“打开原生 Session”。AC、分项验收、修改路径和结果位置在同一面板，长证据在详情中。结果仅在隔离工作区，不自动写回用户 HEAD/分支/index、merge 或 push；本轮未接入旧版独立补丁导出。
+提交被持久接收后即可在对话框查看原请求，不必等到 Session 创建成功。项目页的“闭环任务”也保留所有请求（包括启动失败、没有 Session 的记录），点击目标打开验收详情；有 Session 时可选“打开原生 Session”。AC、分项验收、修改路径和结果位置在同一面板，长证据在详情中。结果仅在隔离工作区；已接入下述固定版本结果中心与独立补丁包，不自动写回用户 HEAD/分支/index 或 push。
 
 失败/取消/通过的原请求可选择“创建新的尝试（保留草稿）”，重新确认后才提交新 ID；原请求不修改。关闭/重开保留目标、执行器/模型与验收草稿。POST 回执丢失时只查询原 ID，重复提交同一请求不重复创建 Worker。新尝试使用 Mission ID 区分工作分支，避免原生 seed Session 编号回收后撞上仍保留的旧分支，不删除旧分支。
 
@@ -57,20 +56,31 @@ $env:CODEX_HOME = Join-Path $profileDir '.codex'
 ## 控制权与恢复边界
 
 - AO Manager/Chat/driver 负责真实进程、Session、conversation 与 workspace；闭环服务是这一任务唯一自动调度者。持久 `clao_mission_id` 在启动进程前绑定，普通 AO 自动 nudge/CI/review/follow-up 对这些 Session 被隔离；普通 Session 不变。
-- 同一个 AO SQLite 增加 `clao_missions` 和 CAS revision，保存范围/模型/base、operation intent、停止/验收事实。没有第二数据库、API 服务或 Python Controller。Python 子进程只复用 `TaskSpec`、F02、F03、`IntegrationGate`、Verifier 的纯校验/证据准备；不接模型、不保存凭据。
+- 同一个 AO SQLite 增加 `clao_missions` 和 CAS revision，保存范围/模型/base、operation intent、停止/验收事实。没有第二数据库、API 服务或 Python Controller。Python 子进程复用 `TaskSpec`、F02、F03、Gate/Verifier、来源与补丁规则；显式导入的标准 API 语义连接复用旧传输。调度和持久状态仍由当前 daemon 所有，不运行旧 Panel/Controller，不新增凭据库。
 - spawn/resume/send/stop 前先持久 intent。spawn 失败立即读取不可变 owner：原生创建只在初始指令未交付的 seed 阶段删除记录，没有发布 Session 且没有既有执行证据时记录 CONFIRMED_FAILURE / FAILED；保留原始错误并允许另建尝试。已发布 Session 但关联回执未完成时保存已有关联、保留 UNKNOWN，不猜测初始执行成功、不重复 spawn。读取失败不能证明未启动；重启同样不重放。
+- 已恢复但尚未发送修复时，若发送 intent 保存失败，先在原控制器句柄仍有效时持久请求停止并核对退出，再保留原动作供明确继续。已有 send intent 或进程突然丢失仍按 UNKNOWN 处理，不把缺句柄当停止。后台恢复不重建闭环工作区，显式继续使用 Session 持久的私有 WorkspaceRepoPath。
 - UNKNOWN 请求仍显示在项目页并阻止新闭环；可通过“取消闭环”请求停止，已接收但未确认时可“重新确认停止”。取消先持久 receipt；必须同时有 AO `exited` 和无 live Controller 才能结束取消或继续固定产物，不提供强制忽略 UNKNOWN。
-- 原生 Chat 允许受控人工补充输入；自动跟进、重新启动、重试、变更运行模型/权限必须经过闭环 owner。终态 Session 不允许直接恢复成另一次任务。显式阶段继续与用户回执见下节；未知在途进程不自动重连，旧 Mission 导入未迁移。
+- 原生 Chat 允许受控人工补充输入；自动跟进、重新启动、重试、变更运行模型/权限必须经过闭环 owner。终态 Session 不允许直接恢复成另一次任务。显式阶段继续与用户回执见下节；未知在途进程不自动重连；显式导入的旧 Mission 仅作为历史查看，不升级为可恢复的新任务。
 
-每个 Worker/语义角色回合等待上限 30 分钟，Gate 每条 1–600 秒、输出上限 20000 字符；超限/截断保留原证据规则，过大的 Verifier 输入明确失败，不以片段当完整证据。单 Worker 是当前迁移范围；本轮四角色原生选择/决策接线见下节，旧 HTTP 连接/凭据导入未实施。
+每个 Worker/语义角色回合等待上限 30 分钟，Gate 每条 1–600 秒、输出上限 20000 字符；超限/截断保留原证据规则，过大的 Verifier 输入明确失败，不以片段当完整证据。默认单 Worker；需要分解时限定为下述两个独立子任务。原生四角色选择和旧标准 API 语义连接分别接入同一角色消费边界。
 
-当前已接：**原生项目/模型入口、单 Worker 的 Session/工作区接线、Gate/范围/完整性、有界修复、独立 Verifier、启动请求可见/失败处理及验收面板**。下述单 Worker 角色决策切片已审计合入（DONE）。未接：**多子任务分解/并行、任意在途执行恢复、旧历史/连接导入、普通目录/未提交来源支持、独立导出与结果中心、闭环运行图及正式发布入口**；旧底座完成记录不替代这些迁移验收。
+## 原生迁移收官大阶段
+
+本阶段 **IN_REVIEW**，整体迁移与 M4 仍 IN_PROGRESS。PR #46/#47/#48 对应基础、角色决策、恢复/回执切片保持 DONE；旧阶段完成不直接换算为本阶段验收。
+
+- **来源与有限多任务**：来源采用已确认的当前磁盘内容，复用旧来源排除、10 MiB 单文件、100 MiB/10000 文件上限和链接/junction 拒绝规则。默认一个 Worker；选择最多两个时由真实 Planner 分解，并校验范围/AC 可分离与依赖限制。两个子任务作为同一 Mission 文档中的执行进度，共用所有者及总修复/替换预算，分别执行 Gate 后才集成；实际改动重叠或不支持依赖时拒绝自动合并。父任务仍执行全部 Final Gate 和独立 Verifier，子任务完成不表示 Mission 成功。
+- **继续与回执**：单 Worker 原阶段继续保留；双任务继续读取各子任务已保存进度，已确认角色、动作与预算不重置。对子任务的查看是只读定位，继续/取消与最终交付由父任务统一处理，不提供独立调度或子任务导出。无法确认的在途副作用、本地 Gate/集成缺结果回执仍阻断重发，不宣称任意进程无损重连。
+- **结果与独立导出**：原生详情展示关联的文件变化、逐文件差异、AC、Task/Final Gate、Verifier 与实际位置；修改目录不改变已记录版本的结果。包沿用 `clao-result-v1` ZIP：`changes.patch`、`manifest.json`、`evidence.json`、`README.md`。它不包含完整基线、项目依赖、`.git`、数据库、凭据或完整 Prompt；下载补丁没有页面截断。只支持旧版已批准的 UTF-8 普通文本和 100644/100755 模式；二进制、其他编码、链接、子模块、LFS 指针变化及不安全路径拒绝整包。敏感检测是有限规则，不能安全完整导出时明确拒绝，不删改补丁脱敏。已有包在原工作区失效后仍可下载；失败/取消的固定成果标明未通过，没有固定成果不制造结果。复制路径、打开目录和导出均绑定当前所查看的 Mission。
+- **旧历史、配置和连接**：展开“旧 CLAO 历史与连接”，明确指定旧 `default.yaml` 或 `runtime/state.db` 路径后才导入。旧任务保留原版本、来源和验收摘要，只读且不可继续；兼容配置作为有版本的候选供用户应用到新草稿，不改当前项目或已冻结任务。重复导入不覆盖原连接或制造重复历史。兼容 GLM/Kimi 标准 API 连接能用于 Planner 分解/异常、Auditor、Verifier；不替代 Worker 或 AO 原生模型目录。服务、计费路径、连接身份与认证代次分别冻结，实际外发服务必须确认；重新连接使用新的原生凭据引用代次，不覆盖旧系统凭据，同名引用不会串服务。无法映射项明确显示原因与重新连接方式，不把标准 API 变成 Coding Plan。未自动导入负责人真实历史或 Key。
+- **只读运行视图**：任务详情按实际 Worker（含两个子任务）、Gate、Auditor、Planner、集成与最终复核记录显示进行中、等待、失败、完成或未知。点击节点定位公开动作、证据、耗时和原生 Session；未调用角色明确标记。它不控制调度、不增加模型调用、不展示内部思考，也不是工作流编辑器。
+
+独立使用结果包：保留一份匹配 `manifest.json` 中 `baseline_files` 的目录副本；在副本根按包内 README 执行 `git apply --check` 和 `git apply`，再比对 `result_files` 并运行适用 Gate。普通目录/空项目不需要拥有 CLAO 私有 commit；不应在唯一原项目上试验应用。支持范围与敏感材料拒绝均来自原导出核心，不因新界面扩大。
 
 ## 数据与验证
 
-旧 `clao/config`、系统凭据、runtime 和官方 AO 数据不读取/迁移到新数据库，也不删除。新页面为空不代表旧连接丢失；将来如需迁移须有明确导入。用户实际调用原生工具时仍使用该工具官方认证；本轮自动验证全部用临时 HOME/APPDATA、测试进程，不使用用户账号或 Key。
+旧 `clao/config`、系统凭据、runtime 和官方 AO 数据不自动读取、改写或删除。只有上述明确选择的旧配置/运行材料才形成当前 AO SQLite 的只读导入记录；不是混用两个运行数据库。本轮验证使用隔离样例，未导入负责人的真实材料。用户实际调用原生工具时仍使用该工具官方认证；本轮自动验证全部用临时 HOME/APPDATA、测试进程，不使用用户账号或 Key。
 
-验证与实际截图见 [原生集成证据](../docs/reference/ao-native/README.md)。沿用既有 Windows/离线集成、开发构建、Electron 操作及 Codex 截图自查；PR #46 外部代码审计 PASS 不代表负责人已完成完整体验；本角色切片也已再次外部代码审计 PASS 并合入；两次源码审计均不等于负责人完整体验。OpenCode ACP 路径经过实际 AO 服务，外部进程/模型使用替身；Codex 隔离环境的 `account_storage_unsafe` 仍待解决，xfailed 不是执行通过。真实账户/模型、套餐计费、全部执行器/角色兼容、全量、安装与发布验收尚未完成。PR #46 收尾未重跑测试或构建；本轮角色迁移有下述直接证据。正式默认入口和发布 manifest 未切换。
+验证与实际截图见 [原生集成证据](../docs/reference/ao-native/README.md)。沿用既有 Windows/离线集成、开发构建、Electron 操作及 Codex 截图自查；PR #46 外部代码审计 PASS 不代表负责人已完成完整体验；本角色切片也已再次外部代码审计 PASS 并合入；各次源码审计均不等于负责人完整体验。OpenCode ACP 路径经过实际 AO 服务，外部进程/模型使用替身；Codex 隔离环境的 `account_storage_unsafe` 仍待解决，xfailed 不是执行通过。真实账户/模型、套餐计费、全部执行器/角色兼容、全量、安装与发布验收尚未完成。PR #46/#47/#48 合并收尾未重跑测试或构建；各切片历史证据分节保留；当前阶段 Windows 定向、实际 Electron 单/双 Worker 与独立补丁应用已完成，具体命令与内部返修见现有台账。正式默认入口和发布 manifest 未切换。
 
 
 ## 角色决策与配置切片
@@ -81,13 +91,13 @@ $env:CODEX_HOME = Join-Path $profileDir '.codex'
 
 默认值贯通到实际 Chat：创建表单已展示并确认的项目模型作为具体型号提交；主动清空模型表示执行器默认/不覆盖。角色“沿用 Worker”复制该次已确认选择，换执行器后的空模型不会继承项目 Worker 的型号。Manager 的预检、Session 记录和 Chat 启动共用这一配置规则，局部修复的 Chat 恢复使用 Session 已保存的模型/权限；后续角色及替代 Worker 使用 Mission 冻结选择，不再合并当前项目默认。只能由执行器解析的空型号继续保持不覆盖，确认事实不足时显示 unknown。普通非闭环 AO 的项目/角色默认继承与恢复行为保持原样，历史记录不因本次修复重写。
 
-原生 Codex 有可读 active account 引用时保存引用并在调用前核对，账号变化停止继续；AO v0.12.12 没有 per-spawn 独立账号参数，故不提供假的逐角色换账号功能。其他执行器沿用其原生认证，未提供账号事实不猜测。配置与角色冻结保存在现有 `clao_missions` 文档，之后改项目默认值不改变当前角色或 Worker 恢复参数。历史缺角色字段保持历史缺失，不写入新的角色/模型事实；旧 HTTP 连接、系统凭据仍未自动导入。
+原生 Codex 有可读 active account 引用时保存引用并在调用前核对，账号变化停止继续；AO v0.12.12 没有 per-spawn 独立账号参数，故不提供假的逐角色换账号功能。其他执行器沿用其原生认证，未提供账号事实不猜测。配置与角色冻结保存在现有 `clao_missions` 文档，之后改项目默认值不改变当前角色或 Worker 恢复参数。历史缺角色字段保持历史缺失，不写入新的角色/模型事实；旧 HTTP 连接仅按上文明确导入，系统凭据不自动迁移。
 
-当前语义通道以 `read-only` 能力准入：Codex 原生 read-only sandbox/never approval，逐线程禁用继承 MCP、子 Agent、shell 与 web 工具；OpenCode 原生临时命名 agent 的全部工具/权限 deny，并在 ACP 客户端拒绝提权。权限覆盖仅本次调用，不改全局配置。结束后还需确认 Session 已停止且语义工作区相对其固定 base 无改动。其他上游 Chat/TUI 工具的普通能力原样保留，缺少这项明确只读映射时不能承载自动语义角色；不能将未安装与缺少只读能力混为一谈。当前验证代表为 OpenCode 语义角色，另有 Kimi Worker + OpenCode 角色混用；不宣称全部执行器/真实账号准入。
+PR #47 的原生语义通道以 `read-only` 能力准入（本阶段另接上述无工具的标准 API 通道）：Codex 原生 read-only sandbox/never approval，逐线程禁用继承 MCP、子 Agent、shell 与 web 工具；OpenCode 原生临时命名 agent 的全部工具/权限 deny，并在 ACP 客户端拒绝提权。权限覆盖仅本次调用，不改全局配置。结束后还需确认 Session 已停止且语义工作区相对其固定 base 无改动。其他上游 Chat/TUI 工具的普通能力原样保留，缺少这项明确只读映射时不能承载自动语义角色；不能将未安装与缺少只读能力混为一谈。当前验证代表为 OpenCode 语义角色，另有 Kimi Worker + OpenCode 角色混用；不宣称全部执行器/真实账号准入。
 
-正常路径仍只有 Worker、确定性验收和独立 Verifier。Gate 命令失败或已停止执行的异常使用完整 TaskSpec/AC/范围、失败输出、Git 差异、Worker 状态和历史生成旧 Auditor 输入；审核结果及剩余预算进入旧 Planner Prompt/Schema。输出只取已完成回合的正式 assistant 内容，做原有关联、AC、目标及一致性校验。证据超限明确交人工，不截取后假称完整。合法 FAIL/HUMAN 不按协议错误重试；本原生切片协议错误直接进入 HUMAN，未增加新的模型重试层。
+默认单 Worker 正常路径仍只有 Worker、确定性验收和独立 Verifier；显式双任务增加一次必要的 Planner 分解。Gate 命令失败或已停止执行的异常使用完整 TaskSpec/AC/范围、失败输出、Git 差异、Worker 状态和历史生成旧 Auditor 输入；审核结果及剩余预算进入旧 Planner Prompt/Schema。输出只取已完成回合的正式 assistant 内容，做原有关联、AC、目标及一致性校验。证据超限明确交人工，不截取后假称完整。合法 FAIL/HUMAN 不按协议错误重试；本原生切片协议错误直接进入 HUMAN，未增加新的模型重试层。
 
-| Planner 动作 | 当前单 Worker 的程序行为 |
+| Planner 动作 | 单个 Worker 的程序行为 |
 |---|---|
 | CONTINUE | 当前 Worker 已停止，仅观察并复查一次确定性证据；仍失败则 HUMAN，不再发消息/重启 |
 | SEND_LOCAL_FIX | 不改原目标/AC/Gate/范围，恢复当前 Worker 并提交一次有持久身份的修复 |
@@ -99,7 +109,7 @@ $env:CODEX_HOME = Join-Path $profileDir '.codex'
 
 在原请求的“角色与决策”中查看本次选择、未调用/调用中/诊断/决策/程序动作和回执，点击对应角色会话查看原生记录；Gate/AC/结果仍在同一验收面板。需要账户/收费模型的手动执行尚未授权，空账户开发入口仅供打开页面；不要把隔离 fixture 名称当真实型号。
 
-### 直接验证与截图
+### PR #47 历史直接验证与截图
 
 2026-09-10：Windows AO/Git/SQLite/HTTP 产品入口 **27 passed、1 xfailed**；纯角色契约 **15 passed**；原生创建对话框 **16 passed**，另补预算输入与历史角色字段兼容各 **1 passed**。新增无进展与恢复/模型事实定向检查单独记录在台账，不累计为全量。Go 修改相关包定向检查、Go daemon 开发构建、TypeScript 和实际 Electron 开发启动完成。Electron 实际展开/搜索/点击原生模型菜单，完成正常独立复核、Gate 失败 → Auditor/Planner → 修复、合法 HUMAN，并核对冻结记录、真实角色 Session 与原项目未变化。
 
@@ -114,7 +124,7 @@ $env:GOTOOLCHAIN = 'local'
 $env:GOWORK = 'off'
 $env:CLAO_CORE_PYTHON = 'E:\Projects\closed-loop-agent-orchestrator\clao\.venv\Scripts\python.exe'
 $env:CLAO_TEST_ROLES = '1'
-$env:CLAO_DESKTOP_TEST_PORT = '7318'
+$env:CLAO_DESKTOP_TEST_PORT = '7320'
 & 'C:\Users\Lenovo\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe' scripts/test-clao-desktop.cjs
 ```
 
@@ -123,7 +133,7 @@ $env:CLAO_DESKTOP_TEST_PORT = '7318'
 
 ## 运行恢复与用户指令回执
 
-本切片 **IN_REVIEW**，等待外部审计；PR #46/#47 DONE，整体迁移/M4 IN_PROGRESS。仅覆盖当前原生单 Worker 路径。重启只读取原生 Session/回合、immutable owner 和 Mission 记录并对账，不发送消息、不启动模型、不运行 Gate。项目“闭环任务”或原 Session 验收面板可查看保存阶段，再选择 **继续原任务**；确认来源、工作区、冻结四角色与账号引用、停止/回合及输入摘要后，沿用原 Mission、Session、base、预算和结果继续。
+本切片 **DONE**（PR #48 外部代码审计 PASS，2026-09-11 已 rebase 合入）；PR #46/#47 保持 DONE，整体迁移/M4 IN_PROGRESS。以下记录原单 Worker 切片契约，双任务扩展见上文收官阶段。重启只读取原生 Session/回合、immutable owner 和 Mission 记录并对账，不发送消息、不启动模型、不运行 Gate。项目“闭环任务”或原 Session 验收面板可查看保存阶段，再选择 **继续原任务**；确认来源、工作区、冻结四角色与账号引用、停止/回合及输入摘要后，沿用原 Mission、Session、base、预算和结果继续。
 
 | 原任务保存位置 | 显式继续的行为 |
 |---|---|
@@ -146,11 +156,11 @@ DONE/FAILED/CANCELLED/HUMAN 不能继续成执行中；**创建新的尝试** �
 
 语义要求仅进入该角色下一次本来需要的调用；在途输入冻结，后来追加的备注不会被伪称已经读取。Planner 可看到其他目标的镜像上下文，但消费单列，不改变原目标回执。终态未调用目标的要求显示“未用于该目标输入”；后续未知调用不抹掉已有确认消费。文本不能改变冻结权限、AC、Gate。草稿、目标、编辑版本与未确认提交身份按 Mission 保留；A 的迟到响应不清空 B 或 A 后来编辑的内容。刷新查询持久回执，不重放写操作。
 
-### 本切片检查与手动查看
+### PR #48 历史检查与手动查看
 
-开发构建与实际 Electron 已执行，截图来自正式原生页面：[继续原任务](../docs/reference/ao-native/recovery/continue-original.png)、[继续后的验收](../docs/reference/ao-native/recovery/continued-result.png)、[实际消费者与回执](../docs/reference/ao-native/recovery/directive-consumers.png)。Codex 已自查；不代表负责人完整体验或外部审计完成。
+开发构建与实际 Electron 已执行，截图来自正式原生页面：[继续原任务](../docs/reference/ao-native/recovery/continue-original.png)、[继续后的验收](../docs/reference/ao-native/recovery/continued-result.png)、[实际消费者与回执](../docs/reference/ao-native/recovery/directive-consumers.png)。Codex 已自查；不代表负责人完整体验；PR #48 外部代码审计已通过。
 
-先按本页“本机已验证的完整命令”启动空账户开发版。项目 → New task → Agent / Model 打开原生菜单；项目“闭环任务”查看原请求，选择继续/取消或关联新尝试，原生 Session 中查看验收和补充回执。没有真实账户的 profile 只用于查看；不要把测试型号用于真实任务。
+先按本页“本机已实际启动的空账户检查入口”启动开发版。项目 → New task → Agent / Model 打开原生菜单；项目“闭环任务”查看原请求，选择继续/取消或关联新尝试，原生 Session 中查看验收和补充回执。没有真实账户的 profile 只用于查看；不要把测试型号用于真实任务。
 
 可在另一 PowerShell 窗口重演离线桌面旅程（实际停止并重启隔离 daemon，再从界面继续；期间创建新的临时项目/数据）：
 
@@ -162,7 +172,7 @@ $env:GOWORK = 'off'
 $env:CLAO_CORE_PYTHON = 'E:\Projects\closed-loop-agent-orchestrator\clao\.venv\Scripts\python.exe'
 $env:CLAO_NATIVE_BINARY = 'E:\Projects\clao-ao-native\.native-dev\ao-recovery.exe'
 $env:CLAO_TEST_RECOVERY = '1'
-$env:CLAO_DESKTOP_TEST_PORT = '7318'
+$env:CLAO_DESKTOP_TEST_PORT = '7320'
 & 'C:\Users\Lenovo\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe' scripts/test-clao-desktop.cjs
 ```
 

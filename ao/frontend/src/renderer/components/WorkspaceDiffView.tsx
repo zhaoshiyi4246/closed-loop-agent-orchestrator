@@ -36,6 +36,7 @@ type WorkspaceFileStatus = WorkspaceFileSummary["status"];
 export type ActiveFileAnnotationTarget = FileAnnotationTarget & { rowIndex?: number };
 export type FileAnnotationStatus = "idle" | "sending" | "sent" | "error";
 export type FileAnnotationModel = {
+	readonly?: boolean;
 	target: ActiveFileAnnotationTarget | null;
 	draft: string;
 	status: FileAnnotationStatus;
@@ -345,7 +346,7 @@ function DiffView({
 			) : null}
 			<div
 				className="diff-code session-files-diff-scrollbar overflow-x-auto overflow-y-visible bg-terminal font-mono text-xs leading-row text-terminal-foreground"
-				onContextMenu={onContextMenu}
+				onContextMenu={annotation.readonly ? undefined : onContextMenu}
 				ref={containerRef}
 			>
 				{split ? (
@@ -411,7 +412,7 @@ function DiffView({
 					</div>
 				)}
 			</div>
-			<DiffSelectionMenu
+			{!annotation.readonly && <DiffSelectionMenu
 				filePath={filePath}
 				lines={menuState?.lines ?? []}
 				onOpenChange={(open) => setMenuState((current) => (current ? { ...current, open } : current))}
@@ -419,7 +420,7 @@ function DiffView({
 				position={menuState?.position ?? { x: 0, y: 0 }}
 				selectedText={menuState?.selectedText ?? ""}
 				sessionId={sessionId}
-			/>
+			/>}
 		</div>
 	);
 }
@@ -458,12 +459,12 @@ function DiffRowContentInner({ annotation, index, path, previousPath, row, runs,
 				data-old-no={row.oldNo ?? ""}
 				data-row-index={index}
 			>
-				<LineFeedbackButton
+				{!annotation.readonly && <LineFeedbackButton
 					active={isAnnotationRow(annotation.target, path, index)}
 					onClick={() => annotation.begin(lineAnnotationTarget(path, previousPath, row, index))}
 					t={t}
 					target={lineAnnotationTarget(path, previousPath, row, index)}
-				/>
+				/>}
 				<span className="w-9 shrink-0 select-none border-r border-border/50 bg-terminal px-1.5 text-right text-passive/70 tabular-nums">
 					{row.newNo ?? row.oldNo ?? ""}
 				</span>
@@ -646,7 +647,7 @@ function SplitSide({
 			data-old-no={row.oldNo ?? ""}
 			data-row-index={rowIndex}
 		>
-			{target ? (
+			{target && !annotation.readonly ? (
 				<LineFeedbackButton
 					active={isAnnotationRow(annotation.target, path, rowIndex)}
 					onClick={() => annotation.begin(target)}

@@ -14,7 +14,7 @@ Object.assign(env, {
   CLAO_CORE_PYTHON: process.env.CLAO_CORE_PYTHON, CLAO_CORE_ROOT: path.join(root, 'clao'),
   HOME: home, USERPROFILE: home, APPDATA: path.join(home, 'appdata'), LOCALAPPDATA: path.join(home, 'local'),
   XDG_CONFIG_HOME: path.join(home, 'config'), XDG_DATA_HOME: path.join(home, 'share'),
-  CLAO_FIXTURE_LONG_HOLD: '1', CLAO_FIXTURE_RELEASE_CONFIG: path.join(home, 'release-config'), CLAO_FIXTURE_FAIL_START: path.join(home, 'reject-start'), CLAO_FIXTURE_TRACE: path.join(home, 'external.jsonl'),
+  CLAO_FIXTURE_LONG_HOLD: '1', CLAO_FIXTURE_PARALLEL_RELEASE: process.env.CLAO_TEST_CLOSEOUT === '1' ? path.join(home,'parallel-release') : '', CLAO_FIXTURE_RELEASE_CONFIG: path.join(home, 'release-config'), CLAO_FIXTURE_FAIL_START: path.join(home, 'reject-start'), CLAO_FIXTURE_TRACE: path.join(home, 'external.jsonl'),
   PATH: engine + path.delimiter + path.dirname(process.env.CLAO_CORE_PYTHON) + path.delimiter + env.PATH,
 });
 const evidence = process.env.CLAO_SCREENSHOTS || path.join(home, 'screenshots');
@@ -35,6 +35,10 @@ fs.mkdirSync(evidence, { recursive: true });
       return;
     }
     await app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0].setSize(1440, 900));
+    if (process.env.CLAO_TEST_CLOSEOUT === '1') {
+      await require('./test-clao-closeout.cjs')({page,app,home,env,evidence,base:'http://127.0.0.1:'+env.CLAO_NATIVE_PORT});
+      return;
+    }
     const project = path.join(home, '验证项目'); fs.mkdirSync(project);
     const git = (...args) => cp.execFileSync('git', ['-C', project, ...args], { env, encoding: 'utf8' }).trim();
     git('init', '-b', 'main'); git('config', 'user.email', 'fixture@example.invalid'); git('config', 'user.name', 'Fixture');
@@ -60,6 +64,7 @@ fs.mkdirSync(evidence, { recursive: true });
     };
     const start = async (objective) => {
       await page.getByLabel('CLAO 闭环验收').check();
+      await page.getByLabel('使用上述当前内容快照').check();
       await page.getByLabel('验收条件（每行一项）').fill('result.txt 内容为 accepted；原项目保持不变');
       await page.getByLabel('Gate 命令（每行一条）').fill('python check.py');
       await page.getByLabel('允许修改范围').fill('**');

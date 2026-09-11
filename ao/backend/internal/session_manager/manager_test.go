@@ -7342,6 +7342,36 @@ func TestRestoreAllCarriesConfiguredAndRecordedBaseToWorkspaceRestore(t *testing
 	}
 }
 
+func TestCLAOBackgroundRecoveryDoesNotTouchOwnedWorkspace(t *testing.T) {
+	m, st, rt, ws := newLifecycleManager()
+	rec := domain.SessionRecord{ID: "mer-1", ProjectID: "mer", Mode: domain.SessionModeChat, Kind: domain.KindWorker,
+		Metadata: domain.SessionMetadata{CLAOMissionID: "mission-1", WorkspacePath: "/managed/worktree", WorkspaceRepoPath: "/managed/source", Branch: "clao/mission-1/worker", DiffBaseRef: "frozen"}, Activity: domain.Activity{State: domain.ActivityExited}}
+	st.sessions[rec.ID] = rec
+	if err := m.reconcileLive(ctx, rec); err != nil {
+		t.Fatal(err)
+	}
+	m.reconcileLivePass(ctx, []domain.SessionRecord{rec})
+	rec.IsTerminated = true
+	st.sessions[rec.ID] = rec
+	st.worktrees[rec.ID] = []domain.SessionWorktreeRecord{{SessionID: rec.ID, RepoName: domain.RootWorkspaceRepoName, State: "removed"}}
+	if err := m.RestoreAll(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(ws.restoreConfigs) != 0 || ws.destroyed != 0 || rt.created != 0 {
+		t.Fatal("implicit owned restoration", ws.restoreConfigs, ws.calls, rt.created)
+	}
+	if _, err := m.restoreSessionWorkspace(ctx, st.projects["mer"], rec); err == nil {
+		t.Fatal("unowned explicit restore accepted")
+	}
+	_, err := m.restoreSessionWorkspace(ports.WithCLAOOwner(ctx, "mission-1"), st.projects["mer"], rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ws.restoreConfigs) != 1 || ws.restoreConfigs[0].RepoPath != "/managed/source" {
+		t.Fatal("saved private repo not used", ws.restoreConfigs)
+	}
+}
+
 func TestRestoreAll_RestoresLegacyShutdownMarkerWithoutState(t *testing.T) {
 	m, st, rt, _ := newLifecycleManager()
 	st.sessions["mer-1"] = domain.SessionRecord{

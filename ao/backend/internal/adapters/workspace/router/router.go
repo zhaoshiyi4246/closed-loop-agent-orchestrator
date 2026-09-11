@@ -64,6 +64,9 @@ func (w *Workspace) FetchDefaultBranch(ctx context.Context, repoPath string, tar
 // Create delegates session workspace creation to the project-appropriate
 // workspace adapter.
 func (w *Workspace) Create(ctx context.Context, cfg ports.WorkspaceConfig) (ports.WorkspaceInfo, error) {
+	if cfg.RepoPath != "" {
+		return w.git.Create(ctx, cfg)
+	}
 	adapter, err := w.adapterForProject(ctx, cfg.ProjectID)
 	if err != nil {
 		return ports.WorkspaceInfo{}, err
@@ -74,6 +77,9 @@ func (w *Workspace) Create(ctx context.Context, cfg ports.WorkspaceConfig) (port
 // Restore delegates session workspace restoration to the project-appropriate
 // workspace adapter.
 func (w *Workspace) Restore(ctx context.Context, cfg ports.WorkspaceConfig) (ports.WorkspaceInfo, error) {
+	if cfg.RepoPath != "" {
+		return w.git.Restore(ctx, cfg)
+	}
 	adapter, err := w.adapterForProject(ctx, cfg.ProjectID)
 	if err != nil {
 		return ports.WorkspaceInfo{}, err
@@ -84,6 +90,9 @@ func (w *Workspace) Restore(ctx context.Context, cfg ports.WorkspaceConfig) (por
 // Destroy delegates normal session workspace cleanup to the
 // project-appropriate workspace adapter.
 func (w *Workspace) Destroy(ctx context.Context, info ports.WorkspaceInfo) error {
+	if info.RepoPath != "" {
+		return w.git.Destroy(ctx, info)
+	}
 	adapter, err := w.adapterForProject(ctx, info.ProjectID)
 	if err != nil {
 		return err

@@ -464,6 +464,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/clao/imports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read explicitly imported legacy facts */
+        get: operations["listCLAOImports"];
+        put?: never;
+        /** Explicitly import supported legacy facts */
+        post: operations["importCLAOLegacy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/clao/imports/{id}/credential": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Explicitly connect a new OS credential generation */
+        post: operations["reconnectCLAOLegacy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/clao/missions": {
         parameters: {
             query?: never;
@@ -544,6 +579,108 @@ export interface paths {
         put?: never;
         /** Receive a scoped instruction before delivery */
         post: operations["postCLAODirective"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/clao/missions/{id}/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Save a complete independent patch package */
+        post: operations["exportCLAOResult"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/clao/missions/{id}/exports/{identity}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Download a saved immutable result package */
+        get: operations["downloadCLAOResult"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/clao/missions/{id}/open-result": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Open this mission result directory */
+        post: operations["openCLAOResult"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/clao/missions/{id}/result": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read frozen delivery and acceptance */
+        get: operations["getCLAOResult"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/clao/projects": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Open or create a local directory without modifying Git */
+        post: operations["openCLAOProject"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/clao/projects/{projectId}/source": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read current source contents before confirmation */
+        get: operations["previewCLAOSource"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2730,17 +2867,24 @@ export interface components {
         CLAOFrozenRole: {
             accountRef?: string;
             agent: string;
+            connection?: components["schemas"]["ClaoloopLegacyConnection"];
+            connectionId?: string;
+            connectionRevision?: number;
             inherited: boolean;
             model: string;
         };
         CLAOMission: {
+            activeWait?: string;
             base?: string;
             cancelRequested: boolean;
             checkpoint?: components["schemas"]["CLAOCheckpoint"];
+            coordinatorId?: string;
             decisions?: components["schemas"]["CLAODecision"][];
             directives?: components["schemas"]["CLAODirective"][];
             evidence: components["schemas"]["CLAOEvidence"][];
+            exports?: components["schemas"]["ClaoloopResultPackage"][];
             operations: components["schemas"]["CLAOOperation"][];
+            plan?: unknown;
             reason: string;
             recovery?: components["schemas"]["CLAORecoveryStatus"];
             repairs: number;
@@ -2755,8 +2899,10 @@ export interface components {
                 [key: string]: components["schemas"]["CLAOFrozenRole"];
             };
             sessionId?: string;
+            source?: components["schemas"]["ClaoloopSourceSnapshot"];
             sourcePath?: string;
             state: string;
+            subtasks?: components["schemas"]["CLAOMission"][];
             updatedAt: string;
             verifierSessionId?: string;
             workspace?: string;
@@ -2787,6 +2933,7 @@ export interface components {
             agent: string;
             allowedPaths: string[];
             criteria: components["schemas"]["CLAOCriterion"][];
+            externalServiceConsent?: string[];
             forbiddenPaths: string[];
             gateCommands: string[];
             /** Format: double */
@@ -2794,6 +2941,7 @@ export interface components {
             id: string;
             maxRepairs: number;
             maxReplans: number;
+            maxTasks?: number;
             model: string;
             objective: string;
             parentId?: string;
@@ -2801,6 +2949,7 @@ export interface components {
             roles?: {
                 [key: string]: components["schemas"]["CLAORoleChoice"];
             };
+            sourceRevision?: string;
         };
         CLAORoleCall: {
             choice: components["schemas"]["CLAOFrozenRole"];
@@ -2824,6 +2973,8 @@ export interface components {
         };
         CLAORoleChoice: {
             agent: string;
+            connectionId?: string;
+            connectionRevision?: number;
             model: string;
         };
         CancelReviewResponse: {
@@ -2844,6 +2995,111 @@ export interface components {
             prs: components["schemas"]["SessionPRFacts"][];
             sessionId: string;
             takenOverFrom: string[];
+        };
+        ClaoloopLegacyCatalog: {
+            configurations: components["schemas"]["ClaoloopLegacyItem"][];
+            connections: components["schemas"]["ClaoloopLegacyConnection"][];
+            histories: components["schemas"]["ClaoloopLegacyItem"][];
+            issues: string[];
+        };
+        ClaoloopLegacyConnection: {
+            authPending?: boolean;
+            authRevision: number;
+            billing: string;
+            compatible: boolean;
+            endpoint?: string;
+            id: string;
+            model: string;
+            name: string;
+            profile?: unknown;
+            reason: string;
+            roles: string[];
+            service: string;
+        };
+        ClaoloopLegacyCredentialStatus: {
+            authRevision: number;
+            id: string;
+            status: string;
+        };
+        ClaoloopLegacyImportRequest: {
+            configPath?: string;
+            historyPath?: string;
+        };
+        ClaoloopLegacyItem: {
+            document: unknown;
+            id: string;
+            importedAt?: string;
+            kind: string;
+        };
+        ClaoloopLocalProject: {
+            id: string;
+            name: string;
+            path: string;
+        };
+        ClaoloopLocalProjectRequest: {
+            create: boolean;
+            name: string;
+            path: string;
+        };
+        ClaoloopResultLocation: {
+            path: string;
+            status: string;
+        };
+        ClaoloopResultPackage: {
+            accepted: boolean;
+            base_commit: string;
+            /** Format: int64 */
+            bytes: number;
+            created_at: string;
+            identity: string;
+            reason?: string;
+            result_commit: string;
+            sha256: string;
+            status?: string;
+        };
+        ClaoloopResultView: {
+            baseCommit?: string;
+            changes: unknown;
+            diff?: string;
+            /** Format: int64 */
+            diffBytes: number;
+            diffSHA256?: string;
+            diffTruncated: boolean;
+            evidence: unknown;
+            exports: components["schemas"]["ClaoloopResultPackage"][];
+            location: components["schemas"]["ClaoloopResultLocation"];
+            missionId: string;
+            noChanges: boolean;
+            reason?: string;
+            resultCommit?: string;
+            status: string;
+        };
+        ClaoloopSourceExcluded: {
+            path: string;
+            reason: string;
+        };
+        ClaoloopSourcePreview: {
+            /** Format: int64 */
+            bytes: number;
+            excluded: components["schemas"]["ClaoloopSourceExcluded"][];
+            fileCount: number;
+            kind: string;
+            originalPath: string;
+            policy: string;
+            projectId: string;
+            revision: string;
+        };
+        ClaoloopSourceSnapshot: {
+            base: string;
+            /** Format: int64 */
+            bytes: number;
+            excluded: components["schemas"]["ClaoloopSourceExcluded"][];
+            fileCount: number;
+            originalPath: string;
+            policy: string;
+            projectId: string;
+            projectPath: string;
+            revision: string;
         };
         CleanupSessionsResponse: {
             alreadyGone: string[];
@@ -3055,6 +3311,24 @@ export interface components {
         };
         ContainerReapConfig: {
             disabled?: boolean;
+        };
+        ControllersCLAOCredentialRequest: {
+            apiKey: string;
+        };
+        ControllersCLAOExportResponse: {
+            package: components["schemas"]["ClaoloopResultPackage"];
+        };
+        ControllersCLAOLocationResponse: {
+            location: components["schemas"]["ClaoloopResultLocation"];
+        };
+        ControllersCLAOProjectResponse: {
+            project: components["schemas"]["ClaoloopLocalProject"];
+        };
+        ControllersCLAOResultResponse: {
+            result: components["schemas"]["ClaoloopResultView"];
+        };
+        ControllersCLAOSourceResponse: {
+            source: components["schemas"]["ClaoloopSourcePreview"];
         };
         ControllersRequestRereviewRequest: {
             /** @description Tracked pull request URL. Required when the session has multiple PRs. */
@@ -6008,6 +6282,76 @@ export interface operations {
             };
         };
     };
+    listCLAOImports: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClaoloopLegacyCatalog"];
+                };
+            };
+        };
+    };
+    importCLAOLegacy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ClaoloopLegacyImportRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClaoloopLegacyCatalog"];
+                };
+            };
+        };
+    };
+    reconnectCLAOLegacy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ControllersCLAOCredentialRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClaoloopLegacyCredentialStatus"];
+                };
+            };
+        };
+    };
     listCLAOMissions: {
         parameters: {
             query?: never;
@@ -6149,6 +6493,141 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CLAODirectiveResponse"];
+                };
+            };
+        };
+    };
+    exportCLAOResult: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ControllersCLAOExportResponse"];
+                };
+            };
+        };
+    };
+    downloadCLAOResult: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                identity: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/zip": string;
+                };
+            };
+        };
+    };
+    openCLAOResult: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ControllersCLAOLocationResponse"];
+                };
+            };
+        };
+    };
+    getCLAOResult: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ControllersCLAOResultResponse"];
+                };
+            };
+        };
+    };
+    openCLAOProject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ClaoloopLocalProjectRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ControllersCLAOProjectResponse"];
+                };
+            };
+        };
+    };
+    previewCLAOSource: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ControllersCLAOSourceResponse"];
                 };
             };
         };
