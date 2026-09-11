@@ -1351,6 +1351,7 @@ func TestChatResumeModelChoiceOwnership(t *testing.T) {
 			rec := store.sessions["mer-1"]
 			rec.Harness = domain.HarnessOpenCode
 			rec.Metadata.Model, rec.Metadata.CLAOMissionID = tc.saved, tc.owner
+			rec.Metadata.WorkspaceRepoPath = "private-frozen-source"
 			rec.Metadata.Permissions = domain.PermissionModeReadOnly
 			store.sessions[rec.ID] = rec
 			project := store.projects[string(chatTestProject)]
@@ -1365,6 +1366,9 @@ func TestChatResumeModelChoiceOwnership(t *testing.T) {
 			}
 			if result.Session.Metadata.Model != tc.saved || runtime.created != 0 {
 				t.Fatal("resume rewrote saved model facts or launched a terminal")
+			}
+			if result.Session.Metadata.WorkspaceRepoPath != "private-frozen-source" {
+				t.Fatal("resume lost private repository identity", result.Session.Metadata)
 			}
 		})
 	}

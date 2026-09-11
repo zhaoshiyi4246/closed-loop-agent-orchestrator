@@ -7,7 +7,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
-from .test_ao_native import native, native_engine, git
+from .test_ao_native import native, native_engine, native_core_python, git
 
 
 def wait(api, ident, states=("DONE", "FAILED", "HUMAN", "UNKNOWN", "PAUSED", "CANCELLED")):
@@ -67,7 +67,12 @@ def test_restart_continues_confirmed_original_checkpoint(native, boundary, objec
     assert restored["state"] == "PAUSED", restored
     assert restored["recovery"]["canContinue"], restored
     assert restored["sessionId"] == first["sessionId"]
-    assert restored["base"] == base and restored["roles"] == first["roles"]
+    assert restored["base"] == first["base"] == first["source"]["base"] and restored["roles"] == first["roles"]
+    assert git(source, 'rev-parse', 'HEAD') == base
+
+    original_workspace = Path(first['workspace'])
+    assert original_workspace.is_dir()
+    assert not original_workspace.with_name(original_workspace.name+'.stray').exists()
     assert len([e for e in trace(temp) if e["kind"] == "prompt"]) == len([e for e in before if e["kind"] == "prompt"])
     # Two windows cannot start two scheduling owners.
     with ThreadPoolExecutor(2) as pool:
@@ -76,7 +81,7 @@ def test_restart_continues_confirmed_original_checkpoint(native, boundary, objec
     final = wait(api, ident)
     assert final["state"] == "DONE", final
     assert final["request"] == first["request"] and final["roles"] == first["roles"]
-    assert final["sessionId"] == first["sessionId"] and final["base"] == base
+    assert final["sessionId"] == first["sessionId"] and final["base"] == first["base"]
     assert len([op for op in final["operations"] if op["kind"] == "spawn"]) == 1
     assert len({c["id"] for c in final["roleCalls"]}) == len(final["roleCalls"])
     for c in first.get("roleCalls", []):
@@ -87,6 +92,8 @@ def test_restart_continues_confirmed_original_checkpoint(native, boundary, objec
     if boundary == "frozen_result":
         assert final["resultHead"] == first["resultHead"]
     assert (Path(final["workspace"]) / "result.txt").read_text() == "accepted\n"
+    assert original_workspace.is_dir()
+    assert not original_workspace.with_name(original_workspace.name+'.stray').exists()
     revision = final["revision"]
     assert api("/api/v1/clao/missions/"+ident+"/continue", {}, {"X-CLAO-Nonce": nonce})[0] == 409
     assert api("/api/v1/clao/missions/"+ident)[1]["mission"]["revision"] == revision

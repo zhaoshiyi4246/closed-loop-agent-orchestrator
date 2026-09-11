@@ -254,6 +254,20 @@ def _sensitive(text):
 def frozen(runtime, payload, *, preview=False):
     base, head = _versions(payload)
     repo = _repository(runtime, payload, base, head)
+    return frozen_repository(repo, base, head, preview=preview)
+
+
+def frozen_repository(repo, base, head, *, preview=False):
+    """Read an explicitly recorded pair; shared by legacy and native storage.
+
+    The caller owns Mission association and locates the trusted repository.
+    This function never resolves a moving HEAD or reads a second state store.
+    """
+    if not all(isinstance(oid, str) and _OID.fullmatch(oid) for oid in (base, head)):
+        raise ResultError('已保存提交标识不合法', 'read_error')
+    for oid in (base, head):
+        if _git(repo, 'rev-parse', '--verify', oid + '^{commit}').decode().strip() != oid:
+            raise ResultError('冻结提交不可读取', 'missing')
     before, after = _tree(repo, base), _tree(repo, head)
     changes = _changes(repo, base, head, before, after)
     blobs = _blobs(repo, [e for e in [*before.values(), *after.values()] if not excluded(e['path'])])

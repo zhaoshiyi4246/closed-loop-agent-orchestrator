@@ -49,6 +49,22 @@ func (s *Service) execute(id string) error {
 		}
 		cp := *m.Checkpoint
 		switch cp.Stage {
+		case "source":
+			if err = s.freezeSource(id, m); err != nil {
+				return err
+			}
+		case "decompose":
+			if err = s.decompose(id, m); err != nil {
+				return err
+			}
+		case "children":
+			if err = s.runChildren(id, m); err != nil {
+				return err
+			}
+		case "integrate":
+			if err = s.integrate(id, m); err != nil {
+				return err
+			}
 		case "worker":
 			if m.SessionID == "" {
 				if _, err = s.spawnWorker(id, m, ""); err != nil {
@@ -96,7 +112,7 @@ func (s *Service) execute(id string) error {
 			if err != nil {
 				return err
 			}
-		case "gate", "recheck", "materialize", "final":
+		case "gate", "recheck", "materialize", "integration_gate", "final":
 			if err = s.reconcile(id); err != nil {
 				return err
 			}
@@ -178,7 +194,7 @@ func (s *Service) localStep(id string, m Mission) error {
 	if cp.LocalState != "" {
 		return errors.New("Gate/固定产物的在途结果无法确认，不会重跑：" + cp.Stage)
 	}
-	if err := s.requireStopped(m.SessionID); err != nil {
+	if err := s.deliveryStopped(m); err != nil {
 		return err
 	}
 	if err := s.checkpointInput(m); err != nil {
@@ -237,10 +253,30 @@ func (s *Service) localStep(id string, m Mission) error {
 				v.State, v.Reason = "FAILED", "无法固定验收产物："+proof.ReadError
 			} else {
 				v.ResultHead, v.Checkpoint.Stage = proof.ResultHead, "verify"
+				if v.CoordinatorID != "" {
+					v.State = "DONE"
+					v.Reason = "子任务 Gate/范围通过，等待 Mission 集成与最终验收"
+					v.Checkpoint.Digest = ""
+					return nil
+				}
+				if v.Source != nil {
+					v.Checkpoint.Stage = "integrate"
+				}
 				v.State, v.Reason = "VERIFYING", "等待独立原生 Session 结构化复核"
 				// Materialization changes HEAD/index. The frozen commit is the next
 				// boundary's source; do not compare against the pre-commit digest.
 				v.Checkpoint.Digest = ""
+			}
+		case "integration_gate":
+			if !proof.OK {
+				v.State = "FAILED"
+				v.Reason = "Mission 集成 Gate/范围/完整性未通过：" + proof.ReadError
+			} else {
+				proof.ResultHead = v.ResultHead
+				v.Evidence[len(v.Evidence)-1].ResultHead = v.ResultHead
+				v.Checkpoint.Stage = "verify"
+				v.State = "VERIFYING"
+				v.Reason = "等待 Mission 独立最终复核"
 			}
 		case "final":
 			for i := range v.RoleCalls {
@@ -369,7 +405,7 @@ func (s *Service) applyDecision(id string, m Mission) error {
 			_, e := s.chat.Send(ports.WithCLAOOwner(s.ctx, id), d.WorkerID, ports.ChatUserMessage{Text: "在原目标/AC/Gate/范围不变的约束内处理本次局部修复：\n" + message, ClientMessageID: d.ID + ":fix", Origin: domain.MessageOriginAutomation})
 			return e
 		}); err != nil {
-			return err
+			return errors.Join(err, s.stopUnsentRepair(id, d))
 		}
 	}
 	_, err := s.mutate(id, func(v *Mission) error {

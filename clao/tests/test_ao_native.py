@@ -41,7 +41,12 @@ def native_engine(tmp_path_factory):
 
 
 @pytest.fixture
-def native(tmp_path, native_engine):
+def native_core_python():
+    return sys.executable
+
+
+@pytest.fixture
+def native(tmp_path, native_engine, native_core_python):
     binary, engine = native_engine
     home = tmp_path / "isolated-home"
     home.mkdir()
@@ -66,7 +71,7 @@ def native(tmp_path, native_engine):
                 "AO_DATA_DIR": str(home / "native/data"), "AO_RUN_FILE": str(home / "native/running.json"),
                 "AO_PORT": str(port), "AO_ALLOWED_ORIGINS": f"http://127.0.0.1:{port}",
                 "AO_TELEMETRY_EVENTS": "off", "AO_TELEMETRY_REMOTE": "off", "AO_SENTRY_DSN": "",
-                "CLAO_CORE_PYTHON": sys.executable, "CLAO_CORE_ROOT": str(ROOT / "clao"),
+                "CLAO_CORE_PYTHON": str(native_core_python), "CLAO_CORE_ROOT": str(ROOT / "clao"),
                 "CLAO_FIXTURE_TRACE": str(tmp_path / "external.jsonl"),
                 "CLAO_FIXTURE_RELEASE_CONFIG": str(tmp_path / "release-config"),
                 "CLAO_FIXTURE_FAIL_START": str(tmp_path / "reject-start")})
@@ -102,6 +107,7 @@ def native(tmp_path, native_engine):
             time.sleep(.1)
         pytest.fail("restarted daemon unavailable")
     api.restart = restart
+    api.base_url = url
 
     try:
         for _ in range(100):
@@ -126,6 +132,7 @@ def native(tmp_path, native_engine):
                     "objective": objective, "agent": agent, "model": model, "allowedPaths": ["**"], "forbiddenPaths": ["private/**"],
                     "criteria": [{"id": "AC1", "description": "result.txt contains accepted"}], "gateCommands": ["python check.py"],
                     "maxRepairs": repairs, "maxReplans": replans, "roles": roles or {}, "gateTimeout": 10}
+            spec["sourceRevision"] = api(f"/api/v1/clao/projects/{project_id}/source")[1]["source"]["revision"]
             status, result = api("/api/v1/clao/missions", spec, {"X-CLAO-Nonce": nonce["nonce"]})
             assert status == 202, (result, log_path.read_text("utf-8", errors="replace")[-7000:])
             # Replay the exact receipt: it may observe progress but cannot spawn twice.

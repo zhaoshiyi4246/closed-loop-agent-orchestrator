@@ -12,11 +12,12 @@ var ErrSessionNotFound = errors.New("session not found")
 // SpawnConfig is the request to start a new session: which project/issue, which
 // agent harness, and the branch/prompt the agent launches with.
 type SpawnConfig struct {
-	CLAOMissionID string
-	CLAOBaseSHA   string
-	CLAOReview    bool
-	ProjectID     domain.ProjectID
-	IssueID       domain.IssueID
+	CLAOMissionID  string
+	CLAOBaseSHA    string
+	CLAOSourcePath string // trusted managed snapshot, never an HTTP spawn field
+	CLAOReview     bool
+	ProjectID      domain.ProjectID
+	IssueID        domain.IssueID
 	// TrackerProvider is the issue-tracker provider hint from the CLI's
 	// --tracker-provider flag (defaults to "github"). It is used as a fallback
 	// when the project's SCM origin cannot be classified by the configured

@@ -51,6 +51,15 @@ func (c *CLAOController) Register(r chi.Router) {
 	r.Route("/clao", func(r chi.Router) {
 		r.Use(c.boundary)
 		r.Get("/session", c.session)
+		r.Post("/projects", c.openProject)
+		r.Get("/projects/{projectId}/source", c.previewSource)
+		r.Get("/imports", c.imports)
+		r.Post("/imports", c.importLegacy)
+		r.Post("/imports/{id}/credential", c.reconnectLegacy)
+		r.Get("/missions/{id}/result", c.result)
+		r.Post("/missions/{id}/export", c.exportResult)
+		r.Post("/missions/{id}/open-result", c.openResult)
+		r.Get("/missions/{id}/exports/{identity}", c.downloadResult)
 		r.Get("/missions", c.list)
 		r.Post("/missions", c.create)
 		r.Get("/missions/{id}", c.get)
@@ -157,6 +166,11 @@ func (c *CLAOController) get(w http.ResponseWriter, r *http.Request) {
 		c.fail(w, r, 404, err.Error())
 		return
 	}
+	if view, ok := c.Svc.(interface {
+		Presentation(context.Context, claoloop.Mission) claoloop.Mission
+	}); ok {
+		m = view.Presentation(r.Context(), m)
+	}
 	envelope.WriteJSON(w, 200, CLAOMissionResponse{Mission: m})
 }
 func (c *CLAOController) list(w http.ResponseWriter, r *http.Request) {
@@ -164,6 +178,13 @@ func (c *CLAOController) list(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		c.fail(w, r, 500, "Acceptance records could not be read")
 		return
+	}
+	if view, ok := c.Svc.(interface {
+		Presentation(context.Context, claoloop.Mission) claoloop.Mission
+	}); ok {
+		for i, m := range ms {
+			ms[i] = view.Presentation(r.Context(), m)
+		}
 	}
 	envelope.WriteJSON(w, 200, CLAOMissionListResponse{Missions: ms})
 }

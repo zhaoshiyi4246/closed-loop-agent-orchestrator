@@ -63,6 +63,27 @@ func (s *Service) requireStopped(sid domain.SessionID) error {
 	return nil
 }
 
+// A failed send-intent write proves that namedOperation never called Send.
+// Stop the newly resumed controller while its real handle is still available,
+// so a later daemon restart can continue this charged, still-unsent action.
+// Once an intent exists its outcome may be unknown: neither compensate it as
+// "unsent" nor infer process death from an absent in-memory controller.
+func (s *Service) stopUnsentRepair(id string, d Decision) error {
+	m, err := s.Get(s.ctx, id)
+	if err != nil {
+		return err
+	}
+	for _, op := range m.Operations {
+		if op.ID == d.ID+":send" {
+			return nil
+		}
+	}
+	if !s.chat.HasLiveChatController(d.WorkerID) {
+		return nil
+	}
+	return s.stopped(id, d.WorkerID)
+}
+
 // Input checks never run a Gate, materialize, restore, or change a Git index.
 func (s *Service) checkpointInput(m Mission) error {
 	core, ok := s.acceptance.(recoveryCore)
@@ -105,6 +126,13 @@ func (s *Service) reconcile(id string) error {
 	m, err := s.Get(s.ctx, id)
 	if err != nil || finalState(m.State) {
 		return err
+	}
+	for _, child := range m.Subtasks {
+		if !finalState(child.State) {
+			if err = s.reconcile(child.Request.ID); err != nil {
+				return err
+			}
+		}
 	}
 	owned, err := s.ownedSessions(id)
 	if err != nil {
@@ -176,7 +204,7 @@ func (s *Service) reconcile(id string) error {
 				op.State = "UNKNOWN"
 			}
 		}
-		if len(owned) == 0 && v.SessionID == "" && v.ResultHead == "" && (len(v.Operations) == 0 || len(v.Operations) == 1 && v.Operations[0].State == "CONFIRMED_FAILURE") {
+		if (v.Checkpoint == nil || v.Checkpoint.Stage == "worker") && len(owned) == 0 && v.SessionID == "" && v.ResultHead == "" && (len(v.Operations) == 0 || len(v.Operations) == 1 && v.Operations[0].State == "CONFIRMED_FAILURE") {
 			v.State, v.Reason = "FAILED", "启动在原生 Session 发布前中断；已确认没有启动 Worker"
 		}
 		return nil
@@ -203,6 +231,40 @@ func (s *Service) recoveryCheck(m Mission) error {
 	for _, op := range m.Operations {
 		if op.State == "UNKNOWN" || op.State == "IN_FLIGHT" {
 			return fmt.Errorf("%s 的外部结果尚未确认，不会重发；可取消/确认停止", op.Kind)
+		}
+	}
+	if m.Source != nil {
+		if m.Checkpoint.Stage == "source" {
+			return nil
+		}
+		if _, e := s.acceptance.Source(s.ctx, m.Source.ProjectPath); e != nil {
+			return errors.New("私有冻结来源不可用")
+		}
+		if m.Checkpoint.Stage == "decompose" {
+			return nil
+		}
+		if m.Checkpoint.Stage == "children" || m.Checkpoint.Stage == "integrate" {
+			for _, child := range m.Subtasks {
+				if child.State == "DONE" {
+					if e := s.deliveryStopped(child); e != nil {
+						return e
+					}
+					continue
+				}
+				if child.SessionID == "" && len(child.Operations) == 0 {
+					continue
+				}
+				if e := s.recoveryCheck(child); e != nil {
+					return e
+				}
+			}
+			return nil
+		}
+		if m.ResultHead != "" && (m.Checkpoint.Stage == "integration_gate" || m.Checkpoint.Stage == "verify" || m.Checkpoint.Stage == "final") {
+			if e := s.deliveryStopped(m); e != nil {
+				return e
+			}
+			return s.checkpointInput(m)
 		}
 	}
 	if m.SessionID == "" {
@@ -300,6 +362,9 @@ func (s *Service) Recover() error {
 }
 
 func (s *Service) Continue(ctx context.Context, id string) (Mission, error) {
+	if _, _, child := subtaskIdentity(id); child {
+		return Mission{}, errors.New("子任务由原 Mission 统一继续，不能单独启动调度")
+	}
 	// Reserve the same local owner used by Create/Cancel. SQLite CAS remains
 	// the durable mutation boundary; the AO daemon already owns this database.
 	s.mu.Lock()

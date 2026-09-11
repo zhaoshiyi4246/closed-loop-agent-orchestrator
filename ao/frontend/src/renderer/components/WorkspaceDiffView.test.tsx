@@ -80,6 +80,12 @@ function baseDetail(overrides: Partial<WorkspaceFileDetail> = {}): WorkspaceFile
 }
 
 describe("ReviewDiffBody", () => {
+	it("frozen result mode renders native diff without feedback or send controls", async () => {
+		render(<ReviewDiffBody annotation={{...noopAnnotation(),readonly:true}} detail={baseDetail()} detailLoadedAt={1} filePath="src/App.tsx" sessionId="frozen-mission" onActiveSelectionChange={vi.fn()} split={false} wrap />);
+		await screen.findByText(diffLine("const value = 1;"));
+		expect(screen.queryByRole("button")).not.toBeInTheDocument();
+		expect(postMock).not.toHaveBeenCalled();
+	});
 	beforeEach(() => {
 		postMock.mockReset().mockResolvedValue({ data: {} });
 		window.getSelection()?.removeAllRanges();

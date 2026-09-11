@@ -833,6 +833,22 @@ func (m *Manager) Spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.Sess
 	if err != nil {
 		return domain.SessionRecord{}, 0, 0, fmt.Errorf("spawn: %w", err)
 	}
+	// Only CLAO's in-process owner may replace execution source with a private,
+	// confirmed snapshot. Project identity and ordinary AO configuration remain.
+	if cfg.CLAOSourcePath != "" {
+		if cfg.CLAOMissionID == "" || ports.RequireCLAOOwner(ctx, cfg.CLAOMissionID) != nil {
+			return domain.SessionRecord{}, 0, 0, errors.New("private source requires closed-loop owner")
+		}
+		managed, e := filepath.EvalSymlinks(filepath.Join(m.dataDir, "clao", "missions"))
+		source, e2 := filepath.EvalSymlinks(cfg.CLAOSourcePath)
+		rel, e3 := filepath.Rel(managed, source)
+		if e != nil || e2 != nil || e3 != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+			return domain.SessionRecord{}, 0, 0, errors.New("private source outside managed mission directory")
+		}
+		project.Path = source
+		project.Kind = domain.ProjectKindSingleRepo
+		project.RepoOriginURL = ""
+	}
 	projectKind := project.Kind.WithDefault()
 	if projectKind == domain.ProjectKindScratch && strings.TrimSpace(cfg.Branch) != "" {
 		return domain.SessionRecord{}, 0, 0, fmt.Errorf("spawn: %w", ErrScratchBranchUnsupported)
@@ -1230,6 +1246,7 @@ func (m *Manager) createSessionWorkspace(ctx context.Context, project domain.Pro
 			baseBranch = ""
 		}
 		ws, err := m.workspace.Create(ctx, ports.WorkspaceConfig{
+			RepoPath:      cfg.CLAOSourcePath,
 			ProjectID:     cfg.ProjectID,
 			SessionID:     id,
 			Kind:          cfg.Kind,
@@ -2235,6 +2252,7 @@ func (m *Manager) resumeAgentRecordWithReservedGeneration(
 		Branch:    meta.Branch,
 		SessionID: rec.ID,
 		ProjectID: rec.ProjectID,
+		RepoPath:  meta.WorkspaceRepoPath,
 	}
 	if domain.NormalizeSessionMode(rec.Mode) == domain.SessionModeChat {
 		return m.relaunchSessionWithPolicyAndGeneration(ctx, operation, rec, project, ws, nil, forceFresh, requireNativeHistory, reservedGeneration)
@@ -2565,6 +2583,11 @@ func (m *Manager) saveAndTeardownOne(ctx context.Context, rec domain.SessionReco
 // conversation identity. A restart-time dependency failure is not user intent
 // to terminate the session; the controller can be retried through Resume Agent.
 func (m *Manager) reconcileLive(ctx context.Context, rec domain.SessionRecord) error {
+	// CLAO reads native completion facts and explicitly continues via its owner.
+	// This background path must not move/rebuild a worktree before that decision.
+	if rec.Metadata.CLAOMissionID != "" {
+		return nil
+	}
 	project, err := m.loadProject(ctx, rec.ProjectID)
 	if err != nil {
 		return err
@@ -2813,7 +2836,7 @@ func (m *Manager) reconcileLivePass(ctx context.Context, recs []domain.SessionRe
 	candidates := make([]domain.SessionRecord, 0, len(recs))
 	ids := make([]domain.SessionID, 0, len(recs))
 	for _, rec := range recs {
-		if rec.IsTerminated {
+		if rec.IsTerminated || rec.Metadata.CLAOMissionID != "" {
 			continue
 		}
 		candidates = append(candidates, rec)
@@ -2891,7 +2914,7 @@ func (m *Manager) RestoreAll(ctx context.Context) error {
 		return fmt.Errorf("restore-all: list sessions: %w", err)
 	}
 	for _, rec := range recs {
-		if !rec.IsTerminated {
+		if !rec.IsTerminated || rec.Metadata.CLAOMissionID != "" {
 			continue
 		}
 		// Check the shutdown-saved marker: is there a session_worktrees row?
@@ -2935,6 +2958,7 @@ func (m *Manager) RestoreAll(ctx context.Context) error {
 		} else {
 			var restoreErr error
 			ws, restoreErr = m.workspace.Restore(ctx, ports.WorkspaceConfig{
+				RepoPath:      claoSavedRepository(rec),
 				ProjectID:     rec.ProjectID,
 				SessionID:     rec.ID,
 				Kind:          rec.Kind,
@@ -3045,8 +3069,12 @@ func (m *Manager) markSessionWorktreesActive(ctx context.Context, rows []domain.
 }
 
 func (m *Manager) restoreSessionWorkspace(ctx context.Context, project domain.ProjectRecord, rec domain.SessionRecord) (ports.WorkspaceInfo, error) {
+	if err := ports.RequireCLAOOwner(ctx, rec.Metadata.CLAOMissionID); err != nil {
+		return ports.WorkspaceInfo{}, err
+	}
 	if project.Kind.WithDefault() != domain.ProjectKindWorkspace {
 		ws, err := m.workspace.Restore(ctx, ports.WorkspaceConfig{
+			RepoPath:      claoSavedRepository(rec),
 			ProjectID:     rec.ProjectID,
 			SessionID:     rec.ID,
 			Kind:          rec.Kind,
@@ -4945,6 +4973,13 @@ func workspaceInfo(rec domain.SessionRecord) ports.WorkspaceInfo {
 		ProjectID: rec.ProjectID,
 		RepoPath:  rec.Metadata.WorkspaceRepoPath,
 	}
+}
+
+func claoSavedRepository(rec domain.SessionRecord) string {
+	if rec.Metadata.CLAOMissionID != "" {
+		return rec.Metadata.WorkspaceRepoPath
+	}
+	return ""
 }
 
 func workspaceInfoFromRepoInfo(info ports.WorkspaceRepoInfo) ports.WorkspaceInfo {

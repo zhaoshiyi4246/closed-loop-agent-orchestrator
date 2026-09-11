@@ -2,11 +2,15 @@
 
 Closed-Loop Agent Orchestrator
 
-**当前路线：AO 原生底座 + CLAO 闭环。** [PR #46](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/46) 启动失败返修已通过外部代码审计，2026-09-10 rebase 合入 main；“AO 原生底座 + 单 Worker 验收闭环基础集成” **DONE**，整体迁移与 **M4 IN_PROGRESS**。保留 AO v0.12.12 原生 Electron/Go 界面，已接原生项目/模型、Session/工作区、Gate/范围/完整性、有界修复、独立 Verifier、启动请求/失败处理及验收面板。**Planner/Auditor 异常决策与独立角色配置迁移，DONE**（[PR #47](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/47) 再次代码审计 PASS，2026-09-10 已 rebase 合入）：单 Worker 下四角色可独立选择原生执行器/模型；异常证据经审核/规划后执行有界修复、替换或交人工，冻结配置贯通实际 Chat 启动/恢复，界面展示实际决策。当前唯一切片为 **原生迁移收官大阶段，IN_PROGRESS**；PR #48 恢复/指令回执已审计 PASS 并合入（DONE）。开发入口、未迁移范围和空账户隔离命令见 [ao/CLAO.md](ao/CLAO.md)，[既有 Windows/Electron 与截图证据](docs/reference/ao-native/README.md) 不等于负责人完整体验或真实模型验收，Codex `account_storage_unsafe` 仍待解决。PR #45 分支、迁移工作树与旧配置保留；正式默认入口与发布包未切换。下文为旧产品与已发布版本历史，不代表新底座全能力验收。
+**当前路线：AO 原生底座 + CLAO 闭环。** PR #46 基础集成、#47 角色决策、#48 恢复/用户指令回执已通过外部代码审计并合入（DONE）。当前唯一阶段为 **原生迁移收官大阶段，IN_REVIEW**；整体迁移与 M4 仍 IN_PROGRESS，正式发行入口未切换。
+
+本阶段在原生界面接入当前磁盘来源确认、默认单 Worker／最多两个独立子任务、统一恢复与回执、固定版本结果与独立补丁包、显式旧历史/配置/API 连接衔接和只读运行视图。原生模型选择、账号、Session、Chat 与审批继续沿用 AO；原目录与用户 Git 状态不自动改写，旧 Panel/Controller 不并行启动。
+
+[开发启动与能力边界](ao/CLAO.md) 提供普通使用和空账户检查两种入口。旧源码、PR #45 分支、既有配置/凭据与工作树保留；导入只由用户明确触发。当前集成检查不等于负责人完整体验、真实模型或发布验收，Codex `account_storage_unsafe` 的实际祖先目录权限阻塞仍保留。下文为旧产品和已发布版本历史，不代表新底座已全部验收。
 
 CLAO 是本地闭环软件开发控制层；保留的旧 `clao/` v0.3 代码中新本地任务通过 Codex App Server 执行，旧 AO 后端保留兼容。默认单Worker执行任务，通过确定性Gate、集成和Mission终局复核保存可检查结果。
 
-**已发布：v0.2（Windows本地比赛版）。v0.3 规划已批准，M0 / M1 COMPLETE；V03-F01 的 [PR #32](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/32)、V03-F02 的 [PR #33](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/33)、V03-F03 的 [PR #34](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/34)、V03-F04 的 [PR #35](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/35) 与 V03-F05 的 [PR #36](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/36) 均已外部审计 PASS 并合入 main（DONE）。V03-R01 — 有效配置与阶段诊断的 [PR #37](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/37) 已再次外部审计 PASS 并合入（DONE）；V03-R02 — 指令回执、取消恢复、固定基线的 [PR #38](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/38) 已外部审计 PASS 并 rebase 合入（DONE）；M2 / M3 COMPLETE（M3 为阶段开发与代码审计完成）；V03-U01 — iPhone 风格界面骨架与状态夹具的 [PR #39](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/39) 本轮代码与产品整改外部审计 PASS，已 rebase 合入（DONE）；U02 整卡 DONE，首切片“独立项目入口与本地执行”的 [PR #40](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/40) 再次外部审计 PASS、已 rebase 合入（DONE）；完整任务旅程切片的 [PR #41](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/41) 代码与返修再次外部审计 PASS，已 rebase 合入（DONE）；V03-U03 — 结果中心与独立导出的 [PR #42](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/42) 再次外部审计 PASS、已 rebase 合入（DONE）；M4 IN_PROGRESS；V03-P01 工程与离线验证切片的 [PR #43](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/43) 再次外部审计 PASS、已 rebase 合入（切片 DONE）；P02 工程接入与离线验证切片的 [PR #44](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/44) 外部工程审计 PASS、已 rebase 合入（DONE）；P01/P02 整卡及 M4 仍 IN_PROGRESS。原生底座基础集成 DONE，整体迁移 IN_PROGRESS；角色决策切片 DONE；当前唯一切片为 原生迁移收官大阶段（IN_PROGRESS）；PR #48 恢复/指令回执 DONE，外部代码审计 PASS 并已合入；联合真实服务评测暂缓，不开始 P03。**
+**已发布：v0.2（Windows本地比赛版）。v0.3 规划已批准，M0 / M1 COMPLETE；V03-F01 的 [PR #32](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/32)、V03-F02 的 [PR #33](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/33)、V03-F03 的 [PR #34](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/34)、V03-F04 的 [PR #35](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/35) 与 V03-F05 的 [PR #36](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/36) 均已外部审计 PASS 并合入 main（DONE）。V03-R01 — 有效配置与阶段诊断的 [PR #37](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/37) 已再次外部审计 PASS 并合入（DONE）；V03-R02 — 指令回执、取消恢复、固定基线的 [PR #38](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/38) 已外部审计 PASS 并 rebase 合入（DONE）；M2 / M3 COMPLETE（M3 为阶段开发与代码审计完成）；V03-U01 — iPhone 风格界面骨架与状态夹具的 [PR #39](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/39) 本轮代码与产品整改外部审计 PASS，已 rebase 合入（DONE）；U02 整卡 DONE，首切片“独立项目入口与本地执行”的 [PR #40](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/40) 再次外部审计 PASS、已 rebase 合入（DONE）；完整任务旅程切片的 [PR #41](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/41) 代码与返修再次外部审计 PASS，已 rebase 合入（DONE）；V03-U03 — 结果中心与独立导出的 [PR #42](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/42) 再次外部审计 PASS、已 rebase 合入（DONE）；M4 IN_PROGRESS；V03-P01 工程与离线验证切片的 [PR #43](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/43) 再次外部审计 PASS、已 rebase 合入（切片 DONE）；P02 工程接入与离线验证切片的 [PR #44](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/44) 外部工程审计 PASS、已 rebase 合入（DONE）；P01/P02 整卡及 M4 仍 IN_PROGRESS。原生底座基础集成 DONE，整体迁移 IN_PROGRESS；角色决策切片 DONE；当前唯一切片为 原生迁移收官大阶段（IN_REVIEW）；PR #48 恢复/指令回执 DONE，外部代码审计 PASS 并已合入；联合真实服务评测暂缓，不开始 P03。**
 
 ## 使用已发布产品
 
@@ -20,7 +24,7 @@ main 已合入的 U01 提供概览、任务、模型、设置四入口，浅/深
 
 已合入的 U02 完整旅程接通按需环境检查、本次配置确认与冻结、审批差异/拒绝/回答、取消、只读历史查询和结果位置检查。运行中查看另一任务不会替换当前执行，停止未知不能启动另一任务；仍沿用既有控制与验收路径。当前实现及离线浏览器证据见 [U02 台账](docs/V03_BACKLOG.md#v03-u02完整任务gui与数据接线)，代码与返修审计已通过；不等同负责人完整 GUI 体验验收。200% 证据为等效布局/CSS zoom，真实模型、全量、安装与发布验证尚未完成；U03 状态见当前指针。
 
-U03 在既有任务详情提供固定结果的变更、差异和逐项验收，以及复制路径、打开目录和独立 ZIP 补丁包。包生成后可脱离原工作树使用；仅支持明确的文本/文件模式范围，历史缺版本或含不支持/禁止材料时不伪造完整导出。用法与限制见[结果中心说明](clao/README.md#结果中心与独立补丁包v03-u03)。已有证据为离线 Git/HTTP/浏览器验证；M3 COMPLETE 不表示完整 GUI 体验、真实模型、全量、安装或发布验收通过，v0.3 尚未发布。结果包不含完整基线/项目依赖，敏感检测仅为有限规则；“任务闭环运行视图”仍仅为候选。
+U03 在既有任务详情提供固定结果的变更、差异和逐项验收，以及复制路径、打开目录和独立 ZIP 补丁包。包生成后可脱离原工作树使用；仅支持明确的文本/文件模式范围，历史缺版本或含不支持/禁止材料时不伪造完整导出。用法与限制见[结果中心说明](clao/README.md#结果中心与独立补丁包v03-u03)。已有证据为离线 Git/HTTP/浏览器验证；M3 COMPLETE 不表示完整 GUI 体验、真实模型、全量、安装或发布验收通过，v0.3 尚未发布。结果包不含完整基线/项目依赖，敏感检测仅为有限规则；旧 U03 收尾时的“任务闭环运行视图”候选已在当前原生收官阶段获得授权并接入只读记录展示。
 
 ## v0.3 开发方向
 
@@ -35,11 +39,12 @@ U03 在既有任务详情提供固定结果的变更、差异和逐项验收，�
 - [原审计报告](docs/reference/CLAO_v0.2_audit_20260905.pdf)
 - [Codex实施规则](AGENTS.md)
 
-当前唯一正式产品源码为 `clao/`；发布工具位于 `packaging/`，历史来源归档在 `legacy/`。内部 `loopcore` 包名保留；main 已包含 F01–F05 修复、R01 配置/诊断及 R02 指令/取消恢复/固定来源契约，已发布 v0.2 保持不变。
+当前迁移开发源码在 `ao/`，`clao/` 保留旧产品与复用核心；正式发布映射未切换。发布工具位于 `packaging/`，历史来源归档在 `legacy/`。内部 `loopcore` 包名保留；main 已包含 F01–F05 修复、R01 配置/诊断及 R02 指令/取消恢复/固定来源契约，已发布 v0.2 保持不变。
 
 ```text
 closed-loop-agent-orchestrator/
-├─ clao/          当前产品、测试、bootstrap
+├─ ao/            AO 原生底座与当前 CLAO 迁移增量
+├─ clao/          旧产品、复用核心、测试与 bootstrap
 ├─ packaging/     release builder 与 manifest
 ├─ legacy/        历史 v0.1、sidecar、demo 和开发资料
 ├─ docs/          当前事实、v0.3 规划与 reference

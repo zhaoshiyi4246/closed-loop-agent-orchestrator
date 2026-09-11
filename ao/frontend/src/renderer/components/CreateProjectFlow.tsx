@@ -29,6 +29,7 @@ import { useCloudSession } from "../lib/cloud-session";
 import { cn } from "../lib/utils";
 import type { ProjectKind } from "../types/workspace";
 import { CreateProjectAgentSheet, type CreateProjectAgentSelection } from "./CreateProjectAgentSheet";
+import { CLAOLocalProject } from "./CLAOLocalProject";
 import CloneRepositoryDialog, { type CloneRepositoryDetails, type CloneRepositorySelection } from "./CloneRepositoryDialog";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -1160,6 +1161,7 @@ function ImportSourcePicker({
 						</span>
 					</button>
 				))}
+				<div className="px-3.5 py-3"><CLAOLocalProject disabled={disabled} onOpened={onClose}/><p className="mt-1 text-xs text-muted-foreground">闭环任务可使用普通目录、空项目或当前未提交内容。</p></div>
 				</div>
 			</div>
 			{dialog && onClose ? (

@@ -7,8 +7,9 @@
 ## 当前唯一执行指针
 
 - 当前阶段：**M4 IN_PROGRESS**；M0 / M1 / M2 / M3 保持 COMPLETE。
-- 当前唯一执行内容：**原生迁移收官大阶段，IN_PROGRESS**。PR #48 外部代码审计 PASS，2026-09-11 已 rebase 合入 main `5ea76ab8`（DONE）；PR #46/#47 保持 DONE。合并文档收尾后直接实施来源/有限双任务、结果导出、旧历史/连接衔接、只读运行图及统一原生旅程；内部 Coordinator + Implementer + Reviewer 实施和复核，统一提交一个阶段 PR 等待外部审计。整体原生迁移/M4 IN_PROGRESS；真实服务、全量与发行验收未完成，P01/P02 联合真实评测暂缓。
-- 最近完成：**Planner/Auditor 异常决策与独立角色配置迁移，DONE**。[PR #47](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/47) 再次外部代码审计 PASS，默认模型在实际 Chat 启动/恢复中的接线已修正，2026-09-10 已 rebase 合入 main。完成范围为单 Worker 异常诊断、五类动作、独立只读语义会话、四角色执行器/模型配置、冻结选择贯通启动/恢复和原生角色/决策展示；不是全部 Planner、所有执行器、逐角色独立账号或完整迁移完成。详细证据与空账户开发入口见 [开发说明](ao/CLAO.md) 和 [迁移台账](docs/V03_BACKLOG.md)。
+- 当前唯一执行内容：**原生迁移收官大阶段，IN_REVIEW**。PR #48 外部代码审计 PASS，2026-09-11 已 rebase 合入 main `5ea76ab8`（DONE）；PR #46/#47 保持 DONE。合并文档收尾后直接实施来源/有限双任务、结果导出、旧历史/连接衔接、只读运行图及统一原生旅程；内部 Coordinator + Implementer + Reviewer 实施和复核，统一提交一个阶段 PR 等待外部审计。整体原生迁移/M4 IN_PROGRESS；真实服务、全量与发行验收未完成，P01/P02 联合真实评测暂缓。
+- 最近完成：**运行恢复与用户指令回执迁移，DONE**（PR #48）；可确认阶段继续、原生 Chat 与角色消费者回执已审计合入。
+- 此前完成：**Planner/Auditor 异常决策与独立角色配置迁移，DONE**。[PR #47](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/47) 再次外部代码审计 PASS，默认模型在实际 Chat 启动/恢复中的接线已修正，2026-09-10 已 rebase 合入 main。完成范围为单 Worker 异常诊断、五类动作、独立只读语义会话、四角色执行器/模型配置、冻结选择贯通启动/恢复和原生角色/决策展示；不是全部 Planner、所有执行器、逐角色独立账号或完整迁移完成。详细证据与空账户开发入口见 [开发说明](ao/CLAO.md) 和 [迁移台账](docs/V03_BACKLOG.md)。
 - 此前完成：**P02 工程接入与离线验证切片 DONE**；[PR #44](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/44) 外部工程审计 PASS，无返修阻塞项，2026-09-09 已 rebase 合入 main `c112e25d332a284e857c9b2b0d3bd1ad32856485`，合入 tree 与已审计 head `d140e5d14e152ad1a64a4643bcbb1b775bac4a38` 一致。P01 工程切片保持 DONE；P01/P02 整卡及 M4 保持 IN_PROGRESS。
 - P02 已合入 Moonshot 国内通用 `kimi-k3`，复用原传输/角色校验与模型页；凭据及外发许可按实际服务隔离，旧 GLM/Codex 配置兼容、当前快照冻结。最终 Windows P02/浏览器定向 65 passed，Codex/Worker 停止兼容 41 passed；实际 Edge 截图自查及首轮修正见 P02 卡。仅外部边界使用替身，真实模型仍 NOT_RUN，P02 整卡与 M4 不标完成；不开始 P03。
 - 此前完成：**P01 工程实现与离线验证切片 DONE**；[PR #43](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/43) 再次外部审计 PASS，外发确认归属问题已解决，2026-09-09 已 rebase merge 到 main `d1738b5337aecdfbc063fd284fb1e7bfa6fe7fcc`，合入 tree 与已审计 head `c629890d6fa3e740ffaa48a3117961f59dbe4988` 一致。P01 整卡 IN_PROGRESS，剩余为实际 GLM 服务/角色准入，非本次代码返修；U01 / U02 / U03 保持 DONE。
@@ -18,10 +19,10 @@
 - 沿用 U03 Windows 定向（本轮不重跑） **39 passed / 84.44s**（真实 Git/SQLite/HTTP、原 Controller/Gate/Verifier + 仅引擎/Provider 替身，含实际 Edge）；U02 四旅程复查 **4 passed / 34 deselected / 35.25s**，此前其余兼容定向 30 passed；另补基线缓存独立应用 1 passed，失败修正及证据分类见 U03 卡。未运行全量、安装、smoke、真实 AO/模型或 CLAO 发行打包；结果包生成/下载/解压/独立应用和内容/Gate 检查已执行。
 - U03 / PR #42 误拦截返修：凭据读取、精确环境占位及普通 CLI prompt 参数不再仅因名称被拒绝；明确凭据/私钥/认证与 Prompt 材料仍拦截。真实 Git/HTTP 补丁独立应用与旧包保留定向已验证，具体结果见 U03 卡。
 - 基础切片保持完成：**AO 原生底座 + 单 Worker 验收闭环基础集成，DONE**。[PR #46](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/46) 启动失败返修已通过外部代码审计，2026-09-10 已 rebase 合入 main。已接原生项目/模型入口、Session/工作区、Gate/范围/完整性、有界修复、独立 Verifier、启动请求可见/失败处理及验收面板；不等于整体迁移完成。
-- 尚未迁移：任意在途执行的恢复、多子任务分解/并行、普通目录/未提交来源、旧历史/连接/凭据导入、结果中心与独立导出、闭环运行图和正式发布入口。本轮做实际 daemon 重启、定向服务与原生界面检查；主目录已有 `clao/config/default.yaml` 修改原样保留，不纳入提交；开发工作树、依赖和独立数据保留。完成后停止。
+- 本阶段已接到原生生产路径：当前磁盘内容的私有来源、最多两个独立子任务与共享预算/最终集成、固定结果中心与完整文本补丁包、显式旧历史/配置版本/标准 API 连接、只读运行图。集中验证及内部复核见台账；未宣称任意进程恢复、真实账户/全执行器准入或正式发布完成。主目录原有 default.yaml 不提交、不还原。
 - PR #47 证据：沿用已有 Windows/Go/纯契约与初始 Electron 检查、Codex 截图自查；默认模型返修未重测浏览器，合并收尾不重跑测试/构建。再次源码审计 PASS 不等于负责人完整体验；`account_storage_unsafe` 待解决，xfailed 不计执行通过，真实账号/模型/套餐额度、全量与发布验收仍未完成。
 - PR #46 证据：沿用既有 Windows/离线集成、开发构建与 Electron 操作检查、Codex 截图自查；本次外部代码审计 PASS 不等于负责人完整体验验收。`account_storage_unsafe` 仍待解决，xfailed 不算执行通过；真实账户/模型、全量及发布验收未完成。PR #46 收尾仅做文档链接与差异检查。准确的空账户隔离启动命令见 [开发说明](ao/CLAO.md)，既有检查见 [原生证据](docs/reference/ao-native/README.md)。
-- PR #44 收尾历史：完成合并、背景同步及本地 main fast-forward。本轮仅文档链接、差异与产品 blob 不变检查，沿用既有证据，不重跑测试/构建/smoke、不读取真实 Key 或请求供应商。两家工程均已完成，当时拟进行的联合真实验证现已暂缓；工程审计、离线 HTTP/浏览器通过不等于真实准入或质量评测通过。完整 GUI 体验、全量、安装与发布验收尚未完成；“任务闭环运行视图”仍仅为未授权候选。
+- PR #44 收尾历史：完成合并、背景同步及本地 main fast-forward。本轮仅文档链接、差异与产品 blob 不变检查，沿用既有证据，不重跑测试/构建/smoke、不读取真实 Key 或请求供应商。两家工程均已完成，当时拟进行的联合真实验证现已暂缓；工程审计、离线 HTTP/浏览器通过不等于真实准入或质量评测通过。完整 GUI 体验、全量、安装与发布验收尚未完成；当时运行图为候选，本阶段已授权实施。
 - U03 收尾仅检查文档链接与差异；未重跑测试、构建、smoke、结果包应用或真实模型。文件类型支持不变，结果包不含完整基线或项目依赖；敏感检测仍为有限规则。
 - 此前完成：**V03-U02 — 完整任务旅程与 GUI 数据接线**；[PR #41](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/41) 代码与返修再次外部审计 PASS，2026-09-08 已 rebase merge 到 main `e78738d0c11774b8163feb344256355a32ae5fb2`，合入 tree 与已审计 head `73b5a8055094bc09b4c6ee119034f09a4ff93903` 完全相同。
 - 已合入切片接通真实环境检查、四步表单配置确认/冻结、审批差异与拒绝/结构化回答、取消及只读历史/结果导航；查看 B 不替换运行 A，停止未知阻断新任务。复用正式 Controller/Git/Gate/Verifier，未改执行引擎主体。
