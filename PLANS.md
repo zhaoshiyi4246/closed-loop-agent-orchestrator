@@ -7,7 +7,7 @@
 ## 当前唯一执行指针
 
 - 当前阶段：**M4 IN_PROGRESS**；M0 / M1 / M2 / M3 保持 COMPLETE。
-- 当前唯一执行内容：**运行恢复与用户指令回执迁移，IN_REVIEW**。从 main `157093b` 建立 `codex/ao-native-recovery-directives`；已实现阶段继续、原生 Chat 与四目标指令回执；已提交 [PR #48](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/48)，停止等待审计。整体“AO 原生底座 + CLAO 闭环迁移”与 M4 保持 IN_PROGRESS；PR #45 被替代、不合并，保留分支与证据；P01/P02 联合真实评测继续暂缓。
+- 当前唯一执行内容：**原生迁移收官大阶段，IN_PROGRESS**。PR #48 外部代码审计 PASS，2026-09-11 已 rebase 合入 main `5ea76ab8`（DONE）；PR #46/#47 保持 DONE。合并文档收尾后直接实施来源/有限双任务、结果导出、旧历史/连接衔接、只读运行图及统一原生旅程；内部 Coordinator + Implementer + Reviewer 实施和复核，统一提交一个阶段 PR 等待外部审计。整体原生迁移/M4 IN_PROGRESS；真实服务、全量与发行验收未完成，P01/P02 联合真实评测暂缓。
 - 最近完成：**Planner/Auditor 异常决策与独立角色配置迁移，DONE**。[PR #47](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/47) 再次外部代码审计 PASS，默认模型在实际 Chat 启动/恢复中的接线已修正，2026-09-10 已 rebase 合入 main。完成范围为单 Worker 异常诊断、五类动作、独立只读语义会话、四角色执行器/模型配置、冻结选择贯通启动/恢复和原生角色/决策展示；不是全部 Planner、所有执行器、逐角色独立账号或完整迁移完成。详细证据与空账户开发入口见 [开发说明](ao/CLAO.md) 和 [迁移台账](docs/V03_BACKLOG.md)。
 - 此前完成：**P02 工程接入与离线验证切片 DONE**；[PR #44](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/44) 外部工程审计 PASS，无返修阻塞项，2026-09-09 已 rebase 合入 main `c112e25d332a284e857c9b2b0d3bd1ad32856485`，合入 tree 与已审计 head `d140e5d14e152ad1a64a4643bcbb1b775bac4a38` 一致。P01 工程切片保持 DONE；P01/P02 整卡及 M4 保持 IN_PROGRESS。
 - P02 已合入 Moonshot 国内通用 `kimi-k3`，复用原传输/角色校验与模型页；凭据及外发许可按实际服务隔离，旧 GLM/Codex 配置兼容、当前快照冻结。最终 Windows P02/浏览器定向 65 passed，Codex/Worker 停止兼容 41 passed；实际 Edge 截图自查及首轮修正见 P02 卡。仅外部边界使用替身，真实模型仍 NOT_RUN，P02 整卡与 M4 不标完成；不开始 P03。
