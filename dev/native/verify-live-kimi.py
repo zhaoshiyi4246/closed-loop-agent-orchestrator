@@ -30,6 +30,10 @@ sys.path.insert(0, str(ROOT / 'clao' / 'src'))
 import yaml
 from loopcore.credentials import credentials
 
+budget_helpers = runpy.run_path(str(ROOT / 'dev/native/live-core-budget.py'))
+accounted_total_micros = budget_helpers['accounted_total_micros']
+service_ready = budget_helpers['service_ready']
+
 OBJECTIVE = ('Fix solution.py so add(a, b) returns integer addition, including positive, negative and zero inputs. '
              'Only edit solution.py. Its current complete content is: def add(a, b): return a - b. '
              'Do not modify check.py or create extra files. The independent acceptance check is python check.py.')
@@ -200,12 +204,16 @@ def valid_budget_evidence(ledger, case, mode):
     if any(not isinstance(row, dict) or type(row.get('reserved_cny')) not in (int, float)
            or not math.isfinite(row['reserved_cny']) or row['reserved_cny'] < 0 for row in attempts):
         return False
-    if sum(row['reserved_cny'] for row in attempts) > 20:
+    try:
+        if not service_ready(ledger) or accounted_total_micros(ledger) > 20_000_000: return False
+    except (ValueError, TypeError, KeyError):
         return False
     related = [row for row in attempts if isinstance(row.get('case'), str) and row['case'].startswith(case)]
     workers = [row for row in related if row['case'] == case]
     semantic = [row for row in related if row['case'] == case + ':semantic']
-    if not 1 <= len(workers) <= 3 or len(semantic) != (1 if mode == 'native' else 0):
+    limits = {row.get('case_attempt_limit', 3) for row in workers}
+    if len(limits) != 1 or next(iter(limits)) not in (3, 4): return False
+    if not 1 <= len(workers) <= next(iter(limits)) or len(semantic) != (1 if mode == 'native' else 0):
         return False
     if len(related) != len(workers) + len(semantic):
         return False
@@ -272,19 +280,25 @@ def main():
         parser.add_argument('--' + name, type=Path, required=True)
     parser.add_argument('--profile', default='kimi-live')
     parser.add_argument('--mode', choices=['baseline', 'native'], required=True)
+    parser.add_argument('--worker-requests', type=int, choices=[3, 4], default=3)
+    parser.add_argument('--trial-id', default='', help='Distinct corrected trial; prior attempts remain charged')
     parser.add_argument('--live', action='store_true', required=True)
     args = parser.parse_args()
     if not args.live: raise RuntimeError('Explicit live opt-in required')
     ledger = json.loads(args.ledger.read_text('utf-8'))
-    case = 'kimi-' + args.mode
-    if ledger.get('frozen') or any(r.get('case', '').startswith(case) for r in ledger['attempts']):
+    if len(args.trial_id) > 32 or any(not (c.isascii() and (c.isalnum() or c in '_-')) for c in args.trial_id):
+        raise RuntimeError('Invalid trial identifier')
+    case = 'kimi-' + args.mode + ('-' + args.trial_id if args.trial_id else '')
+    if not service_ready(ledger) or any(r.get('case', '').startswith(case) for r in ledger['attempts']):
         raise RuntimeError('Case already attempted or service frozen; no replay')
     launches = ledger.get('worker_tasks', [])
     if len(launches) >= 6 or any(r['case'] == case for r in launches):
         raise RuntimeError('Worker task allowance exhausted or case already admitted')
-    # At most 3 requests for this Worker plus one shared native semantic request.
-    maximum = 1.6448 * (4 if args.mode == 'native' else 3)
-    if sum(r['reserved_cny'] for r in ledger['attempts']) + maximum > 20 or len(ledger['attempts']) + (4 if args.mode == 'native' else 3) > 40:
+    # Reserve a complete bounded trial; finished requests use their confirmed
+    # conservative charge upper bound, never a guessed invoice or deleted row.
+    maximum_attempts = args.worker_requests + (1 if args.mode == 'native' else 0)
+    maximum = 1.6448 * maximum_attempts
+    if accounted_total_micros(ledger) + round(maximum * 1_000_000) > 20_000_000 or len(ledger['attempts']) + maximum_attempts > 40:
         raise RuntimeError('Complete trial upper bound exceeds remaining allowance')
     args.evidence.mkdir(parents=True, exist_ok=False)
     home = args.evidence / 'home'; create_private_test_home(home)
@@ -305,10 +319,11 @@ def main():
                KIMI_CODE_HOME=str(kimi_home), KIMI_MODEL_NAME='kimi-k3', KIMI_MODEL_API_KEY=key, KIMI_API_KEY=key,
                KIMI_MODEL_BASE_URL='https://api.moonshot.cn/v1', KIMI_MODEL_PROVIDER_TYPE='kimi',
                KIMI_MODEL_MAX_COMPLETION_TOKENS='2048', KIMI_MODEL_MAX_CONTEXT_SIZE='32000',
-               KIMI_LOOP_MAX_STEPS_PER_TURN='3', KIMI_LOOP_MAX_ATTEMPTS_PER_STEP='1',
+               KIMI_LOOP_MAX_STEPS_PER_TURN=str(args.worker_requests), KIMI_LOOP_MAX_ATTEMPTS_PER_STEP='1',
                KIMI_CODE_INFINITE_RETRY='0', KIMI_DISABLE_CRON='1', KIMI_DISABLE_TELEMETRY='1',
                KIMI_CODE_NO_AUTO_UPDATE='1', KIMI_LOG_LEVEL='off', OPENAI_LOG='off',
-               CLAO_LIVE_LEDGER=str(args.ledger), CLAO_LIVE_CASE=case)
+               CLAO_LIVE_LEDGER=str(args.ledger), CLAO_LIVE_CASE=case,
+               CLAO_LIVE_MAX_WORKER_REQUESTS=str(args.worker_requests))
     if args.mode == 'native':
         # Native ACP chooses its managed home. The daemon's user profile stays
         # distinct so preparation never mistakes managed files for source login.
@@ -332,13 +347,13 @@ def main():
         mutate = runpy.run_path(str(ROOT/'dev/native/live-core-budget.py'))['mutate_ledger']
         def admit(current):
             tasks = current.setdefault('worker_tasks', [])
-            if current.get('frozen') or len(tasks) >= 6 or any(task['case'] == case for task in tasks):
+            if not service_ready(current) or len(tasks) >= 6 or any(task['case'] == case for task in tasks):
                 raise RuntimeError('Worker admission refused')
             if any(row.get('case', '').startswith(case) for row in current['attempts']):
                 raise RuntimeError('Case replay refused')
-            if sum(row['reserved_cny'] for row in current['attempts']) + maximum > 20 or len(current['attempts']) + (4 if args.mode == 'native' else 3) > 40:
+            if accounted_total_micros(current) + round(maximum * 1_000_000) > 20_000_000 or len(current['attempts']) + maximum_attempts > 40:
                 raise RuntimeError('Complete trial budget unavailable')
-            tasks.append(dict(case=case, status='admitted'))
+            tasks.append(dict(case=case, status='admitted', max_worker_http=args.worker_requests))
         mutate(args.ledger, admit)
     try:
         if args.mode == 'baseline':
@@ -346,7 +361,7 @@ def main():
             stage = 'baseline_worker'
             record_launch()
             process_tree = WindowsProcessTree()
-            process = process_tree.start([str(args.node), '--import', hook, str(args.kimi), '--auto', '-p', OBJECTIVE],
+            process = process_tree.start([str(args.node), '--import', hook, str(args.kimi), '-p', OBJECTIVE],
                 cwd=workspace, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
             output, _ = process.communicate(timeout=420)
             raw_logs.extend(output)
@@ -468,6 +483,13 @@ func main(){ args:=os.Args[1:]; if len(args)==3 && args[0]=="-B" && args[1]=="-m
         rows=final_ledger['attempts']
         report['attempts']=[r['number'] for r in rows if r.get('case','').startswith(case)]
         report['reserved_cny']=round(sum(r['reserved_cny'] for r in rows if r.get('case','').startswith(case)),6)
+        try:
+            report['accounted_upper_cny'] = accounted_total_micros({'attempts':[r for r in rows if r.get('case','').startswith(case)]}) / 1_000_000
+            report['total_accounted_upper_cny'] = accounted_total_micros(final_ledger) / 1_000_000
+        except (ValueError, TypeError, KeyError):
+            report['accounted_upper_cny'] = report['total_accounted_upper_cny'] = None
+            report['budget_evidence_valid'] = False
+            report['error_type'] = 'CostEvidenceInvalid'
         (args.evidence/'report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),'utf-8')
         print(json.dumps(report,ensure_ascii=False))
     return 0 if successful_report(report, args.mode) else 1

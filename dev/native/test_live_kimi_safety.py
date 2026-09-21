@@ -22,6 +22,66 @@ harness = load('live_kimi_safety_harness', 'verify-live-kimi.py')
 budget = load('live_kimi_safety_budget', 'live-core-budget.py')
 
 
+def confirmed_cost_row(**changes):
+    row = dict(service='moonshot_cn', model='kimi-k3', input_tokens_upper=24000,
+               output_tokens_upper=2048, reserved_cny=1.6448, outcome='completed',
+               http_status=200, confirmed_model='kimi-k3',
+               usage=dict(prompt_tokens=17, completion_tokens=8, total_tokens=25))
+    row.update(changes)
+    return row
+
+
+def test_confirmed_cost_preserves_original_reservations_and_nested_history():
+    row = confirmed_cost_row()
+    original = json.dumps(row, sort_keys=True)
+    assert budget.accounted_micros(row) == 1820
+    assert json.dumps(row, sort_keys=True) == original
+    row['validation'] = dict(confirmed_model=row.pop('confirmed_model'), usage=row.pop('usage'))
+    assert budget.accounted_micros(row) == 1820
+    ledger = dict(attempts=[row.copy() for _ in range(20)])
+    assert sum(r['reserved_cny'] for r in ledger['attempts']) > 20
+    assert budget.accounted_total_micros(ledger) == 36400
+
+
+@pytest.mark.parametrize('changes', [dict(outcome='unconfirmed'), dict(outcome='timeout'), dict(case_frozen=True)])
+def test_unknown_cost_keeps_full_reservation(changes):
+    assert budget.accounted_micros(confirmed_cost_row(**changes)) == 1644800
+
+
+@pytest.mark.parametrize('outcome', ['timeout', 'http_error', 'aborted', 'unknown-future-outcome'])
+def test_residual_success_fields_on_error_freeze_service_before_socket(tmp_path, outcome):
+    data = dict(attempts=[confirmed_cost_row(outcome=outcome, case_frozen=False)])
+    assert not budget.service_ready(data)
+    ledger = tmp_path/'ledger.json'; ledger.write_text(json.dumps(data))
+    exchange = budget.create_exchange(ledger, 'new:semantic', lambda *a: pytest.fail('frozen service opened socket'))
+    with pytest.raises(RuntimeError, match='frozen'): exchange(transport(), semantic_request(), 'synthetic-key')
+    assert json.loads(ledger.read_text()) == data
+
+
+@pytest.mark.parametrize('changes', [
+    dict(reserved_cny=0), dict(model='other'), dict(confirmed_model='other'),
+    dict(input_tokens_upper=24001), dict(output_tokens_upper=0), dict(usage=None),
+    dict(usage=dict(prompt_tokens=17, completion_tokens=8, total_tokens=26)),
+    dict(usage=dict(prompt_tokens=24001, completion_tokens=8, total_tokens=24009)),
+    dict(usage=dict(prompt_tokens=1, completion_tokens=2049, total_tokens=2050)),
+    dict(usage=dict(prompt_tokens=True, completion_tokens=8, total_tokens=9)),
+])
+def test_corrupt_confirmed_cost_cannot_reduce_original_reservation(changes):
+    with pytest.raises(ValueError): budget.accounted_micros(confirmed_cost_row(**changes))
+
+
+def test_semantic_exchange_uses_confirmed_cost_without_erasing_old_rows(tmp_path):
+    rows = [confirmed_cost_row(number=i + 1) for i in range(20)]
+    ledger = tmp_path/'ledger.json'
+    ledger.write_text(json.dumps(dict(attempts=rows)))
+    exchange = budget.create_exchange(ledger, 'new:semantic', lambda *a: (200, envelope()))
+    status, _ = exchange(transport(), semantic_request(), 'synthetic-key')
+    assert status == 200
+    saved = json.loads(ledger.read_text())
+    assert saved['attempts'][:20] == rows and len(saved['attempts']) == 21
+    assert budget.accounted_total_micros(saved) < 20_000_000
+
+
 def fixed_source(tmp_path):
     for name, content in harness.SOURCE.items():
         (tmp_path/name).write_bytes(content.encode('utf-8'))

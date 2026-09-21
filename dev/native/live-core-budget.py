@@ -4,6 +4,7 @@ Runs the unchanged native semantic bridge with per-socket budget accounting.
 No keys, request bodies or response text are written to the ledger.
 """
 import json
+import math
 import os
 from pathlib import Path
 import runpy
@@ -11,6 +12,53 @@ import sys
 import time
 import uuid
 from datetime import datetime, timezone
+
+
+def accounted_micros(row):
+    """Conservative charge bound; immutable pre-request reservations stay intact.
+
+    Official chat usage includes every cached/write/uncached input token. Charge
+    ALL input at 20+40 CNY/M and output at 100; never infer a bill or cache discount.
+    Unknown/error rows retain their whole reservation and existing service freeze.
+    """
+    reserved = row.get('reserved_cny')
+    if type(reserved) not in (int, float) or not math.isfinite(reserved) or reserved < 0:
+        raise ValueError('Invalid original cost reservation')
+    micros = round(reserved * 1_000_000)
+    if row.get('service') != 'moonshot_cn' or row.get('outcome') not in ('completed', 'http_response') or row.get('case_frozen'):
+        return micros
+    validation = row.get('validation') or {}
+    if not isinstance(validation, dict): raise ValueError('Invalid validation record')
+    usage = row.get('usage', validation.get('usage'))
+    confirmed = row.get('confirmed_model', validation.get('confirmed_model'))
+    upper_in, upper_out = row.get('input_tokens_upper'), row.get('output_tokens_upper')
+    if (row.get('model') != 'kimi-k3' or confirmed != 'kimi-k3' or row.get('http_status') != 200
+            or type(upper_in) is not int or not 2048 <= upper_in <= 24000
+            or type(upper_out) is not int or not 1 <= upper_out <= 8192
+            or abs(reserved * 1_000_000 - (upper_in * 60 + upper_out * 100)) > 0.00001
+            or not isinstance(usage, dict) or any(type(usage.get(k)) is not int or usage[k] < 0
+                for k in ('prompt_tokens','completion_tokens','total_tokens'))
+            or usage['total_tokens'] != usage['prompt_tokens'] + usage['completion_tokens']
+            or usage['prompt_tokens'] > upper_in or usage['completion_tokens'] > upper_out):
+        raise ValueError('Confirmed cost facts are invalid; no new request admitted')
+    return usage['prompt_tokens'] * 60 + usage['completion_tokens'] * 100
+
+
+def accounted_total_micros(ledger):
+    return sum(accounted_micros(row) for row in ledger['attempts'])
+
+
+def service_ready(ledger):
+    if ledger.get('frozen'): return False
+    for row in ledger['attempts']:
+        if row.get('service') != 'moonshot_cn': continue
+        validation = row.get('validation') or {}
+        if not isinstance(validation, dict): return False
+        if (row.get('case_frozen') or row.get('outcome') not in ('completed', 'http_response')
+                or row.get('http_status') != 200
+                or row.get('confirmed_model', validation.get('confirmed_model')) != 'kimi-k3'):
+            return False
+    return True
 
 
 def mutate_ledger(ledger, callback):
@@ -56,10 +104,10 @@ def create_exchange(ledger, case, original):
             raise RuntimeError('live semantic request exceeds admitted bounds')
         reserve = round((upper * 60 + output * 100) / 1_000_000, 6)
         def reserve_row(data):
-            if data.get('frozen') or any(r.get('service') == 'moonshot_cn' and (r.get('case_frozen') or r.get('outcome') == 'unconfirmed' or r.get('http_status') != 200 or (r.get('confirmed_model') or r.get('validation', {}).get('confirmed_model')) != 'kimi-k3') for r in data['attempts']):
+            if not service_ready(data):
                 raise RuntimeError('live service frozen after unconfirmed or failed result')
             rows = data['attempts']
-            if any(r.get('case') == case for r in rows) or len(rows) >= 40 or sum(r['reserved_cny'] for r in rows) + reserve > 20:
+            if any(r.get('case') == case for r in rows) or len(rows) >= 40 or accounted_total_micros(data) + round(reserve * 1_000_000) > 20_000_000:
                 raise RuntimeError('live budget exhausted; no request sent')
             number = len(rows) + 1
             rows.append(dict(number=number, at=datetime.now(timezone.utc).isoformat(),

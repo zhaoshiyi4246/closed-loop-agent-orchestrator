@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { createBudgetFetch } from './kimi-budget-transport.mjs';
+import { createBudgetFetch, accountedMicros } from './kimi-budget-transport.mjs';
 
 const endpoint = 'https://api.moonshot.cn/v1/chat/completions';
 const fakeKey = 'synthetic-not-a-real-key';
@@ -37,6 +37,9 @@ async function fixture(t, options = {}) {
   return { dir, ledgerPath, fetch, calls, ledger: async () => JSON.parse(await fs.readFile(ledgerPath, 'utf8')) };
 }
 const drain = async (fetch, req = request()) => (await fetch(endpoint, req)).text();
+const confirmedRow = (extra = {}) => ({ service: 'moonshot_cn', model: 'kimi-k3',
+  input_tokens_upper: 24000, output_tokens_upper: 2048, reserved_cny: 1.6448,
+  outcome: 'completed', http_status: 200, confirmed_model: 'kimi-k3', usage, ...extra });
 
 test('SSE preserves bytes, accounts before send and stores only safe facts', async (t) => {
   const f = await fixture(t);
@@ -59,10 +62,12 @@ test('SSE preserves bytes, accounts before send and stores only safe facts', asy
 
 test('JSON response and existing Python success ledger remain compatible', async (t) => {
   const f = await fixture(t, { send: async () => response(JSON.stringify(facts()), { headers: { 'content-type': 'application/json' } }) });
-  await fs.writeFile(f.ledgerPath, JSON.stringify({ attempts: [{ number: 1, service: 'moonshot_cn', model: 'kimi-k3',
-    reserved_cny: 8.0988, outcome: 'http_response', http_status: 200, validation: { confirmed_model: 'kimi-k3' } }] }));
+  const historical = confirmedRow({ number: 1, outcome: 'http_response', validation: { confirmed_model: 'kimi-k3', usage } });
+  delete historical.confirmed_model; delete historical.usage;
+  await fs.writeFile(f.ledgerPath, JSON.stringify({ attempts: [historical] }));
   assert.deepEqual(JSON.parse(await drain(f.fetch)), facts());
   assert.equal((await f.ledger()).attempts[1].number, 2);
+  assert.deepEqual((await f.ledger()).attempts[0], historical);
 });
 
 test('invalid identities, media, tools and final caps never send or create a ledger', async (t) => {
@@ -122,7 +127,7 @@ test('a case permits exactly three attempts across factory restarts', async (t) 
 
 test('attempt and money boundaries refuse before socket; exact money boundary succeeds', async (t) => {
   const f = await fixture(t);
-  const old = { service: 'moonshot_cn', reserved_cny: 0, http_status: 200, outcome: 'completed', confirmed_model: 'kimi-k3' };
+  const old = { service: 'other-explicit-service', reserved_cny: 0, outcome: 'unconfirmed' };
   await fs.writeFile(f.ledgerPath, JSON.stringify({ attempts: Array.from({ length: 40 }, () => old) }));
   await assert.rejects(drain(f.fetch), /budget_exhausted/); assert.equal(f.calls.length, 0);
   await fs.writeFile(f.ledgerPath, JSON.stringify({ attempts: [{ ...old, reserved_cny: 19.999999 }] }));
@@ -131,6 +136,56 @@ test('attempt and money boundaries refuse before socket; exact money boundary su
   await fs.writeFile(f.ledgerPath, JSON.stringify({ attempts: [{ ...old, reserved_cny: 20 - reserve }] }));
   await drain(f.fetch); assert.equal(f.calls.length, 1);
   assert.equal(Math.round((await f.ledger()).attempts.reduce((sum, row) => sum + row.reserved_cny, 0) * 1e6), 20000000);
+});
+
+test('confirmed conservative charges preserve original reservations even when their sum exceeds 20', async (t) => {
+  const f = await fixture(t);
+  const oldRows = Array.from({ length: 20 }, (_, i) => confirmedRow({ number: i + 1 }));
+  assert.ok(oldRows.reduce((n, row) => n + row.reserved_cny, 0) > 20);
+  assert.equal(accountedMicros(oldRows[0]), 1820);
+  await fs.writeFile(f.ledgerPath, JSON.stringify({ attempts: oldRows }));
+  await drain(f.fetch);
+  assert.deepEqual((await f.ledger()).attempts.slice(0, 20), oldRows);
+});
+
+test('unknown and failed rows retain their complete reservation', () => {
+  for (const extra of [{ outcome: 'unconfirmed' }, { outcome: 'timeout' }, { case_frozen: true }])
+    assert.equal(accountedMicros(confirmedRow(extra)), 1644800);
+});
+
+test('error rows with residual success fields freeze all future service requests', async (t) => {
+  for (const outcome of ['timeout', 'http_error', 'aborted', 'unknown-future-outcome']) {
+    const f = await fixture(t);
+    await fs.writeFile(f.ledgerPath, JSON.stringify({ attempts: [confirmedRow({ outcome, case_frozen: false })] }));
+    await assert.rejects(drain(f.fetch), /case_frozen/);
+    assert.equal(f.calls.length, 0);
+  }
+});
+
+test('corrupt confirmed cost facts fail closed before a socket', async (t) => {
+  for (const extra of [
+    { reserved_cny: 0 }, { model: 'other' }, { confirmed_model: 'other' },
+    { input_tokens_upper: 24001 }, { output_tokens_upper: 0 }, { usage: undefined },
+    { usage: { ...usage, total_tokens: 26 } }, { usage: { prompt_tokens: 24001, completion_tokens: 8, total_tokens: 24009 } },
+    { usage: { prompt_tokens: 1, completion_tokens: 2049, total_tokens: 2050 } },
+  ]) {
+    const f = await fixture(t);
+    await fs.writeFile(f.ledgerPath, JSON.stringify({ attempts: [confirmedRow(extra)] }));
+    await assert.rejects(drain(f.fetch), /ledger_unavailable|case_frozen/);
+    assert.equal(f.calls.length, 0);
+  }
+});
+
+test('four requests require a fresh declared case; restart cannot raise a three-request case', async (t) => {
+  const f = await fixture(t, { maxAttempts: 4 });
+  for (let i = 0; i < 4; i++) await drain(f.fetch);
+  await assert.rejects(drain(f.fetch), /case_budget_exhausted/);
+  assert.ok((await f.ledger()).attempts.every(row => row.case_attempt_limit === 4));
+  const old = await fixture(t);
+  await drain(old.fetch);
+  const raised = createBudgetFetch({ ledgerPath: old.ledgerPath, caseName: 'native-kimi:test', apiKey: fakeKey,
+    maxAttempts: 4, send: async () => assert.fail('existing case limit was raised') });
+  await assert.rejects(drain(raised), /case_budget_exhausted/);
 });
 
 test('concurrent factories serialize durable attempt numbers with no lost rows', async (t) => {

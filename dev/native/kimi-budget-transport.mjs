@@ -53,6 +53,25 @@ function validateRequest(input, init, key) {
   return { headers, body: init.body, inputUpper, outputUpper: body.max_completion_tokens };
 }
 
+export function accountedMicros(row) {
+  const reserved = row.reserved_cny;
+  if (!Number.isFinite(reserved) || reserved < 0) throw error('ledger_unavailable');
+  const micros = Math.round(reserved * 1e6);
+  if (row.service !== 'moonshot_cn' || !['completed', 'http_response'].includes(row.outcome) || row.case_frozen) return micros;
+  const usage = row.usage ?? row.validation?.usage;
+  const confirmed = row.confirmed_model ?? row.validation?.confirmed_model;
+  if (row.model !== MODEL || confirmed !== MODEL || row.http_status !== 200 ||
+      !integer(row.input_tokens_upper) || row.input_tokens_upper < 2048 || row.input_tokens_upper > 24000 ||
+      !integer(row.output_tokens_upper) || row.output_tokens_upper < 1 || row.output_tokens_upper > 8192 ||
+      Math.abs(reserved * 1e6 - (row.input_tokens_upper * 60 + row.output_tokens_upper * 100)) > 0.00001 ||
+      !record(usage) || !['prompt_tokens', 'completion_tokens', 'total_tokens'].every(k => integer(usage[k])) ||
+      usage.total_tokens !== usage.prompt_tokens + usage.completion_tokens ||
+      usage.prompt_tokens > row.input_tokens_upper || usage.completion_tokens > row.output_tokens_upper) throw error('ledger_unavailable');
+  // All cache classifications are inside prompt_tokens. Retain the deliberately
+  // conservative 20+40 rate, without claiming invoice settlement or a discount.
+  return usage.prompt_tokens * 60 + usage.completion_tokens * 100;
+}
+
 function lockPath(ledgerPath) {
   const parsed = path.parse(ledgerPath);
   return path.join(parsed.dir, `${parsed.name}.lock`); // Python Path.with_suffix('.lock').
@@ -153,10 +172,11 @@ async function validateToolCalls(calls, workspaceRoot) {
   }
 }
 
-export function createBudgetFetch({ ledgerPath, caseName, apiKey, send = sendHttpsOnce, timeoutMs = 120000, workspaceRoot = process.cwd() }) {
+export function createBudgetFetch({ ledgerPath, caseName, apiKey, send = sendHttpsOnce, timeoutMs = 120000, workspaceRoot = process.cwd(), maxAttempts = 3 }) {
   if (!path.isAbsolute(ledgerPath ?? '') || !/^[a-zA-Z0-9][a-zA-Z0-9:_-]{0,79}$/.test(caseName ?? '') ||
       typeof apiKey !== 'string' || !apiKey ||
       !path.isAbsolute(workspaceRoot ?? '') || workspaceRoot !== path.resolve(workspaceRoot) ||
+      !Number.isSafeInteger(maxAttempts) || maxAttempts < 1 || maxAttempts > 4 ||
       !Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 120000) throw error('configuration_rejected');
   let frozen = false;
   return async function budgetFetch(input, init) {
@@ -170,15 +190,16 @@ export function createBudgetFetch({ ledgerPath, caseName, apiKey, send = sendHtt
     try {
       ledger = await readLedger(ledgerPath);
       if (ledger.frozen || ledger.attempts.some((previous) => previous.service === 'moonshot_cn' &&
-          (previous.case_frozen === true || previous.outcome === 'unconfirmed' || previous.http_status !== 200 ||
+          (previous.case_frozen || !['completed', 'http_response'].includes(previous.outcome) || previous.http_status !== 200 ||
            (previous.confirmed_model ?? previous.validation?.confirmed_model) !== MODEL))) throw error('case_frozen');
-      if (ledger.attempts.filter((previous) => previous.case === caseName).length >= 3) throw error('case_budget_exhausted');
+      const priorCase = ledger.attempts.filter(previous => previous.case === caseName);
+      if (priorCase.length >= maxAttempts || priorCase.some(previous => (previous.case_attempt_limit ?? 3) !== maxAttempts)) throw error('case_budget_exhausted');
       const reserveMicros = request.inputUpper * 60 + request.outputUpper * 100;
-      const usedMicros = ledger.attempts.reduce((sum, previous) => sum + Math.round(previous.reserved_cny * 1e6), 0);
+      const usedMicros = ledger.attempts.reduce((sum, previous) => sum + accountedMicros(previous), 0);
       if (ledger.attempts.length >= 40 || usedMicros + reserveMicros > 20000000) throw error('budget_exhausted');
       row = {
         number: ledger.attempts.length + 1, at: new Date().toISOString(), service: 'moonshot_cn', model: MODEL,
-        case: caseName, input_tokens_upper: request.inputUpper, output_tokens_upper: request.outputUpper,
+        case: caseName, case_attempt_limit: maxAttempts, input_tokens_upper: request.inputUpper, output_tokens_upper: request.outputUpper,
         reserved_cny: reserveMicros / 1e6, outcome: 'unconfirmed', http_status: null,
       };
       ledger.attempts.push(row);
@@ -342,5 +363,6 @@ if (process.env.CLAO_LIVE_LEDGER !== undefined || process.env.CLAO_LIVE_CASE !==
     ledgerPath: process.env.CLAO_LIVE_LEDGER, caseName: process.env.CLAO_LIVE_CASE,
     apiKey: process.env.KIMI_API_KEY,
     workspaceRoot: process.cwd(),
+    maxAttempts: process.env.CLAO_LIVE_MAX_WORKER_REQUESTS === undefined ? 3 : Number(process.env.CLAO_LIVE_MAX_WORKER_REQUESTS),
   });
 }
