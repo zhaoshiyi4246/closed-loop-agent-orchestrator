@@ -47,6 +47,7 @@ type Config struct {
 	SessionMode            func(ports.PermissionMode) string
 	SessionOptions         func(ports.ChatTurnSettings) []acpdriver.SessionOption
 	PermissionPolicy       acpdriver.PermissionPolicy
+	PermissionInputDecoder acpdriver.PermissionInputDecoder
 	ClientExtension        acpdriver.ClientExtensionHandler
 	ClientExtensionAliases map[string]string
 	ValidateTurnSettings   acpdriver.TurnSettingsValidator
@@ -137,6 +138,7 @@ func buildConfig(plugin Plugin, cfg Config, log *slog.Logger) acpdriver.Config {
 		SessionMode:            cfg.SessionMode,
 		SessionOptions:         cfg.SessionOptions,
 		PermissionPolicy:       cfg.PermissionPolicy,
+		PermissionInputDecoder: cfg.PermissionInputDecoder,
 		ClientExtension:        cfg.ClientExtension,
 		ClientExtensionAliases: cfg.ClientExtensionAliases,
 		ValidateTurnSettings:   cfg.ValidateTurnSettings,

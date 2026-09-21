@@ -24,9 +24,10 @@ func New(plugin nativeacp.Plugin, log *slog.Logger) ports.ChatDriver {
 			ports.ChatCapabilityHistory: true,
 			ports.ChatCapabilityPlans:   true,
 		},
-		Configure:            configure,
-		SessionOptions:       sessionOptions,
-		ValidateTurnSettings: validateTurnSettings,
+		Configure:              configure,
+		SessionOptions:         sessionOptions,
+		ValidateTurnSettings:   validateTurnSettings,
+		PermissionInputDecoder: kimiPermissionInputDecoder,
 	}, log)
 }
 

@@ -15,9 +15,46 @@ import (
 	acpsdk "github.com/coder/acp-go-sdk"
 )
 
-// Shapes captured from official Kimi Code 2.0.2 with fake SSE, Read/Write/Edit
-// only and no network. Permission omits kind/rawInput; preceding update has both.
-func kimiPermission(t *testing.T, name string) (*conversation, acpsdk.RequestPermissionRequest, any) {
+type fixedPermissionInput struct{ input any }
+
+func (*fixedPermissionInput) Update(acpsdk.SessionToolCallUpdate)         {}
+func (f *fixedPermissionInput) Decode(acpsdk.ToolCallUpdate) (any, error) { return f.input, nil }
+
+func TestDecodedPermissionRetainsIdentityAndRejectsExplicitConflict(t *testing.T) {
+	for _, mutation := range []string{"valid", "input-conflict", "turn", "duplicate", "terminal", "request-session"} {
+		t.Run(mutation, func(t *testing.T) {
+			c, request, input := rawPermission(t, "Write")
+			tool := c.tools[string(request.ToolCall.ToolCallId)]
+			tool.rawInput = nil
+			tool.inputAccumulator = &fixedPermissionInput{input: input}
+			switch mutation {
+			case "input-conflict":
+				request.ToolCall.RawInput = map[string]any{"path": "check.py"}
+			case "turn":
+				c.activeTurn = "next"
+			case "duplicate":
+				tool.approvalUsed = true
+			case "terminal":
+				tool.status = acpsdk.ToolCallStatusCompleted
+			case "request-session":
+				request.SessionId = "other"
+			}
+			mapped, binding, valid := c.permissionTool(request)
+			if mutation == "valid" {
+				if !valid || binding == nil || !samePermissionInput(mapped.RawInput, input) {
+					t.Fatal("decoded original facts were not bound")
+				}
+			} else if valid {
+				t.Fatal("invalid decoded identity admitted")
+			}
+		})
+	}
+}
+
+// Generic ACP partial-request fixture: preceding updates provide rawInput.
+// Kimi 2.0.2 instead sends canonical rawInput after permission; its decoder
+// and official offline consumer are tested in the provider package.
+func rawPermission(t *testing.T, name string) (*conversation, acpsdk.RequestPermissionRequest, any) {
 	t.Helper()
 	c := &conversation{sessionID: "kimi-session", activeTurn: "turn-1",
 		tools: map[string]*toolState{}, pending: map[string]*parkedPermission{}, events: make(chan ports.ChatEvent, 16)}
@@ -48,10 +85,10 @@ func kimiPermission(t *testing.T, name string) (*conversation, acpsdk.RequestPer
 		}}, input
 }
 
-func TestKimiPartialPermissionUsesCurrentOriginalFactsAndOfferedOnce(t *testing.T) {
+func TestPartialPermissionUsesCurrentOriginalFactsAndOfferedOnce(t *testing.T) {
 	for _, name := range []string{"Write", "Edit"} {
 		t.Run(name, func(t *testing.T) {
-			c, request, input := kimiPermission(t, name)
+			c, request, input := rawPermission(t, name)
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
 			done := make(chan acpsdk.RequestPermissionResponse, 1)
@@ -83,7 +120,7 @@ func TestKimiPartialPermissionUsesCurrentOriginalFactsAndOfferedOnce(t *testing.
 func TestPartialPermissionRejectsForeignStaleConflictingAndTerminalFacts(t *testing.T) {
 	for _, mutation := range []string{"session", "turn", "idle", "closed", "terminal", "unknown-status", "kind", "input", "locations", "duplicate", "update-only"} {
 		t.Run(mutation, func(t *testing.T) {
-			c, request, _ := kimiPermission(t, "Write")
+			c, request, _ := rawPermission(t, "Write")
 			tool := c.tools[string(request.ToolCall.ToolCallId)]
 			switch mutation {
 			case "session":
@@ -119,7 +156,7 @@ func TestPartialPermissionRejectsForeignStaleConflictingAndTerminalFacts(t *test
 
 func TestPartialPermissionDoesNotInventMissingOrUnknownInput(t *testing.T) {
 	for _, missing := range []string{"unknown", "input", "kind"} {
-		c, request, _ := kimiPermission(t, "Edit")
+		c, request, _ := rawPermission(t, "Edit")
 		tool := c.tools[string(request.ToolCall.ToolCallId)]
 		switch missing {
 		case "unknown":
@@ -137,7 +174,7 @@ func TestPartialPermissionDoesNotInventMissingOrUnknownInput(t *testing.T) {
 }
 
 func TestPermissionKeepsExplicitMatchingOriginalInput(t *testing.T) {
-	c, request, input := kimiPermission(t, "Write")
+	c, request, input := rawPermission(t, "Write")
 	request.ToolCall.RawInput = input
 	request.ToolCall.Kind = acpsdk.Ptr(acpsdk.ToolKindEdit)
 	completed, binding, valid := c.permissionTool(request)
@@ -147,9 +184,9 @@ func TestPermissionKeepsExplicitMatchingOriginalInput(t *testing.T) {
 }
 
 func TestPermissionBindingRejectsChangesWhileApprovalIsParked(t *testing.T) {
-	for _, mutation := range []string{"session", "turn", "terminal", "input", "kind", "replacement", "changed-back"} {
+	for _, mutation := range []string{"session", "turn", "terminal", "input", "kind", "replacement", "changed-back", "argument-content-changed-back"} {
 		t.Run(mutation, func(t *testing.T) {
-			c, request, input := kimiPermission(t, "Write")
+			c, request, input := rawPermission(t, "Write")
 			_, binding, valid := c.permissionTool(request)
 			if !valid || binding == nil {
 				t.Fatal("missing binding")
@@ -174,6 +211,11 @@ func TestPermissionBindingRejectsChangesWhileApprovalIsParked(t *testing.T) {
 			case "changed-back":
 				c.mergeToolUpdate(&acpsdk.SessionToolCallUpdate{ToolCallId: request.ToolCall.ToolCallId, RawInput: map[string]any{"path": "check.py"}})
 				c.mergeToolUpdate(&acpsdk.SessionToolCallUpdate{ToolCallId: request.ToolCall.ToolCallId, RawInput: input})
+			case "argument-content-changed-back":
+				tool.inputAccumulator = &fixedPermissionInput{input: input}
+				original := tool.content
+				c.mergeToolUpdate(&acpsdk.SessionToolCallUpdate{ToolCallId: request.ToolCall.ToolCallId, Content: []acpsdk.ToolCallContent{{Content: &acpsdk.ToolCallContentContent{Content: acpsdk.TextBlock("changed")}}}})
+				c.mergeToolUpdate(&acpsdk.SessionToolCallUpdate{ToolCallId: request.ToolCall.ToolCallId, Content: original})
 			}
 			if err := c.ResolveRequest(context.Background(), "request", ports.ChatDecision{ID: "approve_once"}); err != ports.ErrChatRequestNotPending {
 				t.Fatalf("resolution = %v", err)
@@ -185,7 +227,7 @@ func TestPermissionBindingRejectsChangesWhileApprovalIsParked(t *testing.T) {
 	}
 }
 
-func TestKimiPermissionMappedFactsPassActualCLAOAcceptance(t *testing.T) {
+func TestPermissionMappedRawFactsPassActualCLAOAcceptance(t *testing.T) {
 	python := os.Getenv("CLAO_TEST_PYTHON")
 	if python == "" {
 		t.Skip("set CLAO_TEST_PYTHON to the project venv for actual acceptance integration")
@@ -197,7 +239,7 @@ func TestKimiPermissionMappedFactsPassActualCLAOAcceptance(t *testing.T) {
 	core := filepath.Clean(filepath.Join(cwd, "../../../../../../clao/src"))
 	for _, scenario := range []string{"Write", "Edit", "forbidden", "outside", "missing"} {
 		t.Run(scenario, func(t *testing.T) {
-			c, request, _ := kimiPermission(t, scenario)
+			c, request, _ := rawPermission(t, scenario)
 			tool, _, _ := c.permissionTool(request)
 			if scenario == "missing" {
 				tool.RawInput = nil

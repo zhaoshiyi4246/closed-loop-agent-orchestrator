@@ -556,6 +556,9 @@ func (c *conversation) SessionUpdate(_ context.Context, params acpsdk.SessionNot
 			meta: cloneMeta(update.ToolCall.Meta),
 		}
 		c.mu.Lock()
+		if c.inputDecoder != nil {
+			tool.inputAccumulator = c.inputDecoder(*update.ToolCall)
+		}
 		if prior := c.tools[tool.id]; prior != nil {
 			// Reusing an id cannot erase an earlier approval's binding.
 			tool.approvalUsed = true
@@ -640,6 +643,15 @@ func (c *conversation) mergeToolUpdate(update *acpsdk.SessionToolCallUpdate) *to
 		(update.RawInput != nil && !samePermissionInput(update.RawInput, tool.rawInput)) ||
 		(update.Locations != nil && !samePermissionInput(update.Locations, tool.locations))) {
 		tool.approvalInvalid = true
+	}
+	if tool.inputAccumulator != nil {
+		if !tool.approvalUsed {
+			tool.inputAccumulator.Update(*update)
+		} else if update.Content != nil && update.RawInput == nil {
+			// A parked decision cannot approve a changed argument stream, even
+			// if a later update restores its previous bytes.
+			tool.approvalInvalid = true
+		}
 	}
 	if update.Title != nil {
 		tool.title = *update.Title

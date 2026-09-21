@@ -7,6 +7,15 @@ import (
 	acpsdk "github.com/coder/acp-go-sdk"
 )
 
+// PermissionInputDecoder is opt-in and selected from the initialization facts.
+// Each accumulator belongs to exactly one tool identity in its current turn.
+type PermissionInputDecoder func(acpsdk.InitializeResponse) func(acpsdk.SessionUpdateToolCall) PermissionInputAccumulator
+
+type PermissionInputAccumulator interface {
+	Update(acpsdk.SessionToolCallUpdate)
+	Decode(acpsdk.ToolCallUpdate) (any, error)
+}
+
 type permissionBinding struct {
 	sessionID, turnID, toolID string
 	kind                      acpsdk.ToolKind
@@ -47,6 +56,16 @@ func (c *conversation) permissionTool(params acpsdk.RequestPermissionRequest) (a
 		tool.turnID != c.activeTurn || tool.approvalUsed || !permissionToolActive(tool.status) ||
 		(request.Status != nil && !permissionToolActive(*request.Status)) {
 		return request, nil, false
+	}
+	if tool.inputAccumulator != nil {
+		decoded, err := tool.inputAccumulator.Decode(request)
+		if err != nil || (tool.rawInput != nil && !samePermissionInput(tool.rawInput, decoded)) ||
+			(request.RawInput != nil && !samePermissionInput(request.RawInput, decoded)) {
+			return request, nil, false
+		}
+		if tool.rawInput == nil {
+			tool.rawInput = decoded
+		}
 	}
 	if request.Kind != nil && tool.kind != "" && *request.Kind != tool.kind ||
 		request.RawInput != nil && tool.rawInput != nil && !samePermissionInput(request.RawInput, tool.rawInput) ||

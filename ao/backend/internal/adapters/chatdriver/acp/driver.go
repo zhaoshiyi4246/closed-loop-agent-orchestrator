@@ -54,6 +54,9 @@ type Config struct {
 	// invoking an adapter-specific version flag, which many stdio agents do not
 	// implement and which can emit protocol bytes instead of a version string.
 	ValidateInitialize func(acpsdk.InitializeResponse) error
+	// PermissionInputDecoder admits an exact provider/version's wire encoding.
+	// It supplies input facts only; ordinary approval policy still decides access.
+	PermissionInputDecoder PermissionInputDecoder
 	// SessionMeta carries adapter-defined ACP extensions whenever AO creates the
 	// provider-side session object: session/new, session/load, or
 	// session/resume. Standing context such as a system prompt is process input,
@@ -405,6 +408,11 @@ func (d *Driver) connect(
 			_ = conv.Close()
 			return nil, acpsdk.InitializeResponse{}, fmt.Errorf("%w: %w", ports.ErrChatDriverIncompatible, err)
 		}
+	}
+	if d.cfg.PermissionInputDecoder != nil {
+		conv.mu.Lock()
+		conv.inputDecoder = d.cfg.PermissionInputDecoder(init)
+		conv.mu.Unlock()
 	}
 	return conv, init, nil
 }

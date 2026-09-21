@@ -62,19 +62,20 @@ type parkedInput struct {
 }
 
 type toolState struct {
-	id              string
-	turnID          string
-	approvalUsed    bool
-	approvalInvalid bool
-	title           string
-	kind            acpsdk.ToolKind
-	status          acpsdk.ToolCallStatus
-	locations       []acpsdk.ToolCallLocation
-	content         []acpsdk.ToolCallContent
-	rawInput        any
-	rawOutput       any
-	meta            map[string]any
-	terminalOutput  string
+	id               string
+	turnID           string
+	approvalUsed     bool
+	approvalInvalid  bool
+	inputAccumulator PermissionInputAccumulator
+	title            string
+	kind             acpsdk.ToolKind
+	status           acpsdk.ToolCallStatus
+	locations        []acpsdk.ToolCallLocation
+	content          []acpsdk.ToolCallContent
+	rawInput         any
+	rawOutput        any
+	meta             map[string]any
+	terminalOutput   string
 }
 
 type nestedMessageState struct {
@@ -113,6 +114,7 @@ type conversation struct {
 	optionsFor        func(ports.ChatTurnSettings) []SessionOption
 	permissionMode    ports.PermissionMode
 	permissionFor     PermissionPolicy
+	inputDecoder      func(acpsdk.SessionUpdateToolCall) PermissionInputAccumulator
 	initialPermission ports.PermissionMode
 	validateSettings  TurnSettingsValidator
 	extensionFor      ClientExtensionHandler

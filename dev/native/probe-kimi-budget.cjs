@@ -8,10 +8,11 @@ const { pathToFileURL } = require('node:url');
 const assert = require('node:assert/strict');
 
 async function main() {
-  const [node, cli, folder, tool = 'none', permissionDecision = 'allow_once'] = process.argv.slice(2);
+  const [node, cli, folder, tool = 'none', permissionDecision = 'allow_once', argumentMode = 'complete'] = process.argv.slice(2);
   assert(node && cli && folder, 'Usage: node probe-kimi-budget.cjs NODE KIMI_MAIN NEW_DIRECTORY');
   assert(['none', 'Write', 'Edit'].includes(tool), 'Optional tool must be Write or Edit');
   assert(['allow_once', 'reject'].includes(permissionDecision), 'Optional decision must be allow_once or reject');
+  assert(['complete', 'fragmented'].includes(argumentMode), 'Optional argument mode must be complete or fragmented');
   fs.mkdirSync(folder, { recursive: false });
   const home = path.join(folder, 'home'), workspace = path.join(folder, 'project');
   fs.mkdirSync(home); fs.mkdirSync(workspace);
@@ -39,8 +40,14 @@ globalThis.fetch = createBudgetFetch({ledgerPath:${JSON.stringify(ledger)},caseN
   const args=tool==='Write'?{path:'solution.py',content:'def add(a, b):\\n    return a + b\\n'}:{path:'solution.py',old_string:'return a - b',new_string:'return a + b'};
   const delta=toolTurn?{role:'assistant',tool_calls:[{index:0,id:'offline-tool-1',type:'function',function:{name:tool,arguments:JSON.stringify(args)}}]}:{role:'assistant',content:'Offline transport probe complete.'};
   const event={id:'offline-id',object:'chat.completion.chunk',model:'kimi-k3',choices:[{index:0,delta,finish_reason:null}]};
+  const events=[event];
+  if(toolTurn && ${JSON.stringify(argumentMode)}==='fragmented') {
+    const serialized=JSON.stringify(args);
+    event.choices[0].delta.tool_calls[0].function.arguments='';
+    for(let i=0;i<serialized.length;i+=3) events.push({...event,choices:[{index:0,delta:{tool_calls:[{index:0,function:{arguments:serialized.slice(i,i+3)}}]},finish_reason:null}]});
+  }
   const final={...event,choices:[{index:0,delta:{},finish_reason:toolTurn?'tool_calls':'stop'}],usage:{prompt_tokens:1,completion_tokens:1,total_tokens:2}};
-  return {status:200,headers:{'content-type':'text/event-stream'},body:(async function*(){ yield Buffer.from('data: '+JSON.stringify(event)+'\\n\\ndata: '+JSON.stringify(final)+'\\n\\ndata: [DONE]\\n\\n'); })()};
+  return {status:200,headers:{'content-type':'text/event-stream'},body:(async function*(){ for(const chunk of [...events,final]) yield Buffer.from('data: '+JSON.stringify(chunk)+'\\n\\n'); yield Buffer.from('data: [DONE]\\n\\n'); })()};
  }});
 `);
   const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => ['PATH','SYSTEMROOT','WINDIR','COMSPEC','PATHEXT','TEMP','TMP'].includes(k.toUpperCase())));
@@ -56,7 +63,7 @@ globalThis.fetch = createBudgetFetch({ledgerPath:${JSON.stringify(ledger)},caseN
   });
   const child = cp.spawn(node, ['--import', pathToFileURL(preload).href, cli, 'acp'], {cwd:workspace, env, windowsHide:true, stdio:['pipe','pipe','pipe']});
   let buffer='', stderr='', seq=0;
-  const permissions=[], updates=[];
+  const permissions=[], updates=[], permissionFacts=[];
   const pending = new Map();
   child.stderr.on('data', b => { stderr += b.toString(); });
   child.on('exit', code => {
@@ -70,6 +77,7 @@ globalThis.fetch = createBudgetFetch({ledgerPath:${JSON.stringify(ledger)},caseN
       let message; try{message=JSON.parse(line);}catch{continue;}
       if(message.method==='session/request_permission' && message.id!==undefined){
         permissions.push(message.params);
+        permissionFacts.push({toolCallId:message.params.toolCall?.toolCallId,updatesBeforeRequest:updates.filter(update=>update.toolCallId===message.params.toolCall?.toolCallId)});
         const choice=message.params.options?.find(option=>option.kind===(permissionDecision==='allow_once'?'allow_once':'reject_once'));
         const admitted=tool!=='none' && message.params.toolCall?.toolCallId==='0:offline-tool-1' && message.params.toolCall?.title===tool && choice;
         child.stdin.write(JSON.stringify({jsonrpc:'2.0',id:message.id,result:{outcome:admitted?{outcome:'selected',optionId:choice.optionId}:{outcome:'cancelled'}}})+'\n');
@@ -85,7 +93,7 @@ globalThis.fetch = createBudgetFetch({ledgerPath:${JSON.stringify(ledger)},caseN
     const initialized=await rpc('initialize',{protocolVersion:1,clientCapabilities:{},clientInfo:{name:'clao-offline-probe',version:'1'}});
     const session=await rpc('session/new',{cwd:workspace,mcpServers:[]});
     const turn=await rpc('session/prompt',{sessionId:session.sessionId,prompt:[{type:'text',text:tool==='none'?'Reply with a short acknowledgement. Do not use tools.':'Change only solution.py so add(a, b) returns a + b using '+tool+'.'}]});
-    result={protocolVersion:initialized.protocolVersion,stopReason:turn.stopReason,offline:true,tool,permissionDecision,permissions,updates};
+    result={protocolVersion:initialized.protocolVersion,stopReason:turn.stopReason,offline:true,tool,permissionDecision,argumentMode,permissions,permissionFacts,updates};
   } finally {
     child.kill();
     await new Promise(resolve=>{if(child.exitCode!==null)resolve();else child.once('exit',resolve);});
@@ -104,10 +112,17 @@ globalThis.fetch = createBudgetFetch({ledgerPath:${JSON.stringify(ledger)},caseN
   if(tool!=='none') {
     assert.equal(fs.readFileSync(path.join(workspace,'solution.py'),'utf8'),permissionDecision==='allow_once'?'def add(a, b):\n    return a + b\n':'def add(a, b):\n    return a - b\n');
     assert.equal(permissions.length,1,'Expected exactly one explicit permission');
+    // Official 2.0.2 requests permission before tool.call.started publishes
+    // rawInput. Do not mistake the post-decision upgrade for approval evidence.
+    const before=permissionFacts[0].updatesBeforeRequest;
+    assert(before.length>0,'Expected an initial tool call before permission');
+    assert(before.every(update=>update.rawInput===undefined),'Official approval ordering changed; review the new contract');
+    assert(updates.some(update=>update.toolCallId===permissionFacts[0].toolCallId && update.rawInput!==undefined),'Expected the canonical input only after the explicit decision');
+    if(argumentMode==='fragmented') assert(before.length>2,'Expected cumulative argument fragments before permission');
   }
   result.shape=JSON.parse(fs.readFileSync(path.join(folder,'request-shape.json')));
   result.keyPersisted=false;
   fs.writeFileSync(path.join(folder,'report.json'),JSON.stringify(result,null,2));
-  console.log(JSON.stringify({...result,updates:updates.map(u=>({sessionUpdate:u.sessionUpdate,toolCallId:u.toolCallId,status:u.status}))}));
+  console.log(JSON.stringify({...result,permissionFacts:permissionFacts.map(f=>({toolCallId:f.toolCallId,updatesBeforeRequest:f.updatesBeforeRequest.length,rawInputsBeforeRequest:f.updatesBeforeRequest.filter(u=>u.rawInput!==undefined).length})),updates:updates.map(u=>({sessionUpdate:u.sessionUpdate,toolCallId:u.toolCallId,status:u.status}))}));
 }
 main().catch(error=>{console.error(error.message);process.exitCode=1;});
