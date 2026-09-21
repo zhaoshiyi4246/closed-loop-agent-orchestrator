@@ -172,7 +172,11 @@ def test_native_opencode_pass_and_frozen_result(native):
     assert result["state"] == "DONE", json.dumps(result, ensure_ascii=False)
     assert [c["role"] for c in result["roleCalls"]] == ["verifier"]
     assert result.get("decisions", []) == []
-    assert result["base"] == base
+    assert result["base"] == result["source"]["base"]
+    # Source snapshots preserve confirmed working-disk bytes, including CRLF;
+    # the original Git index may normalize them according to core.autocrlf.
+    for name in ("source.txt", "check.py"):
+        assert subprocess.check_output(["git", "-C", result["source"]["projectPath"], "show", result["base"] + ":" + name]) == (source / name).read_bytes()
     assert result["sessionId"] != result["verifierSessionId"]
     assert (Path(result["workspace"]) / "result.txt").read_text() == "accepted\n"
     assert git(Path(result["workspace"]), "show", result["resultHead"] + ":result.txt") == "accepted"
@@ -330,9 +334,14 @@ def test_native_manual_accept_cannot_override_mission_scope(native, case):
 def test_native_empty_review_cannot_be_final_pass(native):
     submit, api, nonce, source, base, temp = native
     result = submit('EMPTY_REVIEW create accepted output')
-    assert result['state'] == 'FAILED', result
-    assert result.get('resultHead') and result.get('verifierSessionId')
-    assert 'Verifier' in result['reason']
+    assert result["state"] == "PAUSED" and not result["recovery"]["canContinue"], result
+    assert result.get("resultHead") and result.get("verifierSessionId")
+    assert result["roleCalls"][-1]["state"] == "FAILED"
+    assert "结构化回复" in result["roleCalls"][-1]["error"]
+    from tests.test_ao_native_recovery import trace
+    before = trace(temp)
+    assert api("/api/v1/clao/missions/" + result["request"]["id"] + "/continue", {}, {"X-CLAO-Nonce": nonce})[0] == 409
+    assert trace(temp) == before
 
 
 @pytest.mark.parametrize('context,allow', [({}, True), ({'environmentId': 'local'}, True),

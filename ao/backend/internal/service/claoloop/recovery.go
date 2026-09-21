@@ -267,6 +267,11 @@ func (s *Service) recoveryCheck(m Mission) error {
 	if m.Checkpoint.LocalState != "" {
 		return errors.New("中断的 Gate/固定产物结果未保存，不能安全重跑；可取消并创建新尝试")
 	}
+	for _, call := range m.RoleCalls {
+		if call.State == "FAILED" || call.State == "PROTOCOL_ERROR" {
+			return errors.New("已确认的角色调用未提供可用结果；请检查角色记录并创建新尝试")
+		}
+	}
 	for _, op := range m.Operations {
 		if op.State == "UNKNOWN" || op.State == "IN_FLIGHT" {
 			return fmt.Errorf("%s 的外部结果尚未确认，不会重发；可取消/确认停止", op.Kind)
