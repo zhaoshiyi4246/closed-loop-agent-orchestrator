@@ -30,7 +30,21 @@
 - 手工switch-agent交接文件原仅Chmod不能保护Windows隐私；新增目录以私有DACL原子创建、现有对象只验证、读写handle验证。真实开放父目录/已存在开放对象/发布后改ACL/junction正负例和直接切换消费者：33顶层PASS、0FAIL、2原有symlink权限SKIP，1.165秒；新增junction实际通过。Unix实现保留，本机未运行Unix。
 - domain测试缺testify锁定间接模块的go.mod校验记录。通过官方sum.golang.org和proxy.golang.org取得精确版本记录与缓存，未关闭校验或更新版本。`-mod=readonly GOPROXY=off`最终PASS0.404秒。
 
-剩余上游失败保留：部分27工具的Unix shell、HOME/路径、POSIX权限和本机工具缺失；macOS executable symlink；tmux/persistenthost的Unix前提；mobilebridge/telemetry平台权限合同；pricing/reviewgateway的POSIX模式断言；未逐一宣称Windows可用。CLAO原生语义角色只按确定性权限准入，不能将上游目录存在等同全执行器验收。涉及Kimi实际协议及凭据路径的进一步检查仍进行中。
+剩余上游失败保留：部分27工具的Unix shell、HOME/路径、POSIX权限和本机工具缺失；macOS executable symlink；tmux/persistenthost的Unix前提；mobilebridge/telemetry平台权限合同；pricing/reviewgateway的POSIX模式断言；未逐一宣称Windows可用。CLAO原生语义角色只按确定性权限准入，不能将上游目录存在等同全执行器验收。Kimi实际消费者的后续定向结果见下节，不覆盖完整首轮失败记录。
+
+## Kimi 实际消费者后续定向 · 2026-09-22
+
+原 `TestGetAgentHooksSeedsAOManagedCredentialsFromUserKimiHome` 的Windows权限失败不是仅POSIX断言问题：旧路径复制OAuth文件后仅设0600，不能提供私有DACL；ACP启动又会切换到managed home，却没有先准备官方用户配置。现已由ACP/TUI共享准备逻辑：保留官方2.0.2模型、provider及OAuth格式，源用户目录只读；inline API Key投影为官方`api_key_env`引用，值仅进入启动内存环境。所选profile的OAuth文件仅首次复制，新对象以私有DACL创建，已有对象只验证；已有OAuth不覆盖，ACP已有配置保留，TUI更新managed hooks时保留原私有DACL。开放ACL、junction/别名、冲突凭据、认证header及来源endpoint漂移均拒绝，不修改用户全局ACL。
+
+命令 `go test -mod=readonly -p 2 ./internal/adapters/agent/kimi ./internal/adapters/chatdriver/kimiacp ./internal/adapters/chatdriver/nativeacp -count=1 -timeout=2m -json`：**68顶层PASS、1原有live SKIP**，三包0.880/0.480/0.310秒，日志`go-kimi-managed-final.jsonl`。提取薄私有文件原语后的handoff定向复核：**33顶层PASS、2原有symlink权限SKIP**，1.110秒，`go-kimi-privatefile-handoff-final.jsonl`；新增真实junction和DACL正负例通过。未运行真实OAuth登录或Unix验收。
+
+官方Kimi Code CLI 2.0.2的协议事实更正：审批前只有初始pending工具及累计`content.text`参数片，canonical `rawInput`在审批后才发送。先前“官方Kimi审批前已经提供rawInput”的测试注释不成立，原夹具现明确作为通用ACP原始事实用例保留。新增可选provider解码器仅在Initialize返回精确`Kimi Code CLI`/`2.0.2`时启用：同session、同turn、唯一工具身份，Write/Edit片段严格前缀增长；到permission时才解析完整JSON，拒绝重复键、尾随内容、非对象、未知/缺失字段、回退、终局、冲突及审批停放期间变更。路径只取原始JSON参数，继续使用现有permission binding与CLAO scope，不从标题、diff或location推断；其他版本/ACP供应商保持标准rawInput路径。
+
+最终命令 `go test -mod=readonly -p 2 ./internal/adapters/chatdriver/kimiacp ./internal/adapters/chatdriver/acp ./internal/adapters/chatdriver/nativeacp -count=1 -timeout=3m -json`：**72顶层PASS、1原有live SKIP**，三包5.140/1.723/0.330秒，日志`go-kimi-arguments-full2.jsonl`。最后补充初始/请求形态负例后，`go test -mod=readonly -p 2 ./internal/adapters/chatdriver/kimiacp -run TestKimi202 -count=1 -timeout=1m -json`的4顶层测试通过，`go-kimi-arguments-final-shapes.jsonl`；两集合重叠，不相加。独立Reviewer再跑实际三包通过5.681/1.699/0.366秒，未发现必须修复阻塞；`git diff --check`通过。
+
+上述完整集合显式提供测试Node、官方CLI和项目Python，实际运行`TestOfficialKimiOfflineFragmentedPermissionThroughCLAO`三条链路：官方CLI分片Write→Go审批事件→真实`loopcore.ao_acceptance`→允许`solution.py`；分片Edit同路径允许；分片Edit请求`check.py`被拒绝且文件不变。每例两次固定假SSE响应，审批事件在Resolve前已含准确原始参数，只选择实际提供的once/reject选项；网络API封禁、合成Key无落盘。唯一SKIP为既有`TestLiveKimiACPReceivesLaunchSystemPrompt`，不是这三条离线链路。
+
+首轮新集成夹具遗漏`StartDeferredTurn`，三例各35秒超时，记录保留在`go-kimi-arguments-first.jsonl`；修正测试调用契约后取得以上结果，未因此修改产品行为。全部命令使用官方Go1.26.5、`GOWORK=off GOTOOLCHAIN=local GOMAXPROCS=2`及用户目录下新建独立临时目录。这些结果只证明本机Windows定向及官方CLI离线协议消费，不证明真实模型任务通过，也不删除首个真实失败、Worker admission或费用记录。
 
 ## 证据与限制
 

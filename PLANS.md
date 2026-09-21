@@ -11,13 +11,13 @@
 - 任务 **V03-NATIVE-CLOSEOUT / P01–P03 / Q01，IN_PROGRESS**；开始 UTC 2026-09-21 14:45，预计9–10小时，最后一小时收敛。续现有 PR #49，起点 `c30d694f4356dc9afc951b424e850967e85182c1`，工作树干净；主目录用户配置修改保留。
 - 完成门：共享预算业务终局与正式双任务回归；Gate/Verifier/活动/断连事实一致；原生界面简化与实际 Electron 多主题/宽度/200%检查；账户安全路径、GLM-5.3/Kimi/Codex受控真实旅程；独立安装包与产物旅程；最终完整适用回归、独立代码复核、有限对照、一个PR与准确交接。
 - 分工：Implementer预算/恢复、Implementer原生UI、Implementer发行；Coordinator负责账户/服务准入、预算台账、治理与集成；最终独立Reviewer读实际集成调用链和用户旅程。
-- 当前真实消耗：HTTP尝试 **6/40**，真实Worker完整任务 **0/6**，累计费用预留 **8.0988/20元**（账单实扣未知）。Kimi K3 的 Verifier、Auditor、Planner 各一组正确/明确缺陷对照均符合预期；输入11018/output1627 token。属于独立语义角色测试，不是安装包或真实Worker闭环通过。开发子智能体单列。
+- 当前真实消耗：HTTP **11/40**、Worker admission **3/6**（1次在HTTP前启动失败）、原始费用预留 **15.69658元**（永久保留），11次完整usage按官方最高输入组合费率核算的保守上界 **2.17066/20元**，账单实扣未知。此前Kimi三角色6次正反质量对照通过；native首次2请求在缺前置原始工具输入处安全拒绝，baseline修正参数后3请求产物Gate通过但CLI未正常完成，均不算完整任务PASS。所有失败与计数保留，详见[真实对照](docs/reference/ao-native/closeout-final/live-kimi-comparison.md)。
 - 已完成：共享预算HUMAN收束/恢复与正式双任务负例；Windows卷根/OWNER RIGHTS精确校验及原Codex xfail消除（协议替身）；GLM-5.3标准API参数及新连接入口；实际Electron界面与分项事实。独立审查2项P2：连接写后读失败已修复且定向通过；打包Python本地导入已修复探测通过，待最终产物复核。
 - 当前执行（北京时间09-22 01:15）：Windows frontend、Go、Python完整首轮均结束，失败及定向修复分别记入[Windows回归](docs/reference/ao-native/closeout-final/windows-regression.md)与[前端回归](docs/reference/ao-native/closeout-final/frontend-regression.md)，不宣称全绿。原生64项中的9个失败均直接复核通过，并新增未确认停止的真实重启负例；发现且修复已失败语义角色可通过continue重复进入暂停的产品缺陷。domain官方模块校验下载阻塞已解决，readonly离线复核通过；旧Controller剩余26项限制单列。
-- 已独立复核：Managed Codex共享DACL与真实工厂协议握手；Git导入保护CLAO/自定义状态及Windows junction；Python超长侧车；切换Agent的Windows交接文件私有DACL；官方Kimi 2.0.2部分ACP权限消息与当前工具输入关联。真实请求封装离线21项、进程/预算/审批验收75项通过，未增加真实消耗。
+- 已独立复核：Managed Codex共享DACL与真实工厂协议握手；Git导入保护CLAO/自定义状态及Windows junction；Python超长侧车；切换Agent的Windows交接文件私有DACL；官方Kimi 2.0.2部分ACP权限消息与当前工具输入关联。真实请求封装离线26项、进程/预算/审批验收95项通过，未增加真实消耗。
 - 实际发行：干净1002f8d构建、NSIS实际安装、GUI任务→Gate/Verifier→ZIP→独立Git应用→同一Gate通过；旧Python搜索路径负例、6462文件完整性、前提缺失提示、卸载保留数据/官方AO均通过。实际安装应用六组主题/宽度/原生200%检查通过，双Worker便携预演通过；均标识版本，待纳入后续运行层修复的最终构建与安装双任务复验。
 - 外部前提：GLM项目凭据引用、两套独立干净Windows仍待提供；使用现有登录启动测试daemon被客户端自动审批拒绝（仅返回blocked by policy），未重试或通过其他代理绕过。其余验证继续。
-- 下一动作：补齐Kimi正常ACP入口的独立配置/登录准备及Windows凭据保护，经独立审查后进行预算内真实Worker/单Agent对照；最终干净构建、实际安装双任务旅程；更新总PR和交接。
+- 下一动作：Kimi managed-home已独立审查通过并提交e5c87e6；真实流式协议暴露审批前rawInput缺失，精确2.0.2参数解码已提交288e64d并经官方CLI离线三条实际消费者链路及独立审查通过（旧probe先后误判已纠正）。Windows Node ZIP深目录提取修正已提交1e1193b；新运行HEAD最终构建和实际安装双任务验收；预算内最终对照与总PR交接。
 - 退出仅限：全部交付并复核；到时间窗口且有效工作保存提交；或全部剩余工作均为必须负责人处理的外部前提。
 
 以下为原切片历史记录；与本轮权限冲突的 NOT_RUN/暂缓/停止只描述当时执行范围。
