@@ -65,9 +65,9 @@ Windows账户目录检查已修复卷根TrustedInstaller/精确CreateDirectories
 
 ## 数据与验证
 
-旧 `clao/config`、系统凭据、runtime 和官方 AO 数据不自动读取、改写或删除。只有上述明确选择的旧配置/运行材料才形成当前 AO SQLite 的只读导入记录；不是混用两个运行数据库。本轮验证使用隔离样例，未导入负责人的真实材料。用户实际调用原生工具时仍使用该工具官方认证；本轮自动验证全部用临时 HOME/APPDATA、测试进程，不使用用户账号或 Key。
+旧配置、系统凭据、runtime和官方AO数据不会自动迁移、改写或删除。只有用户明确选择的旧配置/运行材料才形成导入记录。本轮仅对明确授权的项目Kimi引用读取系统凭据进行合成任务验证；测试HOME、账户和项目保持隔离，不自动导入负责人历史。
 
-验证与实际截图见 [原生集成证据](../docs/reference/ao-native/README.md)。沿用既有 Windows/离线集成、开发构建、Electron 操作及 Codex 截图自查；PR #46 外部代码审计 PASS 不代表负责人已完成完整体验；本角色切片也已再次外部代码审计 PASS 并合入；各次源码审计均不等于负责人完整体验。OpenCode ACP 路径经过实际 AO 服务，外部进程/模型使用替身；Codex 隔离环境的 `account_storage_unsafe` 仍待解决，xfailed 不是执行通过。真实账户/模型、套餐计费、全部执行器/角色兼容、全量、安装与发布验收尚未完成。PR #46/#47/#48 合并收尾未重跑测试或构建；各切片历史证据分节保留；当前阶段 Windows 定向、实际 Electron 单/双 Worker 与独立补丁应用已完成，具体命令与内部返修见现有台账。正式默认入口和发布 manifest 未切换。
+当前验证见[收尾证据](../docs/reference/ao-native/closeout-final/README.md)。Codex的Windows账户DACL误判已修复、原xfail删除且协议替身旅程通过；真实现有登录测试daemon仍被客户端自动审批拒绝。Kimi官方2.0.2/国内标准API真实小任务完整闭环通过。三个栈完整首轮已执行并保留失败、相关消费者定向修复与独立复核；独立Windows候选manifest已切换并完成构建，实际安装验收按精确版本记录。GLM、两套独立干净Windows、负责人完整体验与正式发布仍未完成。PR #46/#47/#48以下验收与NOT_RUN均为当时历史，不覆盖本轮授权或当前事实。
 
 
 ## 角色决策与配置切片
@@ -94,7 +94,7 @@ PR #47 的原生语义通道以 `read-only` 能力准入（本阶段另接上述
 
 局部修复和替换共用最多 0–3 次动作预算，替换默认 0、不得高于总预算。同一文件证据重复失败停止诊断循环；额外诊断上限为动作预算 + 2。未确认停止、范围/完整性违规不会进入模型放行。每次 incident、角色调用和动作有稳定标识及持久记录，轮询/查询不触发调用。取消遍历所有不可变 owner 的 Session，无法确认则保留 UNKNOWN；新增角色回执丢失可关联已有 Session，不重发、不重新 spawn。当前单 Worker 的可确认阶段继续见下节；不宣称任意进程恢复。
 
-在原请求的“角色与决策”中查看本次选择、未调用/调用中/诊断/决策/程序动作和回执，点击对应角色会话查看原生记录；Gate/AC/结果仍在同一验收面板。需要账户/收费模型的手动执行尚未授权，空账户开发入口仅供打开页面；不要把隔离 fixture 名称当真实型号。
+在原请求的“角色与决策”中查看本次选择、未调用/调用中/诊断/决策/程序动作和回执，点击对应角色会话查看原生记录；Gate/AC/结果仍在同一验收面板。PR #47当时未授权收费调用，空账户入口仅供查看；本轮预算内真实Kimi验证见当前记录。隔离fixture名称不能当真实型号。
 
 ### PR #47 历史直接验证与截图
 
@@ -115,7 +115,7 @@ $env:CLAO_DESKTOP_TEST_PORT = '7320'
 & 'C:\Users\Lenovo\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe' scripts/test-clao-desktop.cjs
 ```
 
-该脚本另建临时数据/profile/Git 与协议进程替身，未替换 AO Manager/Chat/Store/Gate；不会使用真实账户、Key 或模型。保留 Codex `account_storage_unsafe` / xfailed 边界。NOT_RUN：真实模型/账户/套餐、完整体验、全执行器兼容、全量、smoke、发行安装包和发布；没有导入旧数据或切换正式入口。
+该脚本另建临时数据/profile/Git与协议进程替身，未替换AO Manager/Chat/Store/Gate；不会使用真实账户、Key或模型。PR #47当时保留Codex账户xfail，本轮修复见上文。该历史切片NOT_RUN：真实模型/账户/套餐、完整体验、全执行器兼容、全量、smoke、发行安装包和发布；当时没有导入旧数据或切换正式入口。
 
 
 ## 运行恢复与用户指令回执
@@ -163,4 +163,4 @@ $env:CLAO_DESKTOP_TEST_PORT = '7320'
 & 'C:\Users\Lenovo\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe' scripts/test-clao-desktop.cjs
 ```
 
-直接检查的命令/结果及修正见 [迁移台账](../docs/V03_BACKLOG.md#原生运行恢复与用户指令回执切片2026-09-10)。仅替换外部引擎/模型和受控故障边界，实际 AO daemon/Session/Chat/SQLite/Git/Python 验收未替换。继续保留 `account_storage_unsafe`；没有使用真实 Key/账户，xfailed 不算执行通过。NOT_RUN：真实模型/登录/套餐、任意执行器兼容、全量、smoke、发行构建/安装与完整体验。
+直接检查的命令/结果及修正见[迁移台账](../docs/V03_BACKLOG.md#原生运行恢复与用户指令回执切片2026-09-10)。仅替换外部引擎/模型和受控故障边界，实际AO daemon/Session/Chat/SQLite/Git/Python验收未替换。PR #48当时保留账户xfail且未使用真实Key/账户，本轮修复见上文。该历史切片NOT_RUN：真实模型/登录/套餐、任意执行器兼容、全量、smoke、发行构建/安装与完整体验。

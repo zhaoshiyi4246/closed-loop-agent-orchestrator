@@ -8,7 +8,7 @@
 
 Kimi K3六次真实HTTP角色质量对照通过（Verifier/Auditor/Planner各正反例）；精确官方CLI2.0.2最终真实Worker→Gate→Verifier→DONE→独立导出应用Gate通过。同题baseline文件Gate通过，但达到预设4步上限未正常完成；此前失败保留。累计19/40次HTTP、5/6次Worker，完整usage按最高输入组合费率核算保守上界4.36718/20元，原预留记录不改，账单实扣未知，见[有限对照](reference/ao-native/closeout-final/live-kimi-comparison.md)。现有Codex登录daemon启动被客户端自动审批拒绝；GLM凭据引用及两套干净Windows未取得。Managed Codex的Windows 0700误判已改为共享实际DACL验证，真实工厂协议握手、验证、保存、再读与权限负例经独立复核通过。项目Git导入补齐CLAO及自定义StateDir、父目录和Windows junction保护，实际负例保持状态文件原样且不创建.git。
 
-发行已修复许可证枚举、shared模块映射、Python核心隔离与Gate本地导入、Electron官方缓存校验及开发工具包装器裁剪。干净`1002f8d`产物已实际NSIS安装，GUI任务、Gate/Verifier、ZIP独立应用、六组主题/宽度/原生200%和卸载保留数据均通过；旧Python路径负例、外部前提提示和与便携包6462文件一致性亦通过。双Worker便携预演通过，但最终安装包仍须纳入后续运行层修复后重建验收，版本证据不混用。
+发行已修复许可证枚举、shared映射、Python核心隔离与Gate本地导入、Electron官方缓存校验、Node深目录提取及开发工具包装器裁剪。最终clean1325591候选已实际NSIS安装，单/双任务GUI、Gate/Verifier、ZIP独立应用、六组主题/宽度/原生200%、断连状态及卸载保留163任务/证据文件通过，6462安装文件一致、官方AO不变。安装器自身退出码未采集，不补造exit0；实际安装完整性与运行通过。最终证据见[安装记录](reference/ao-native/closeout-final/installed-1325591/README.md)，旧1002f8d负例保留版本边界。
 
 Windows完整首轮及定向复核见[Windows回归](reference/ao-native/closeout-final/windows-regression.md)、[前端回归](reference/ao-native/closeout-final/frontend-regression.md)。原生64项的9个初始失败已直接复核通过，新增未确认停止重启负例；真实缺陷“失败角色可继续导致反复暂停”已修复。Windows交接文件改为私有DACL原子创建与现有文件只验证；Kimi独立home准备与精确2.0.2原始参数流审批绑定已完成，过期/冲突拒绝。真实OAuth/Coding Plan及跨版本未验证。完成门、额度及下一动作由 [PLANS](../PLANS.md) 与 [台账](V03_BACKLOG.md) 维护，下方旧限制为历史。
 
@@ -19,7 +19,7 @@ Windows完整首轮及定向复核见[Windows回归](reference/ao-native/closeou
 | 产品 | CLAO / Closed-Loop Agent Orchestrator |
 | 已发布版本 | v0.2，Windows本地比赛版 |
 | 已发布源码 | 4d3e8e6b5e70bab868b2eef0d28c7742dea044ba |
-| 开发目标 | v0.3：F01–F05、R01/R02、U01/U02/U03 已审计合入 main（DONE）；M0/M1/M2/M3 COMPLETE，M4 IN_PROGRESS；P01/P02 工程切片 DONE、整卡 IN_PROGRESS；原生底座基础集成 DONE，整体迁移 IN_PROGRESS；角色决策切片 DONE；当前唯一切片为 原生迁移收官大阶段（IN_REVIEW）；PR #48 恢复/指令回执 DONE，外部代码审计 PASS 并已合入；联合真实评测暂缓 |
+| 开发目标 | v0.3：F01–F05、R01/R02、U01/U02/U03 已审计合入 main（DONE）；M0/M1/M2/M3 COMPLETE，M4 IN_PROGRESS；P01/P02 工程切片 DONE、整卡 IN_PROGRESS；原生底座基础集成 DONE，整体迁移 IN_PROGRESS；角色决策切片 DONE；当前唯一切片为 原生迁移收官大阶段（IN_REVIEW）；PR #48 恢复/指令回执 DONE，外部代码审计 PASS 并已合入；Kimi有限真实已验证，GLM/Codex及干净Windows前提未齐 |
 | 主仓库 | zhaoshiyi4246/closed-loop-agent-orchestrator |
 | 产品源码路径 | `ao/` 为当前迁移开发入口；`clao/` 保留旧产品与可复用核心，正式默认入口未切换 |
 | 发布工具 | `packaging/build-release.ps1` 与 `packaging/release-manifest.txt` |

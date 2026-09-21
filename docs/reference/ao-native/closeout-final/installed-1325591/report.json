@@ -1,0 +1,42 @@
+{
+  "test": "installed-complete-journey",
+  "expectedGateImportFailure": false,
+  "sourceCommit": "1325591e02cb3a091755189e20f4c80ca8fe992f",
+  "executableSHA256": "1c3d7cf28a11f6e6b3a754a1dfabb4416c1d5e993b5004f7a05ddb64ae0a55b4",
+  "engine": "prebuilt external protocol fixture; no real model request",
+  "applicationPathTools": [
+    "Windows system tools",
+    "Git",
+    "external fixture"
+  ],
+  "steps": [
+    "real installed Electron identity and independent profile",
+    "open an ordinary directory through installed GUI",
+    "external fixture Worker -> real bundled Python Gate importing solution -> independent fixture Verifier -> DONE",
+    "GUI ZIP download -> bundled Python extraction -> Git apply in independent directory -> same Gate passes; original source preserved",
+    "actual installed Electron light/dark at 1440/960 and 200% zoom; one total graph; connection save without model request",
+    "two real concurrent fixture Workers in one interactive installed graph; transport loss clears active claims; integrated Gate and final Verifier pass"
+  ],
+  "mission": {
+    "id": "8cae061a-fb7e-45b2-9391-5205407dd473",
+    "state": "DONE",
+    "model": "test/native",
+    "resultHead": "e86c398cd4a225d93a316dab1e10b24a1690b9e4",
+    "worker": "clao-local-d0ba071a1331a6c2-1",
+    "verifier": "clao-local-d0ba071a1331a6c2-2"
+  },
+  "exportSHA256": "6e5c644301d3d17437d021163fb11bd8ce412545378ded3cc614e785fd9401c1",
+  "dual": {
+    "id": "8e46c77f-befd-4eb5-a67a-ec606f4af136",
+    "state": "DONE",
+    "workers": [
+      "clao-local-d0ba071a1331a6c2-5",
+      "clao-local-d0ba071a1331a6c2-4"
+    ],
+    "verifier": "clao-local-d0ba071a1331a6c2-6",
+    "nodeSelectionChecked": 2,
+    "singleGraph": true,
+    "transportLossChecked": true
+  },
+  "passed": true
+}

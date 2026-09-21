@@ -88,7 +88,9 @@ node ao/frontend/scripts/test-clao-desktop.cjs
 
 截图来自实际开发 Electron；已由 Codex 查看并收敛重复的恢复提示和大段默认展开证据。不是生成图，不代表负责人已经完成视觉/体验验收。
 
-## 明确未通过/未运行
+## PR #46历史未通过/未运行
+
+以下只描述当时切片；本轮账户修复、真实Kimi、完整首轮和安装证据见[收尾记录](closeout-final/README.md)。
 
 - **Codex 代表路径未准入**：AO v0.12.12 在隔离 Windows 账户目录报 `account_storage_unsafe` / `Codex account setup did not complete`。保留该场景并记为 xfailed，不 materialize；此次按 owner 事实区分未启动 FAILED 与 UNKNOWN，没有绕过账户 ACL 或借用用户登录。这不影响已经验证的 OpenCode ACP 代表路径，但不能据此称全部执行器兼容。
 - 较早一次过宽的 `TestBuild` 名称筛选带入上游 `TestBuildSourceHandoffRequestUsesCurrentNativeSessionContext`，在 Windows 原路径与 JSON 转义路径比较失败。该测试与函数未修改，仍保留；不把本次定向通过表述为上游全量通过。
@@ -130,4 +132,4 @@ $env:CLAO_SCREENSHOTS = 'E:\Projects\clao-ao-native\docs\reference\ao-native\clo
 & 'C:\Users\Lenovo\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe' ao/frontend/scripts/test-clao-desktop.cjs
 ```
 
-此替身命令不同于普通使用；不导入真实账号。闭环路径由外部协议替身验证，不称真实模型验收。当前 `account_storage_unsafe` 的祖先 ACL 限制继续保留，未改检查或用户权限。NOT_RUN：真实账号/Key/登录/模型/套餐计费与质量评测；全部执行器组合；全量；smoke；发行/安装器；负责人完整体验。整体迁移/M4 IN_PROGRESS，正式入口和已发布 v0.2 不变。
+此替身命令不同于普通使用；不导入真实账号。闭环路径由外部协议替身验证，不称真实模型验收。本段为09-11阶段历史，当时保留账户祖先ACL限制；本轮精确修复与实测见页首，用户权限未改。该历史阶段NOT_RUN：真实账号/Key/登录/模型/套餐计费与质量评测；全部执行器组合；全量；smoke；发行/安装器；负责人完整体验。整体迁移/M4 IN_PROGRESS，已发布v0.2不变。

@@ -1,6 +1,6 @@
 # CLAO v0.3 任务与验收台账
 
-版本：0.3-plan-r1 · 2026-09-06。状态：已批准 / IN EFFECT。DOC-00、F01–F05、R01 / R02 已完成（DONE），M0 / M1 / M2 为 `COMPLETE`；U01 / U02 / U03 均已审计合入（`DONE`），U02 两个切片保持 `DONE`；M3 `COMPLETE` 表示本阶段开发与代码审计完成，完整体验与发布验收尚未完成；M4 `IN_PROGRESS`，P01/P02 工程切片均已审计合入（`DONE`），两张整卡保持 `IN_PROGRESS`；原生底座基础集成已完成，整体迁移仍 IN_PROGRESS；角色决策切片 DONE；当前唯一切片为 原生迁移收官大阶段（IN_REVIEW）；PR #48 恢复/指令回执 DONE，外部代码审计 PASS 并已合入，联合真实评测暂缓；其余功能卡状态见下表，原报告的发现不等于已复现或已修复。
+版本：0.3-plan-r1 · 2026-09-06。状态：已批准 / IN EFFECT。DOC-00、F01–F05、R01 / R02 已完成（DONE），M0 / M1 / M2 为 `COMPLETE`；U01 / U02 / U03 均已审计合入（`DONE`），U02 两个切片保持 `DONE`；M3 `COMPLETE` 表示本阶段开发与代码审计完成，完整体验与发布验收尚未完成；M4 `IN_PROGRESS`，P01/P02 工程切片均已审计合入（`DONE`），两张整卡保持 `IN_PROGRESS`；原生底座基础集成已完成，整体迁移仍 IN_PROGRESS；角色决策切片 DONE；当前唯一切片为 原生迁移收官大阶段（IN_REVIEW）；PR #48 恢复/指令回执 DONE，外部代码审计 PASS 并已合入，Kimi有限真实验证已记录、GLM等外部前提仍待满足；其余功能卡状态见下表，原报告的发现不等于已复现或已修复。
 
 设计以 [V03_PLAN.md](V03_PLAN.md) 为准。当前唯一任务由根目录 [PLANS.md](../PLANS.md) 指定。本文件保存每张卡的详细状态和证据，PLANS 不重复整张台账。
 
@@ -11,11 +11,11 @@
 - 初始实测：现有开发工作树干净，PR OPEN；主目录仅负责人配置修改。尚未运行本轮产品测试或真实请求。
 - 实施与验收：预算状态和双任务争用回归、真实验收/运行图事实、UI收敛、账户/GLM-5.3/保留Kimi、随包Python运行时与独立安装、最终回归/真实对照/独立审查。两套干净Windows若无法获取，明确BLOCKED，不以目录替代环境。
 - 实际消耗：HTTP19/40、Worker admission5/6（含1次请求前失败）、保守确认费用上界4.36718/20元；历史原预留27.46946元不改，非实扣或同时在途费用。Kimi三角色质量正反例及最终native真实闭环通过；同题baseline文件Gate通过但达到4步上限未完成。完整失败与口径见[有限对照](reference/ao-native/closeout-final/live-kimi-comparison.md)。
-- 已验证实现：共享预算最终HUMAN、继续409/新尝试正常、持久故障仍恢复；Windows精确根ACL/OWNER RIGHTS正负例及Codex原生替身完整DONE（旧xfail删除）；新连接和GLM53本地HTTP正式角色旅程；实际Electron主题/宽度/200%及单/双任务导出。完整回归仍在执行，最终UI整理待定向复查。
+- 已验证实现：共享预算最终HUMAN、继续409/新尝试正常、持久故障仍恢复；Windows精确根ACL/OWNER RIGHTS正负例及Codex原生替身完整DONE（旧xfail删除）；新连接和GLM53本地HTTP正式角色旅程；实际Electron主题/宽度/200%及单/双任务导出。完整首轮及受影响UI定向复查已完成，分类失败保留，最终安装应用复验单列。
 - 内部独立审查2项P2：连接写入后读失败误409，现保留同一身份并503对账，真实SQLite正负回归已通过；嵌入Python固定搜索路径导致Gate导入项目模块失败，改为normal/core双入口，实测项目导入和核心隔离通过，待安装产物复核。
 - 发行首两轮失败均保留：许可证枚举遍历无关Go模块、manifest漏shared前端源码；已修复，未把未完成构建视作安装通过。完整frontend初轮资源耗尽中断，改2workers；Go代理网络失败改官方仓库direct，不关闭校验。GLM引用、Q01两套Windows、客户端自动拒绝真实登录daemon仍单列外部前提。
 - 09-22续验：三个栈完整首轮已执行，适用修复及剩余平台限制详见[Windows回归](reference/ao-native/closeout-final/windows-regression.md)和[前端回归](reference/ao-native/closeout-final/frontend-regression.md)，不将定向集合累计为全量全绿。原生9项失败已复核，角色失败恢复死循环已修复并补正式API负例；Windows交接DACL与官方Kimi部分ACP权限事实绑定已独立复核。
-- 09-22产物：干净1002f8d的NSIS实际安装→GUI完整任务→导出/独立应用→同一Gate、主题/宽度/原生200%、前提缺失提示及卸载保留数据通过，6462文件与便携包一致；最终版本仍待纳入后续运行修复后构建/安装复验。双Worker便携预演通过，不冒称最终安装。Kimi managed-home与精确2.0.2参数审批已修复及独立复核，真实小任务完整通过；两套独立干净Windows仍BLOCKED。
+- 09-22最终产物：clean1325591构建、实际NSIS安装、单/双任务GUI与独立导出Gate、6显示及断连、6462文件校验、卸载保留163任务/证据文件与官方AO不变均通过。安装器退出码未采集但实际文件/运行通过。Kimi小任务真实闭环通过；两套独立干净Windows仍BLOCKED。
 
 ## 状态与记录格式
 
@@ -30,10 +30,10 @@
 - 2026-09-09 负责人更新路线；PR #45 被替代、不合并，原分支及证据保留。不再向旧 Panel 逐项翻译执行器/模型页。
 - 基础切片“AO 原生底座 + 单 Worker 验收闭环基础集成”：**DONE**；[PR #46](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/46) 启动失败返修已通过外部代码审计，2026-09-10 已 rebase 合入 main。迁移工作树与 `codex/ao-native-closed-loop` 分支保留。**整体迁移 / M4 IN_PROGRESS**；M0–M3 COMPLETE 与 P01/P02 工程 DONE 仅为旧底座历史。
 - AO v0.12.12 / `84fb37ce5aa947ceb9b19b0c2435b242ac92ce26` 原样导入在独立提交 `81d2ea9`；后续增量可单独审计。原生模型/账号/Session/终端能力保留，交付不再以登记 27 个入口为指标。
-- 实际入口、控制权、当前支持及未迁移能力见 [ao/CLAO.md](../ao/CLAO.md)，直接验证与截图见 [原生证据](reference/ao-native/README.md)。真实模型/账户/套餐未运行；Codex 隔离账户安全阻塞单列，不假称全执行器兼容。
+- 实际入口、控制权、当前支持及未迁移能力见 [ao/CLAO.md](../ao/CLAO.md)，直接验证与截图见 [原生证据](reference/ao-native/README.md)。Kimi有限真实标准API已验证，Codex账户协议替身安全阻塞已修复；真实登录客户端审批、GLM及套餐等限制单列，不假称全执行器兼容。
 - PR #46 局部返修：项目页直接查询持久 Mission，启动失败无 Session 也可查看原因和原请求；原生 owner 关联回执丢失保持 UNKNOWN/停止入口，已确认未启动记 FAILED 并允许新尝试。新提交身份与分支不复用旧请求，保留草稿；不放宽 `account_storage_unsafe`。本次定向故障/桌面证据及准确启动命令见上述入口。
 - 已接：原生项目/模型入口、单 Worker 的 Session/工作区接线、Gate/范围/完整性、有界修复、独立 Verifier、启动请求可见/失败处理及验收面板。
-- 当前唯一切片：**原生迁移收官大阶段，IN_REVIEW**；PR #48 恢复/指令回执已审计 PASS 并合入（DONE）。角色决策切片已审计合入（DONE）。上述来源、结果、导入与运行图纳入本阶段；任意在途执行恢复、真实准入及正式发行入口仍未完成。P01/P02 联合真实评测继续暂缓，P03 不开始。
+- 当前唯一切片：**原生迁移收官大阶段，IN_REVIEW**；PR #48 恢复/指令回执已审计 PASS 并合入（DONE）。角色决策切片已审计合入（DONE）。上述来源、结果、导入与运行图纳入本阶段；任意在途执行恢复、真实准入及正式发行入口仍未完成。本轮Kimi角色及Worker有限真实验证已完成记录，P03 IN_PROGRESS；GLM、真实Codex和干净Windows外部前提单列。
 - PR #46 收尾仅检查文档链接与差异，不重跑既有验证。沿用 Windows/离线集成与 Electron 检查、Codex 截图自查；本次为外部代码审计 PASS，负责人完整体验、真实账户/模型及发布验收尚未完成。`account_storage_unsafe` 保持待解决，xfailed 不是执行通过；保留空账户隔离开发入口，不切换正式发行入口。
 
 ### 原生迁移收官大阶段（2026-09-11 授权）
@@ -484,8 +484,8 @@ P01 工程收尾（2026-09-09，历史）：仅完成 PR #43 rebase merge、背�
 - 评测：预先批准有限次数/时长/费用预算，固定同任务/source/Gate/成功标准做对照与角色消融；评估完成质量、人工介入、耗时和用量，未知用量不伪补，不以 Agent 数量证明优势。演示视频在产品完成后制作，开发夹具不作为用户功能。
 - 完成：固定source SHA、最终artifact hash、任务/Gate/Verifier/SCM证据、浏览器记录、明确模型支持矩阵、已知限制和回滚说明。所有查询/字段错误不能被空成功吞掉。
 - 发布纪律：旧v0.2不可覆盖；产品文件若变，重新验证受影响路径；仅开发文档变可用manifest blob等价性，不重跑昂贵live。
-- 状态（2026-09-22）：IN_PROGRESS；两套独立干净Windows条件BLOCKED。独立NSIS/便携包、随包Python双入口、应用身份/许可/来源/校验已接通。1002f8d实际安装、完整离线GUI旅程、结果独立应用、真实缩放、前提缺失及卸载保留数据通过；后续运行修复仍需最终重建复验。
-- 证据：[1002f8d安装记录](reference/ao-native/closeout-final/installed-1002f8d/README.md)、[Windows回归](reference/ao-native/closeout-final/windows-regression.md)、[前端回归](reference/ao-native/closeout-final/frontend-regression.md)。真实Kimi Worker及同题CLI有限对照已完成记录，baseline未完整完成；六次Kimi语义角色真实质量对照见本文件顶部台账。
+- 状态（2026-09-22）：IN_PROGRESS；两套独立干净Windows条件BLOCKED。独立NSIS/便携包、随包Python双入口、应用身份/许可/来源/校验已接通。1325591最终实际安装、单/双任务GUI、结果独立应用、真实缩放/断连及卸载保留数据通过；旧1002f8d的前提缺失负例按版本保留。
+- 证据：[最终1325591安装](reference/ao-native/closeout-final/installed-1325591/README.md)、[1002f8d安装记录](reference/ao-native/closeout-final/installed-1002f8d/README.md)、[Windows回归](reference/ao-native/closeout-final/windows-regression.md)、[前端回归](reference/ao-native/closeout-final/frontend-regression.md)。真实Kimi Worker及同题CLI有限对照已完成记录，baseline未完整完成；六次Kimi语义角色真实质量对照见本文件顶部台账。
 
 ## 通用证据模板
 
