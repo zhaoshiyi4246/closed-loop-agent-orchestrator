@@ -2,18 +2,19 @@ package kimi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
+	"runtime"
 	"strings"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/adapters/agent/hookutil"
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
+	"github.com/aoagents/agent-orchestrator/backend/internal/privatefile"
+	"github.com/pelletier/go-toml/v2"
 )
-
-var kimiAPIKeyLineRE = regexp.MustCompile(`(?m)^\s*api_key\s*=\s*("([^"]*)"|'([^']*)'|([^\s#]+))`)
 
 const (
 	kimiInstructionsDirName  = ".kimi"
@@ -40,7 +41,7 @@ func (p *Plugin) GetAgentHooks(ctx context.Context, cfg ports.WorkspaceHookConfi
 		return errors.New("kimi.GetAgentHooks: WorkspacePath is required")
 	}
 
-	if err := installKimiConfigHooks(cfg); err != nil {
+	if err := installKimiConfigHooks(ctx, cfg); err != nil {
 		return fmt.Errorf("kimi.GetAgentHooks: %w", err)
 	}
 
@@ -101,45 +102,45 @@ func kimiInstructionsPath(workspacePath string) string {
 	return filepath.Join(workspacePath, kimiInstructionsDirName, kimiInstructionsFileName)
 }
 
-func installKimiConfigHooks(cfg ports.WorkspaceHookConfig) error {
+func installKimiConfigHooks(ctx context.Context, cfg ports.WorkspaceHookConfig) error {
 	home, ok := kimiCodeHomeFromEnv(cfg.Env)
 	if !ok {
 		return errors.New("kimi: AO-managed Kimi Code home is unavailable")
 	}
-	if err := seedKimiCredentials(home); err != nil {
+	bindings, err := prepareManagedKimiHome(ctx, home, cfg.Env, true)
+	if err != nil {
 		return err
 	}
-	path := filepath.Join(home, "config.toml")
-	data, err := os.ReadFile(path) //nolint:gosec // path is the AO-managed Kimi config under KIMI_CODE_HOME.
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("read %s: %w", path, err)
-	}
-	if seeded, ok, err := kimiSeedConfig(path, data); err != nil {
-		return err
-	} else if ok {
-		data = seeded
-	}
-	body := mergeKimiHooksConfig(string(data))
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-		return fmt.Errorf("create Kimi config dir: %w", err)
-	}
-	if err := hookutil.AtomicWriteFile(path, []byte(body), 0o600); err != nil {
-		return fmt.Errorf("write %s: %w", path, err)
+	for key, value := range bindings {
+		cfg.Env[key] = value
 	}
 	return nil
 }
 
-func seedKimiCredentials(targetHome string) error {
+func seedKimiCredentials(targetHome string, selectedConfig []byte) error {
 	sourceHome, ok := kimiCodeHome()
 	if !ok {
 		return nil
 	}
-	sourceConfigPath := filepath.Join(sourceHome, "config.toml")
-	sourcePaths, err := kimiConfigOAuthCredentialPaths(sourceConfigPath)
-	if err != nil {
-		return fmt.Errorf("read source Kimi config %s: %w", sourceConfigPath, err)
+	var config kimiAuthConfig
+	if err := toml.Unmarshal(selectedConfig, &config); err != nil {
+		return errors.New("kimi: source config is invalid; content withheld")
 	}
-	if len(sourcePaths) == 0 {
+	var sourcePaths []string
+	for _, provider := range config.Providers {
+		if provider.OAuth == nil {
+			continue
+		}
+		if provider.OAuth.Storage != "" && provider.OAuth.Storage != "file" {
+			return errors.New("kimi: unsupported OAuth storage")
+		}
+		name := strings.TrimPrefix(provider.OAuth.Key, "oauth/")
+		if name == "" || name != filepath.Base(name) || strings.ContainsAny(name, `/\\`) || strings.HasPrefix(name, ".") {
+			return errors.New("kimi: unsupported OAuth credential name")
+		}
+		sourcePaths = append(sourcePaths, filepath.Join(sourceHome, "credentials", name+".json"))
+	}
+	if len(config.Providers) == 0 {
 		// Preserve the legacy credential-only seed path for profiles created by
 		// Kimi versions that did not persist an OAuth reference in config.toml.
 		sourcePaths = []string{filepath.Join(sourceHome, "credentials", "kimi-code.json")}
@@ -157,29 +158,37 @@ func seedKimiCredential(sourcePath, targetPath string) error {
 	if sameKimiConfigPath(sourcePath, targetPath) {
 		return nil
 	}
-	if _, err := os.Stat(targetPath); err == nil {
-		return nil
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("stat target Kimi credentials %s: %w", targetPath, err)
+	if _, err := os.Lstat(filepath.Dir(targetPath)); err == nil {
+		if err := privatefile.ValidateDirectory(filepath.Dir(targetPath)); err != nil {
+			return err
+		}
 	}
-	status, ok, err := kimiCredentialsAuthStatus(sourcePath)
-	if err != nil {
-		return fmt.Errorf("read source Kimi credentials %s: %w", sourcePath, err)
-	}
-	if !ok || status != ports.AgentAuthStatusAuthorized {
+	if existing, err := readManagedKimiFile(targetPath, true); err != nil {
+		return err
+	} else if existing != nil {
 		return nil
 	}
-	data, err := os.ReadFile(sourcePath) //nolint:gosec // user Kimi credentials copied into AO's isolated Kimi home.
+	data, err := readManagedKimiFile(sourcePath, false)
 	if err != nil {
-		return fmt.Errorf("read source Kimi credentials %s: %w", sourcePath, err)
+		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(targetPath), 0o700); err != nil {
-		return fmt.Errorf("create target Kimi credentials dir: %w", err)
+	if data == nil {
+		return nil
 	}
-	if err := hookutil.AtomicWriteFile(targetPath, data, 0o600); err != nil {
-		return fmt.Errorf("write target Kimi credentials %s: %w", targetPath, err)
+	var credential struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
 	}
-	return nil
+	if err := json.Unmarshal(data, &credential); err != nil {
+		return errors.New("kimi: source OAuth credential is invalid; content withheld")
+	}
+	if strings.TrimSpace(credential.AccessToken) == "" && strings.TrimSpace(credential.RefreshToken) == "" {
+		return nil
+	}
+	if err := privatefile.EnsureDirectory(filepath.Dir(targetPath)); err != nil {
+		return err
+	}
+	return writeManagedKimiFile(targetPath, data, true)
 }
 
 func kimiCodeHomeFromEnv(env map[string]string) (string, bool) {
@@ -189,61 +198,6 @@ func kimiCodeHomeFromEnv(env map[string]string) (string, bool) {
 		}
 	}
 	return "", false
-}
-
-func kimiSeedConfig(targetPath string, existing []byte) ([]byte, bool, error) {
-	if kimiConfigHasAPIKey(existing) {
-		return nil, false, nil
-	}
-	if !kimiConfigCanSeed(existing) {
-		return nil, false, nil
-	}
-	sourceHome, ok := kimiCodeHome()
-	if !ok {
-		return nil, false, nil
-	}
-	sourcePath := filepath.Join(sourceHome, "config.toml")
-	if sameKimiConfigPath(sourcePath, targetPath) {
-		return nil, false, nil
-	}
-	source, err := os.ReadFile(sourcePath) //nolint:gosec // user/process Kimi config used only as a seed for AO-managed home.
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, false, nil
-	}
-	if err != nil {
-		return nil, false, fmt.Errorf("read source Kimi config %s: %w", sourcePath, err)
-	}
-	if !kimiConfigHasAPIKey(source) {
-		// Device-code logins leave api_key empty and keep their tokens in the
-		// credential file. The full config is still required for default_model,
-		// the provider/OAuth mapping, model aliases, services, and permissions.
-		authorized, err := kimiSourceOAuthAuthorized(sourceHome)
-		if err != nil {
-			return nil, false, err
-		}
-		if !authorized {
-			return nil, false, nil
-		}
-	}
-	return source, true, nil
-}
-
-func kimiSourceOAuthAuthorized(sourceHome string) (bool, error) {
-	configPath := filepath.Join(sourceHome, "config.toml")
-	paths, err := kimiConfigOAuthCredentialPaths(configPath)
-	if err != nil {
-		return false, fmt.Errorf("read source Kimi config %s: %w", configPath, err)
-	}
-	for _, path := range paths {
-		status, ok, err := kimiCredentialsAuthStatus(path)
-		if err != nil {
-			return false, fmt.Errorf("read source Kimi credentials %s: %w", path, err)
-		}
-		if ok && status == ports.AgentAuthStatusAuthorized {
-			return true, nil
-		}
-	}
-	return false, nil
 }
 
 func kimiConfigCanSeed(existing []byte) bool {
@@ -268,22 +222,16 @@ func removeKimiManagedHooks(existing string) string {
 	return existing[:start] + existing[end:]
 }
 
-func kimiConfigHasAPIKey(data []byte) bool {
-	for _, match := range kimiAPIKeyLineRE.FindAllStringSubmatch(string(data), -1) {
-		for _, group := range match[2:] {
-			if strings.TrimSpace(group) != "" {
-				return true
-			}
-		}
-	}
-	return false
-}
-
 func sameKimiConfigPath(a, b string) bool {
 	absA, errA := filepath.Abs(a)
 	absB, errB := filepath.Abs(b)
 	if errA == nil && errB == nil {
-		return absA == absB
+		if absA == absB || (runtime.GOOS == "windows" && strings.EqualFold(absA, absB)) {
+			return true
+		}
+		infoA, errA := os.Stat(absA)
+		infoB, errB := os.Stat(absB)
+		return errA == nil && errB == nil && os.SameFile(infoA, infoB)
 	}
 	return filepath.Clean(a) == filepath.Clean(b)
 }

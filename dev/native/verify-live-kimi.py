@@ -309,6 +309,10 @@ def main():
                KIMI_CODE_INFINITE_RETRY='0', KIMI_DISABLE_CRON='1', KIMI_DISABLE_TELEMETRY='1',
                KIMI_CODE_NO_AUTO_UPDATE='1', KIMI_LOG_LEVEL='off', OPENAI_LOG='off',
                CLAO_LIVE_LEDGER=str(args.ledger), CLAO_LIVE_CASE=case)
+    if args.mode == 'native':
+        # Native ACP chooses its managed home. The daemon's user profile stays
+        # distinct so preparation never mistakes managed files for source login.
+        env.pop('KIMI_CODE_HOME')
     env['PATH'] = str(args.node.parent) + os.pathsep + str(Path(sys.executable).parent) + os.pathsep + env['PATH']
     hook = (ROOT/'dev/native/kimi-budget-transport.mjs').as_uri()
     report = dict(case=case, cli_version='2.0.2', service='moonshot_cn', model='kimi-k3',
