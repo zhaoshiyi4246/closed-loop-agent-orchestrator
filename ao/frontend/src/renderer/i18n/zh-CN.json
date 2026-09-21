@@ -1245,7 +1245,7 @@
 	"startup.detailTmuxMissing": "在 PATH 中未找到 tmux；在 macOS/Linux 上启动会话需要它。",
 	"startup.dismissGhSession": "本次会话不再显示",
 	"startup.installGh": "安装 gh",
-	"startup.installGitInstructions": "请从 git-scm.com 安装 git，然后重启 Agent Orchestrator。",
+	"startup.installGitInstructions": "请从 git-scm.com 安装 git，然后重启 CLAO Native。",
 	"startup.installSelected": "安装所选项",
 	"startup.installTmux": "安装 tmux",
 	"startup.installingCommand": "正在安装 — {{command}}",

@@ -127,7 +127,7 @@ function runPython(args, cwd = home) {
   if (options.negative) {
     // maxRepairs=0 hands a deterministic Gate failure to the user.
     assert.equal(mission.state, 'HUMAN', mission.reason);
-    assert.match(JSON.stringify(mission.evidence), /ModuleNotFoundError|No module named .solution/);
+    assert.match(JSON.stringify(mission.evidence), /ModuleNotFoundError: No module named 'solution'/);
     assert(!mission.resultHead && !mission.verifierSessionId, 'A failed Gate must not materialize or invoke the final verifier');
     report.steps.push('real Gate rejects broken embedded Python local-module imports; source preserved');
     await page.screenshot({ path: path.join(evidence, 'installed-gate-import-negative.png') });
@@ -184,6 +184,8 @@ function runPython(args, cwd = home) {
   report.exportSHA256 = crypto.createHash('sha256').update(fs.readFileSync(archive)).digest('hex');
   report.steps.push('GUI ZIP download -> bundled Python extraction -> Git apply in independent directory -> same Gate passes; original source preserved');
   await page.screenshot({ path: path.join(evidence, 'installed-export-saved.png') });
+  await require('../../ao/frontend/scripts/test-clao-visual.cjs')({ page, app, evidence, objective });
+  report.steps.push('actual installed Electron light/dark at 1440/960 and 200% zoom; one total graph; connection save without model request');
 })().then(() => { report.passed = true; }).catch(async error => {
   report.passed = false; report.error = String(error.message || error);
   if (page) await page.screenshot({ path: path.join(evidence, 'installed-failure.png') }).catch(() => {});
