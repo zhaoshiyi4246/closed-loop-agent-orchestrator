@@ -52,12 +52,8 @@ func (fl *fakeListener) Accept() (net.Conn, error) {
 			return c, nil
 		}
 		fl.mu.Unlock()
-		// drain the ready channel so we can block below
-		select {
-		case <-fl.ready:
-		default:
-		}
-		// wait for a new conn or a close signal
+		// A signal may arrive after the queue check. Consume it once and
+		// recheck; draining before waiting would lose that wake-up.
 		<-fl.ready
 	}
 }
@@ -122,7 +118,7 @@ func TestFiresOnceAfterGrace(t *testing.T) {
 
 	fireCount := 0
 	var mu sync.Mutex
-	fired := make(chan struct{})
+	fired := make(chan struct{}, 1)
 	cb := func() {
 		mu.Lock()
 		fireCount++

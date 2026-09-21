@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -323,9 +324,31 @@ func TestValid(t *testing.T) {
 	}
 }
 
+func installTestProcess(ctx context.Context, action string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestInstallProcessHelper$")
+	cmd.Env = append(os.Environ(), "AO_TEST_INSTALL_PROCESS="+action)
+	return cmd
+}
+
+func TestInstallProcessHelper(t *testing.T) {
+	switch os.Getenv("AO_TEST_INSTALL_PROCESS") {
+	case "":
+		return
+	case "success":
+		os.Exit(0)
+	case "failure":
+		os.Exit(7)
+	case "sleep":
+		time.Sleep(5 * time.Second)
+		os.Exit(0)
+	default:
+		os.Exit(2)
+	}
+}
+
 func TestStartAndStatus_Succeeded(t *testing.T) {
 	s := newTestService("darwin", "brew", "tmux")
-	s.commands = testCommandRunner(func(context.Context, []string) *exec.Cmd { return exec.Command("true") })
+	s.commands = testCommandRunner(func(ctx context.Context, _ []string) *exec.Cmd { return installTestProcess(ctx, "success") })
 
 	job, err := s.Start(context.Background(), TargetTmux)
 	if err != nil {
@@ -354,7 +377,7 @@ func TestStartAndStatus_Succeeded(t *testing.T) {
 
 func TestStart_SuccessCallbackRunsAfterVerifiedInstall(t *testing.T) {
 	s := newTestService("darwin", "npm", "codex")
-	s.commands = testCommandRunner(func(context.Context, []string) *exec.Cmd { return exec.Command("true") })
+	s.commands = testCommandRunner(func(ctx context.Context, _ []string) *exec.Cmd { return installTestProcess(ctx, "success") })
 	s.verifier = harnessVerifierFunc(func(context.Context, Target) (VerifyResult, error) {
 		return VerifyResult{ResolvedPath: "/Users/test/.npm/bin/codex"}, nil
 	})
@@ -378,7 +401,7 @@ func TestStart_SuccessCallbackRunsAfterVerifiedInstall(t *testing.T) {
 
 func TestStart_FailedInstallDoesNotRunSuccessCallback(t *testing.T) {
 	s := newTestService("darwin", "npm")
-	s.commands = testCommandRunner(func(context.Context, []string) *exec.Cmd { return exec.Command("false") })
+	s.commands = testCommandRunner(func(ctx context.Context, _ []string) *exec.Cmd { return installTestProcess(ctx, "failure") })
 	called := make(chan Target, 1)
 	s.SetOnSucceeded(func(target Target) { called <- target })
 
@@ -396,7 +419,7 @@ func TestStart_FailedInstallDoesNotRunSuccessCallback(t *testing.T) {
 
 func TestStart_ExitZeroWithoutTargetOnPATHFails(t *testing.T) {
 	s := newTestService("darwin", "brew")
-	s.commands = testCommandRunner(func(context.Context, []string) *exec.Cmd { return exec.Command("true") })
+	s.commands = testCommandRunner(func(ctx context.Context, _ []string) *exec.Cmd { return installTestProcess(ctx, "success") })
 
 	if _, err := s.Start(context.Background(), TargetTmux); err != nil {
 		t.Fatalf("Start() error = %v", err)
@@ -414,7 +437,7 @@ func TestStart_ExitZeroWithoutTargetOnPATHFails(t *testing.T) {
 
 func TestStartAndStatus_Failed(t *testing.T) {
 	s := newTestService("darwin", "brew")
-	s.commands = testCommandRunner(func(context.Context, []string) *exec.Cmd { return exec.Command("false") })
+	s.commands = testCommandRunner(func(ctx context.Context, _ []string) *exec.Cmd { return installTestProcess(ctx, "failure") })
 
 	if _, err := s.Start(context.Background(), TargetTmux); err != nil {
 		t.Fatalf("Start() error = %v", err)
@@ -500,11 +523,11 @@ func TestStart_IdempotentWhileRunning(t *testing.T) {
 
 	s := newTestService("darwin", "brew", "tmux")
 	callCount := 0
-	s.commands = testCommandRunner(func(context.Context, []string) *exec.Cmd {
+	s.commands = testCommandRunner(func(ctx context.Context, _ []string) *exec.Cmd {
 		callCount++
 		started <- struct{}{}
 		<-release
-		return exec.Command("true")
+		return installTestProcess(ctx, "success")
 	})
 
 	first, err := s.Start(context.Background(), TargetTmux)
@@ -542,7 +565,7 @@ func TestRun_Timeout(t *testing.T) {
 	s := newTestService("darwin", "brew")
 	s.installTimeout = 50 * time.Millisecond
 	s.commands = testCommandRunner(func(ctx context.Context, _ []string) *exec.Cmd {
-		return exec.CommandContext(ctx, "sleep", "5") //nolint:gosec // test-only, fixed argv
+		return installTestProcess(ctx, "sleep")
 	})
 
 	if _, err := s.Start(context.Background(), TargetTmux); err != nil {

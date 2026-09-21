@@ -3,6 +3,7 @@ package systeminstall
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -412,7 +413,7 @@ func TestNPMPlanRequiresWritableGlobalPrefix(t *testing.T) {
 	s := newTestService("darwin", "npm")
 	s.installCapabilities = installCapabilitiesStub{prefix: "/Users/test/.npm", writable: true}
 	plan := s.planNPM(TargetCodex, "@openai/codex")
-	if plan.Unsupported || plan.ExpectedDestination != "/Users/test/.npm/bin" {
+	if plan.Unsupported || plan.ExpectedDestination != filepath.Join("/Users/test/.npm", "bin") {
 		t.Fatalf("plan = %+v, want writable npm destination", plan)
 	}
 }

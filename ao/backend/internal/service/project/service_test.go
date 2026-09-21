@@ -187,11 +187,19 @@ func TestManager_AddListGetRemove(t *testing.T) {
 	wantCode(t, err, "PROJECT_NOT_FOUND")
 }
 
+func localRepositoryURL(path string) string {
+	path = filepath.ToSlash(path)
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	return (&url.URL{Scheme: "file", Path: path}).String()
+}
+
 func TestManager_CloneRegistersRepositoryAndPreservesOrigin(t *testing.T) {
 	ctx := context.Background()
 	m := newManager(t)
 	source := gitRepo(t)
-	remoteURL := (&url.URL{Scheme: "file", Path: source}).String()
+	remoteURL := localRepositoryURL(source)
 	destinationParent := t.TempDir()
 
 	cloned, err := m.Clone(ctx, project.CloneInput{
@@ -258,7 +266,7 @@ func TestManager_CloneCleansUpFailedAndEmptyCheckouts(t *testing.T) {
 	destinationParent := t.TempDir()
 
 	missing := filepath.Join(t.TempDir(), "missing-repository")
-	missingURL := (&url.URL{Scheme: "file", Path: missing}).String()
+	missingURL := localRepositoryURL(missing)
 	_, err := m.Clone(ctx, project.CloneInput{RemoteURL: missingURL, DestinationParent: destinationParent})
 	wantCode(t, err, "GIT_CLONE_FAILED")
 	if _, err := os.Stat(filepath.Join(destinationParent, "missing-repository")); !errors.Is(err, os.ErrNotExist) {
@@ -269,7 +277,7 @@ func TestManager_CloneCleansUpFailedAndEmptyCheckouts(t *testing.T) {
 	if out, err := exec.Command("git", "init", "-b", "main", emptySource).CombinedOutput(); err != nil {
 		t.Fatalf("git init empty source: %v (%s)", err, out)
 	}
-	emptyURL := (&url.URL{Scheme: "file", Path: emptySource}).String()
+	emptyURL := localRepositoryURL(emptySource)
 	_, err = m.Clone(ctx, project.CloneInput{RemoteURL: emptyURL, DestinationParent: destinationParent})
 	wantCode(t, err, "CLONE_EMPTY_REPOSITORY")
 	if _, err := os.Stat(filepath.Join(destinationParent, "empty-repository")); !errors.Is(err, os.ErrNotExist) {
@@ -837,7 +845,7 @@ func TestManager_InitializeRepositoryRecovery(t *testing.T) {
 		if err != nil {
 			t.Fatalf("EvalSymlinks: %v", err)
 		}
-		if got := strings.TrimSpace(string(top)); got != want {
+		if got := filepath.Clean(strings.TrimSpace(string(top))); got != want {
 			t.Fatalf("show-toplevel = %q, want %q", got, want)
 		}
 	})
@@ -894,7 +902,7 @@ func TestManager_InitializeRepositoryRecovery(t *testing.T) {
 		if err != nil {
 			t.Fatalf("EvalSymlinks: %v", err)
 		}
-		if got := strings.TrimSpace(string(top)); got != want {
+		if got := filepath.Clean(strings.TrimSpace(string(top))); got != want {
 			t.Fatalf("show-toplevel = %q, want %q", got, want)
 		}
 	})

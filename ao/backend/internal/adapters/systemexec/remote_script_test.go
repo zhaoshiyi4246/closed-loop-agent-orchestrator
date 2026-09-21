@@ -5,11 +5,14 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -20,7 +23,7 @@ import (
 
 func TestRunInstallScriptDownloadsExecutesAndCleansUp(t *testing.T) {
 	t.Parallel()
-	const body = "#!/bin/sh\nprintf 'vendor-script-ran'"
+	body, interpreter := installerScript("printf 'vendor-script-ran'", "[Console]::Write('vendor-script-ran')")
 	server := httptest.NewTLSServer(httpHandler(body))
 	t.Cleanup(server.Close)
 	dataDir := t.TempDir()
@@ -28,7 +31,7 @@ func TestRunInstallScriptDownloadsExecutesAndCleansUp(t *testing.T) {
 	var output bytes.Buffer
 
 	result, err := adapter.RunInstallScript(context.Background(), ports.InstallScriptCommand{
-		URL: server.URL, Interpreter: []string{"sh"}, Env: []string{"CI=1"},
+		URL: server.URL, Interpreter: interpreter, Env: []string{"CI=1"},
 	}, &output, &output)
 	if err != nil {
 		t.Fatal(err)
@@ -48,15 +51,17 @@ func TestRunInstallScriptDownloadsExecutesAndCleansUp(t *testing.T) {
 
 func TestRunInstallScriptCleansUpAfterExecutionFailure(t *testing.T) {
 	t.Parallel()
-	server := httptest.NewTLSServer(httpHandler("#!/bin/sh\nexit 7"))
+	body, interpreter := installerScript("exit 7", "exit 7")
+	server := httptest.NewTLSServer(httpHandler(body))
 	t.Cleanup(server.Close)
 	dataDir := t.TempDir()
 
 	_, err := newAdapter(dataDir, server.Client()).RunInstallScript(context.Background(), ports.InstallScriptCommand{
-		URL: server.URL, Interpreter: []string{"sh"},
+		URL: server.URL, Interpreter: interpreter,
 	}, io.Discard, io.Discard)
-	if err == nil {
-		t.Fatal("expected execution failure")
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 7 {
+		t.Fatalf("execution error = %v, want installer exit 7", err)
 	}
 	entries, readErr := os.ReadDir(filepath.Join(dataDir, "installers", "tmp"))
 	if readErr != nil || len(entries) != 0 {
@@ -66,14 +71,15 @@ func TestRunInstallScriptCleansUpAfterExecutionFailure(t *testing.T) {
 
 func TestRunInstallScriptCancellationCleansUp(t *testing.T) {
 	t.Parallel()
-	server := httptest.NewTLSServer(httpHandler("#!/bin/sh\nsleep 5"))
+	body, interpreter := installerScript("sleep 5", "Start-Sleep -Seconds 5")
+	server := httptest.NewTLSServer(httpHandler(body))
 	t.Cleanup(server.Close)
 	dataDir := t.TempDir()
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 
 	_, err := newAdapter(dataDir, server.Client()).RunInstallScript(ctx, ports.InstallScriptCommand{
-		URL: server.URL, Interpreter: []string{"sh"},
+		URL: server.URL, Interpreter: interpreter,
 	}, io.Discard, io.Discard)
 	if err == nil {
 		t.Fatal("expected cancellation")
@@ -86,19 +92,20 @@ func TestRunInstallScriptCancellationCleansUp(t *testing.T) {
 
 func TestRunInstallScriptAllowsFiveHTTPSRedirects(t *testing.T) {
 	t.Parallel()
+	body, interpreter := installerScript("printf redirected", "[Console]::Write('redirected')")
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		step, _ := strconv.Atoi(r.URL.Query().Get("step"))
 		if step < 5 {
 			http.Redirect(w, r, "/?step="+strconv.Itoa(step+1), http.StatusFound)
 			return
 		}
-		_, _ = io.WriteString(w, "#!/bin/sh\nprintf redirected")
+		_, _ = io.WriteString(w, body)
 	}))
 	t.Cleanup(server.Close)
 	var output bytes.Buffer
 
 	_, err := newAdapter(t.TempDir(), server.Client()).RunInstallScript(context.Background(), ports.InstallScriptCommand{
-		URL: server.URL + "/?step=0", Interpreter: []string{"sh"},
+		URL: server.URL + "/?step=0", Interpreter: interpreter,
 	}, &output, &output)
 	if err != nil {
 		t.Fatal(err)
@@ -184,6 +191,13 @@ func TestNewUsesAODataDir(t *testing.T) {
 	if got, want := New(dataDir).installerRoot, filepath.Join(dataDir, "installers", "tmp"); got != want {
 		t.Fatalf("installerRoot = %q, want %q", got, want)
 	}
+}
+
+func installerScript(shellBody, powershellBody string) (string, []string) {
+	if runtime.GOOS == "windows" {
+		return powershellBody, []string{"powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File"}
+	}
+	return "#!/bin/sh\n" + shellBody, []string{"sh"}
 }
 
 func httpHandler(body string) *staticHTTPHandler {

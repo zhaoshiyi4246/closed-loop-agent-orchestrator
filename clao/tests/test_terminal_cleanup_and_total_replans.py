@@ -102,6 +102,7 @@ def _controller(tmp_path, workers):
     mc.plan = None
     mc.tasks = {sid: MagicMock(worker_session_id=ws)
                 for sid, ws in workers.items()}
+    mc.adapter = MagicMock(backend="ao")
     mc.executor = MagicMock()
     mc.executor.kill_worker.return_value = True
     return mc
