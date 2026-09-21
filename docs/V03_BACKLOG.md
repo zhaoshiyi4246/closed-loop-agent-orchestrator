@@ -10,12 +10,12 @@
 - 预算：新增费用≤20元，实际HTTP（失败/重试计入）≤40，真实Worker完整任务≤6。执行前官方合同/价格与请求上界核算；超时不算免费，身份/费用不明即停止该服务新增请求。
 - 初始实测：现有开发工作树干净，PR OPEN；主目录仅负责人配置修改。尚未运行本轮产品测试或真实请求。
 - 实施与验收：预算状态和双任务争用回归、真实验收/运行图事实、UI收敛、账户/GLM-5.3/保留Kimi、随包Python运行时与独立安装、最终回归/真实对照/独立审查。两套干净Windows若无法获取，明确BLOCKED，不以目录替代环境。
-- 实际消耗：HTTP 6；真实Worker 0；费用预留8.0988元、账单实扣未知。Kimi K3 Verifier PASS/FAIL、Auditor PASS/LOCAL_FIX、Planner CANDIDATE_DONE/SEND_LOCAL_FIX三组真实质量对照通过；合计输入11018/输出1627 token。开发子智能体另算开发协作。
+- 实际消耗：HTTP19/40、Worker admission5/6（含1次请求前失败）、保守确认费用上界4.36718/20元；历史原预留27.46946元不改，非实扣或同时在途费用。Kimi三角色质量正反例及最终native真实闭环通过；同题baseline文件Gate通过但达到4步上限未完成。完整失败与口径见[有限对照](reference/ao-native/closeout-final/live-kimi-comparison.md)。
 - 已验证实现：共享预算最终HUMAN、继续409/新尝试正常、持久故障仍恢复；Windows精确根ACL/OWNER RIGHTS正负例及Codex原生替身完整DONE（旧xfail删除）；新连接和GLM53本地HTTP正式角色旅程；实际Electron主题/宽度/200%及单/双任务导出。完整回归仍在执行，最终UI整理待定向复查。
 - 内部独立审查2项P2：连接写入后读失败误409，现保留同一身份并503对账，真实SQLite正负回归已通过；嵌入Python固定搜索路径导致Gate导入项目模块失败，改为normal/core双入口，实测项目导入和核心隔离通过，待安装产物复核。
 - 发行首两轮失败均保留：许可证枚举遍历无关Go模块、manifest漏shared前端源码；已修复，未把未完成构建视作安装通过。完整frontend初轮资源耗尽中断，改2workers；Go代理网络失败改官方仓库direct，不关闭校验。GLM引用、Q01两套Windows、客户端自动拒绝真实登录daemon仍单列外部前提。
 - 09-22续验：三个栈完整首轮已执行，适用修复及剩余平台限制详见[Windows回归](reference/ao-native/closeout-final/windows-regression.md)和[前端回归](reference/ao-native/closeout-final/frontend-regression.md)，不将定向集合累计为全量全绿。原生9项失败已复核，角色失败恢复死循环已修复并补正式API负例；Windows交接DACL与官方Kimi部分ACP权限事实绑定已独立复核。
-- 09-22产物：干净1002f8d的NSIS实际安装→GUI完整任务→导出/独立应用→同一Gate、主题/宽度/原生200%、前提缺失提示及卸载保留数据通过，6462文件与便携包一致；最终版本仍待纳入后续运行修复后构建/安装复验。双Worker便携预演通过，不冒称最终安装。Kimi正常ACP登录准备仍在修复，真实额度未增加；两套独立干净Windows仍BLOCKED。
+- 09-22产物：干净1002f8d的NSIS实际安装→GUI完整任务→导出/独立应用→同一Gate、主题/宽度/原生200%、前提缺失提示及卸载保留数据通过，6462文件与便携包一致；最终版本仍待纳入后续运行修复后构建/安装复验。双Worker便携预演通过，不冒称最终安装。Kimi managed-home与精确2.0.2参数审批已修复及独立复核，真实小任务完整通过；两套独立干净Windows仍BLOCKED。
 
 ## 状态与记录格式
 
@@ -474,7 +474,8 @@ P01 工程收尾（2026-09-09，历史）：仅完成 PR #43 rebase merge、背�
 - 两种完成结果：SUPPORTED（完整Worker E2E与隔离通过）或DEFERRED（明确限制，UI禁用且说明；负责人批准）。均不能写“全部模型完全切换”。
 - 必测（选择上线时）：两个配置互不污染、实际工具编辑、审批、取消、重启、Session实际model、同任务Gate/交付；禁止继承未验证全局别名。
 - 不做：为支持下拉框patch AO、自造coding agent、把API JSON调用称为Worker。
-- 证据：待填。
+- 状态：IN_PROGRESS。Kimi官方2.0.2/国内标准API的实际编辑、once审批、停止、model、同题Gate与独立导出小任务通过；取消/重启/隔离的正式消费者离线回归另列。真实OAuth/Coding Plan、其他版本及完整真实恢复尚未通过，不宣称无条件全量SUPPORTED。
+- 证据：[有限真实对照](reference/ao-native/closeout-final/live-kimi-comparison.md)、[Windows协议/账户回归](reference/ao-native/closeout-final/windows-regression.md)。
 
 ## V03-Q01｜新Windows产品验收与发布候选
 
@@ -484,7 +485,7 @@ P01 工程收尾（2026-09-09，历史）：仅完成 PR #43 rebase merge、背�
 - 完成：固定source SHA、最终artifact hash、任务/Gate/Verifier/SCM证据、浏览器记录、明确模型支持矩阵、已知限制和回滚说明。所有查询/字段错误不能被空成功吞掉。
 - 发布纪律：旧v0.2不可覆盖；产品文件若变，重新验证受影响路径；仅开发文档变可用manifest blob等价性，不重跑昂贵live。
 - 状态（2026-09-22）：IN_PROGRESS；两套独立干净Windows条件BLOCKED。独立NSIS/便携包、随包Python双入口、应用身份/许可/来源/校验已接通。1002f8d实际安装、完整离线GUI旅程、结果独立应用、真实缩放、前提缺失及卸载保留数据通过；后续运行修复仍需最终重建复验。
-- 证据：[1002f8d安装记录](reference/ao-native/closeout-final/installed-1002f8d/README.md)、[Windows回归](reference/ao-native/closeout-final/windows-regression.md)、[前端回归](reference/ao-native/closeout-final/frontend-regression.md)。真实Worker对照尚未执行；六次Kimi语义角色真实质量对照见本文件顶部台账。
+- 证据：[1002f8d安装记录](reference/ao-native/closeout-final/installed-1002f8d/README.md)、[Windows回归](reference/ao-native/closeout-final/windows-regression.md)、[前端回归](reference/ao-native/closeout-final/frontend-regression.md)。真实Kimi Worker及同题CLI有限对照已完成记录，baseline未完整完成；六次Kimi语义角色真实质量对照见本文件顶部台账。
 
 ## 通用证据模板
 

@@ -1,16 +1,16 @@
 # CLAO 当前项目事实
 
-更新：2026-09-22。当前执行 V03-NATIVE-CLOSEOUT，现有 PR #49 内收尾，M4/M5保持 IN_PROGRESS；已发布版本仍为v0.2。当前事实以本节为准，下方按任务保存历史验收；v0.3设计见 [V03_PLAN.md](V03_PLAN.md)。真实语义角色及实际安装旅程已有有限验证，真实Worker、两套干净Windows与负责人完整体验尚未通过，不宣称正式发布完成。
+更新：2026-09-22。当前执行 V03-NATIVE-CLOSEOUT，现有 PR #49 内收尾，M4/M5保持 IN_PROGRESS；已发布版本仍为v0.2。当前事实以本节为准，下方按任务保存历史验收；v0.3设计见 [V03_PLAN.md](V03_PLAN.md)。真实Kimi Worker与语义角色、实际安装旅程已有有限验证；真实Codex/GLM、两套干净Windows与负责人完整体验仍未通过，不宣称正式发布完成。
 
 ## 2026-09-21 当前收尾事实
 
 现有 PR #49 仍 OPEN，开发分支起点 `c30d694f4356dc9afc951b424e850967e85182c1`，当前 **IN_PROGRESS**。共享预算耗尽改为确认所有Session停止后的HUMAN业务结论；Gate与语义Verifier分项投影，断连不显示实时活动。新标准API连接接通GLM-5.3真实参数（thinking enabled、reasoning_effort），支持受约束的自定义型号，不代表账户准入。Windows卷根与OWNER RIGHTS校验已精确修正，原生Codex协议替身完整旅程通过，旧xfail删除；未改用户ACL或官方AO。
 
-Kimi K3六次真实HTTP角色质量对照通过（Verifier/Auditor/Planner各正反例），费用保守预留8.0988/20元，真实Worker完整任务仍0。现有登录daemon启动被客户端自动审批拒绝；GLM凭据引用及两套干净Windows未取得。Managed Codex的Windows 0700误判已改为共享实际DACL验证，真实工厂协议握手、验证、保存、再读与权限负例经独立复核通过。项目Git导入补齐CLAO及自定义StateDir、父目录和Windows junction保护，实际负例保持状态文件原样且不创建.git。
+Kimi K3六次真实HTTP角色质量对照通过（Verifier/Auditor/Planner各正反例）；精确官方CLI2.0.2最终真实Worker→Gate→Verifier→DONE→独立导出应用Gate通过。同题baseline文件Gate通过，但达到预设4步上限未正常完成；此前失败保留。累计19/40次HTTP、5/6次Worker，完整usage按最高输入组合费率核算保守上界4.36718/20元，原预留记录不改，账单实扣未知，见[有限对照](reference/ao-native/closeout-final/live-kimi-comparison.md)。现有Codex登录daemon启动被客户端自动审批拒绝；GLM凭据引用及两套干净Windows未取得。Managed Codex的Windows 0700误判已改为共享实际DACL验证，真实工厂协议握手、验证、保存、再读与权限负例经独立复核通过。项目Git导入补齐CLAO及自定义StateDir、父目录和Windows junction保护，实际负例保持状态文件原样且不创建.git。
 
 发行已修复许可证枚举、shared模块映射、Python核心隔离与Gate本地导入、Electron官方缓存校验及开发工具包装器裁剪。干净`1002f8d`产物已实际NSIS安装，GUI任务、Gate/Verifier、ZIP独立应用、六组主题/宽度/原生200%和卸载保留数据均通过；旧Python路径负例、外部前提提示和与便携包6462文件一致性亦通过。双Worker便携预演通过，但最终安装包仍须纳入后续运行层修复后重建验收，版本证据不混用。
 
-Windows完整首轮及定向复核见[Windows回归](reference/ao-native/closeout-final/windows-regression.md)、[前端回归](reference/ao-native/closeout-final/frontend-regression.md)。原生64项的9个初始失败已直接复核通过，新增未确认停止重启负例；真实缺陷“失败角色可继续导致反复暂停”已修复。Windows交接文件改为私有DACL原子创建与现有文件只验证；Kimi ACP部分权限消息现绑定当前工具输入，过期/冲突拒绝。Kimi正常ACP的独立home配置/登录准备仍在修复，不宣称真实Worker已通过。完成门、额度及下一动作由 [PLANS](../PLANS.md) 与 [台账](V03_BACKLOG.md) 维护，下方旧限制为历史。
+Windows完整首轮及定向复核见[Windows回归](reference/ao-native/closeout-final/windows-regression.md)、[前端回归](reference/ao-native/closeout-final/frontend-regression.md)。原生64项的9个初始失败已直接复核通过，新增未确认停止重启负例；真实缺陷“失败角色可继续导致反复暂停”已修复。Windows交接文件改为私有DACL原子创建与现有文件只验证；Kimi独立home准备与精确2.0.2原始参数流审批绑定已完成，过期/冲突拒绝。真实OAuth/Coding Plan及跨版本未验证。完成门、额度及下一动作由 [PLANS](../PLANS.md) 与 [台账](V03_BACKLOG.md) 维护，下方旧限制为历史。
 
 ## 1. 版本与基线
 

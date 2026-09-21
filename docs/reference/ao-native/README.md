@@ -16,6 +16,8 @@
 - 2026-09-21 独立审查发现连接写后读失败误409及随包Python遮蔽Gate本地模块导入。连接故障注入覆盖真实SQLite成功写入后失败/丢commit确认、同UUID重试不重复、异内容冲突保留；Go service/controllers定向通过。Python采用normal/core双入口，项目script/-c本地导入及恶意cwd/PYTHONPATH不替换core探测通过；仍待最终安装候选验证与复核。
 - 共享预算/Windows账户修复见 `bbb4539`，连接对账修复见 `f7bd03e`。原Codex native回归删除xfail后1 passed/27.34s（外部协议进程替身）；真实现有登录测试daemon被自动审批以blocked by policy拒绝，未代理重试。GUI最新证据见 [closeout-final](closeout-final/README.md)，不与打包验收混称。
 
+最终真实进展：Kimi官方CLI2.0.2经开发daemon完成Worker/Gate/Verifier/独立导出小任务；同题独立CLI达到4步上限，产物Gate通过但整体未完成。累计19次HTTP/5次Worker，保守确认费用上界4.36718元；原始预留记录不改。完整分类、失败与独立复核见[有限对照](closeout-final/live-kimi-comparison.md)。
+
 ## PR #46 启动失败局部返修
 
 最终 Windows 定向：`test_ao_native.py -k 'failed_start or spawn_receipt_loss or opencode_pass or cancel or manual_accept or codex_uses_same'` **7 passed / 1 xfailed / 9 deselected，46.02s**；Codex xfailed 仍是账户安全阻塞，不算执行通过。原生 `NewTaskDialog` / `GlobalNewTaskDialog` **16 passed**；Go `./internal/service/claoloop` 通过。开发 daemon 构建、Electron/Forge/Vite 实际启动、`tsc --noEmit`、Python compileall、JS 语法、diff-check 与本地文档链接目标检查通过。

@@ -24,8 +24,9 @@ CLAO 基于 AO v0.12.12 的原生桌面应用，为编码任务提供范围检�
 |---|---|---|---|
 | 原生 Codex | App Server、账号、模型、Chat | Worker及独立只读语义角色；来源/验收/恢复 | 协议替身完整旅程通过；现有登录daemon启动被客户端自动审批阻止，真实Worker尚未验证 |
 | 原生 OpenCode | ACP、账号、模型、Chat | Worker与有明确只读权限的语义角色 | 生产daemon/协议替身旅程已验证；没有据此宣称真实服务通过 |
+| 原生 Kimi Code CLI | ACP、独立账号home、模型、Chat | Worker；2.0.2原始参数绑定后仍经范围审批 | 官方2.0.2 + kimi-k3标准API完成真实小任务、Gate/Verifier及独立导出验收；OAuth/Coding Plan及其他版本未验证 |
 | BigModel 标准 API | 独立CLAO连接，不冒充原生执行器 | GLM-5.3/GLM-4.7建议型号，Planner/Auditor/Verifier | GLM-5.3实际参数与混合角色离线通过；真实凭据引用待确认 |
-| Kimi 国内标准 API | 独立CLAO连接，不冒充原生执行器 | kimi-k3，Planner/Auditor/Verifier | 三个角色各一组真实正反质量对照通过；真实Worker混合完整旅程尚待验证 |
+| Kimi 国内标准 API | 独立CLAO连接，不冒充原生执行器 | kimi-k3，Planner/Auditor/Verifier | 三个角色各一组真实正反质量对照及Kimi Worker+独立Verifier完整小任务通过 |
 | 其他上游编码工具 | 原生目录、安装和账号入口 | 仅按已具备的协议与确定性权限准入 | 未逐一真实验证，不代表全部可用于自动语义角色 |
 
 自定义型号需兼容所选传输，并由服务确认权限。标准 API 按量计费；不能将其视为 Coding Plan 套餐。未知用量或账单保持未知，不会静默改用其他供应商。

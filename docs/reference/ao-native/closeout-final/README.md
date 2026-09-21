@@ -5,7 +5,7 @@
 - [实际NSIS安装、完整旅程、视觉与卸载：1002f8d](installed-1002f8d/README.md)。后续运行修复尚未包含，最终候选会另列精确版本。
 - [Windows Go/Python完整首轮、修复与剩余限制](windows-regression.md)。
 - [前端完整首轮与相关复核](frontend-regression.md)。
-- [Kimi真实语义角色质量对照](../README.md)；[脱敏预算台账](live-ledger.json)，真实Worker对照已执行初轮，失败与修正见[真实有界对照](live-kimi-comparison.md)。
+- [Kimi真实语义角色质量对照](../README.md)；[真实Worker有限对照](live-kimi-comparison.md)：最终native完整通过、baseline文件Gate通过但达到4步上限；[脱敏预算台账](live-ledger.json)保留全部成功与失败。
 - [最终布局修改前的开发截图与过程记录](development-before-3942d65/README.md)，仅保留历史，不用作最终界面验收。
 
 两套独立干净Windows、GLM项目凭据及客户端允许真实Codex登录测试仍有外部前提；完整失败日志保存在专用外部证据目录，不将个人路径或模型原始材料放入仓库。

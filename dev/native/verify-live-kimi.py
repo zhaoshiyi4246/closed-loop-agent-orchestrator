@@ -331,7 +331,8 @@ def main():
     env['PATH'] = str(args.node.parent) + os.pathsep + str(Path(sys.executable).parent) + os.pathsep + env['PATH']
     hook = (ROOT/'dev/native/kimi-budget-transport.mjs').as_uri()
     report = dict(case=case, cli_version='2.0.2', service='moonshot_cn', model='kimi-k3',
-                  environment='development daemon with official CLI and test-only budget transport',
+                  environment=('development daemon with official CLI and test-only budget transport' if args.mode == 'native'
+                               else 'standalone official CLI with test-only budget transport'),
                   source_sha256=hashlib.sha256(json.dumps(SOURCE, sort_keys=True).encode()).hexdigest(),
                   human_interventions=0, worker_completed=False, gate_pass=False)
     process = None
