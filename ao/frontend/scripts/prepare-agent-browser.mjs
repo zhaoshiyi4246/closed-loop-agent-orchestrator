@@ -66,8 +66,7 @@ if ((await fileSHA256(binaryPath)) !== target.sha256) {
 			break;
 		} catch (error) {
 			await rm(temporaryPath, { force: true });
-			const network = error.retryable || error.name === "TimeoutError" || ["ECONNRESET", "ETIMEDOUT", "ENOTFOUND", "EAI_AGAIN", "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_SOCKET"].includes(error.cause?.code || error.code);
-			if (!network || attempt === DOWNLOAD_ATTEMPTS) throw error;
+			if (!retryableNetworkError(error) || attempt === DOWNLOAD_ATTEMPTS) throw error;
 			console.warn(`Browser download network failure; retry ${attempt + 1}/${DOWNLOAD_ATTEMPTS} in 10 seconds`);
 			await delay(DOWNLOAD_RETRY_DELAY_MS);
 		}
@@ -133,19 +132,26 @@ async function fetchWithRetry(url, { description }) {
 	let lastError;
 	for (let attempt = 1; attempt <= DOWNLOAD_ATTEMPTS; attempt += 1) {
 		try {
-			const response = await fetch(url, { redirect: "follow" });
+			const response = await fetch(url, { redirect: "follow", signal: AbortSignal.timeout(120000) });
 			if (response.ok) return response;
 			lastError = new Error(`HTTP ${response.status}`);
+			lastError.retryable = response.status >= 500;
 		} catch (error) {
 			lastError = error;
 		}
+		if (!retryableNetworkError(lastError)) throw lastError;
 
 		if (attempt < DOWNLOAD_ATTEMPTS) {
 			if (!quiet) console.warn(`Download ${description} failed; retrying (${attempt}/${DOWNLOAD_ATTEMPTS})`);
-			await delay(DOWNLOAD_RETRY_DELAY_MS * attempt);
+			await delay(DOWNLOAD_RETRY_DELAY_MS);
 		}
 	}
 	throw new Error(`download ${description}: ${lastError?.message ?? String(lastError)}`);
+}
+
+function retryableNetworkError(error) {
+	return error.retryable || error.name === "TimeoutError" || error.cause?.name === "TimeoutError"
+		|| ["ECONNRESET", "ECONNREFUSED", "ETIMEDOUT", "ENOTFOUND", "EAI_AGAIN", "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_SOCKET"].includes(error.cause?.code || error.code);
 }
 
 function delay(ms) {
