@@ -3,7 +3,7 @@
 // the prebuilt external-engine fixture. No source/dev runtime is handed to it.
 // Usage: node dev/native/verify-installed.cjs --application <clao-native.exe>
 //   --engine <prebuilt opencode.exe> --git <git.exe> --evidence <NEW directory>
-//   [--port 7340] [--expect-gate-import-failure]
+//   [--port 7340] [--expect-gate-import-failure] [--dual]
 const { _electron } = require('../../ao/frontend/node_modules/playwright');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -15,6 +15,7 @@ const options = {};
 for (let i = 2; i < process.argv.length; i++) {
   const key = process.argv[i];
   if (key === '--expect-gate-import-failure') options.negative = true;
+  else if (key === '--dual') options.dual = true;
   else if (['--application', '--engine', '--git', '--evidence', '--port'].includes(key)) options[key.slice(2)] = process.argv[++i];
   else throw Error(`Unknown option: ${key}`);
 }
@@ -36,7 +37,7 @@ fs.mkdirSync(source);
 const sourceFiles = {
   'source.txt': 'original ordinary directory, unchanged\n',
   'solution.py': "EXPECTED = 'accepted\\n'\n",
-  'check.py': "from pathlib import Path\nimport solution\nassert Path('result.txt').read_text() == solution.EXPECTED\nprint('INSTALLED_LOCAL_MODULE_GATE_OK')\n",
+  'check.py': "from pathlib import Path\nimport sys, solution\nassert Path(sys.argv[1] if len(sys.argv) > 1 else 'result.txt').read_text() == solution.EXPECTED\nprint('INSTALLED_LOCAL_MODULE_GATE_OK')\n",
   'yaml.py': "raise RuntimeError('the isolated acceptance core must not import project yaml.py')\n",
 };
 for (const [name, value] of Object.entries(sourceFiles)) fs.writeFileSync(path.join(source, name), value);
@@ -54,6 +55,7 @@ const env = {
   PATH: [path.join(system, 'System32'), path.join(system, 'System32/WindowsPowerShell/v1.0'), path.dirname(git), path.dirname(engine)].join(';'),
 };
 const base = `http://127.0.0.1:${port}`;
+if (options.dual) env.CLAO_FIXTURE_PARALLEL_RELEASE = path.join(home, 'release-parallel-workers');
 const bundledPython = path.join(path.dirname(application), 'resources/python/python.exe');
 const report = {
   test: 'installed-complete-journey', expectedGateImportFailure: Boolean(options.negative),
@@ -186,6 +188,11 @@ function runPython(args, cwd = home) {
   await page.screenshot({ path: path.join(evidence, 'installed-export-saved.png') });
   await require('../../ao/frontend/scripts/test-clao-visual.cjs')({ page, app, evidence, objective });
   report.steps.push('actual installed Electron light/dark at 1440/960 and 200% zoom; one total graph; connection save without model request');
+  if (options.dual) {
+    report.dual = await require('./verify-installed-dual.cjs')({ page, app, evidence, env, missions, waitFor });
+    unchangedSource();
+    report.steps.push('two real concurrent fixture Workers in one interactive installed graph; transport loss clears active claims; integrated Gate and final Verifier pass');
+  }
 })().then(() => { report.passed = true; }).catch(async error => {
   report.passed = false; report.error = String(error.message || error);
   if (page) await page.screenshot({ path: path.join(evidence, 'installed-failure.png') }).catch(() => {});

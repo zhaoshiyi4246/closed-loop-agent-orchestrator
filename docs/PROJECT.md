@@ -1,12 +1,16 @@
 # CLAO 当前项目事实
 
-更新：2026-09-11（F01–F05、R01/R02、U01/U02/U03 均 DONE；PR #43 / #44 工程审计 PASS 并已合入，P01/P02 工程切片 DONE、整卡 IN_PROGRESS；M0–M3 保持 COMPLETE，M4 IN_PROGRESS；原生底座基础集成 DONE，整体迁移 IN_PROGRESS；角色决策切片 DONE；当前唯一切片为 原生迁移收官大阶段（IN_REVIEW）；PR #48 恢复/指令回执 DONE，外部代码审计 PASS 并已合入；联合真实评测暂缓）。本文件只记录已实现事实与已知限制；v0.3 的设计见 [V03_PLAN.md](V03_PLAN.md)。真实模型、完整 GUI 体验、全量、安装与发布验收尚未完成，已发布版本仍为 v0.2。
+更新：2026-09-22。当前执行 V03-NATIVE-CLOSEOUT，现有 PR #49 内收尾，M4/M5保持 IN_PROGRESS；已发布版本仍为v0.2。当前事实以本节为准，下方按任务保存历史验收；v0.3设计见 [V03_PLAN.md](V03_PLAN.md)。真实语义角色及实际安装旅程已有有限验证，真实Worker、两套干净Windows与负责人完整体验尚未通过，不宣称正式发布完成。
 
 ## 2026-09-21 当前收尾事实
 
 现有 PR #49 仍 OPEN，开发分支起点 `c30d694f4356dc9afc951b424e850967e85182c1`，当前 **IN_PROGRESS**。共享预算耗尽改为确认所有Session停止后的HUMAN业务结论；Gate与语义Verifier分项投影，断连不显示实时活动。新标准API连接接通GLM-5.3真实参数（thinking enabled、reasoning_effort），支持受约束的自定义型号，不代表账户准入。Windows卷根与OWNER RIGHTS校验已精确修正，原生Codex协议替身完整旅程通过，旧xfail删除；未改用户ACL或官方AO。
 
-Kimi K3六次真实HTTP角色质量对照通过（Verifier/Auditor/Planner各正反例），费用按保守上界预留，真实Worker完整任务仍0。现有登录daemon启动被客户端自动审批拒绝；GLM凭据引用及两套干净Windows未取得。独立安装工具已实现，构建失败中发现的许可证枚举、shared模块映射和Python Gate本地导入问题正在统一修复验证，尚无最终安装通过结论。具体完成门、额度及下一动作由 [PLANS](../PLANS.md) 与 [台账](V03_BACKLOG.md) 维护，下方旧限制为历史。
+Kimi K3六次真实HTTP角色质量对照通过（Verifier/Auditor/Planner各正反例），费用保守预留8.0988/20元，真实Worker完整任务仍0。现有登录daemon启动被客户端自动审批拒绝；GLM凭据引用及两套干净Windows未取得。Managed Codex的Windows 0700误判已改为共享实际DACL验证，真实工厂协议握手、验证、保存、再读与权限负例经独立复核通过。项目Git导入补齐CLAO及自定义StateDir、父目录和Windows junction保护，实际负例保持状态文件原样且不创建.git。
+
+发行已修复许可证枚举、shared模块映射、Python核心隔离与Gate本地导入、Electron官方缓存校验及开发工具包装器裁剪。干净`1002f8d`产物已实际NSIS安装，GUI任务、Gate/Verifier、ZIP独立应用、六组主题/宽度/原生200%和卸载保留数据均通过；旧Python路径负例、外部前提提示和与便携包6462文件一致性亦通过。双Worker便携预演通过，但最终安装包仍须纳入后续运行层修复后重建验收，版本证据不混用。
+
+Windows完整首轮及定向复核见[Windows回归](reference/ao-native/closeout-final/windows-regression.md)、[前端回归](reference/ao-native/closeout-final/frontend-regression.md)。原生64项的9个初始失败已直接复核通过，新增未确认停止重启负例；真实缺陷“失败角色可继续导致反复暂停”已修复。Windows交接文件改为私有DACL原子创建与现有文件只验证；Kimi ACP部分权限消息现绑定当前工具输入，过期/冲突拒绝。Kimi正常ACP的独立home配置/登录准备仍在修复，不宣称真实Worker已通过。完成门、额度及下一动作由 [PLANS](../PLANS.md) 与 [台账](V03_BACKLOG.md) 维护，下方旧限制为历史。
 
 ## 1. 版本与基线
 
@@ -20,7 +24,7 @@ Kimi K3六次真实HTTP角色质量对照通过（Verifier/Auditor/Planner各正
 | 产品源码路径 | `ao/` 为当前迁移开发入口；`clao/` 保留旧产品与可复用核心，正式默认入口未切换 |
 | 发布工具 | `packaging/build-release.ps1` 与 `packaging/release-manifest.txt` |
 | 历史／reference | `legacy/` 保存原历史内容；`docs/reference/` 保存冻结审计 PDF |
-| 用户发布包 | clao/，由唯一映射manifest从clean Git tree构建 |
+| 候选发行 | CLAO Native独立Windows安装器/portable；唯一manifest从clean tracked blobs构建，Python核心随resources分发；旧Panel/Controller不进入原生入口 |
 
 v0.2完成过支持环境下的干净ZIP bootstrap、438项测试、指定CLI和人工GUI Mission验收。该历史证据只证明对应样例，不表示所有Bug已修完、安全已认证或多模型已实现。
 
@@ -57,9 +61,9 @@ PR #46 基础切片接线：单 Worker、原生项目/模型新建入口、当�
 - 旧历史/配置/连接只能由用户指定路径导入，不扫描负责人数据。旧版本、来源和验收摘要只读；兼容默认值可明确应用到新任务草稿，不覆盖项目或冻结 Mission。重复导入保留身份与配置版本，不覆盖已有连接；不兼容项有原因与重新连接方式。兼容的旧 GLM/Kimi 标准 API 配置经现有语义传输进入 Planner 两类调用、Auditor、Verifier，沿用 Schema/AC/证据校验；服务外发同意、认证代次和冻结连接在实际调用边界校验。重新连接写新的原生系统凭据引用，旧 Key 不迁移/覆盖，标准 API 与 Coding Plan 不互换，AO 原生目录不受旧型号白名单限制。
 - 轻量运行视图只读实际阶段、角色、子 Worker、决策、Gate 与复核记录；支持节点定位证据/耗时/Session，不虚构活动、内部思考或额外调度。原生模型菜单、Chat、审批与普通 Session 保留，旧 Panel/Controller 不并行运行。
 
-[开发入口与使用方法](../ao/CLAO.md) 分开普通手动与 `-IsolatedAccount` 空账户模式；启动器解析现有 Node/Go/Python，无须把大量临时 HOME/PATH 覆盖作为唯一启动方式。当前 `closeout-manual-data` 空账户入口已实际启动，不等于可用真实账户执行。Codex `account_storage_unsafe` 只读定位：上游检查全部祖先，C:\ 的 TrustedInstaller owner 不在其可信集合且 AuthenticatedUsers 具有 CreateDirectories，E:\ 的 AuthenticatedUsers Modify 也被拒绝；未改 ACL、未放宽检查。需要安全祖先路径或上游支持修正后再由负责人授权真实验；xfailed 不计通过。
+[开发入口与使用方法](../ao/CLAO.md) 分开普通手动与 `-IsolatedAccount` 空账户模式。Windows Codex账号问题已按实际DACL修复：仅接受真实卷根的已知TrustedInstaller/CreateDirectories例外及可信OWNER RIGHTS，普通目录仍严格验证；Managed Codex使用同一验证器而非误用POSIX模式。真实工厂的协议握手、验证、保存、再读与弱ACL/junction负例通过，旧xfail删除；未改用户ACL或官方AO。实际登录的真实Codex测试daemon启动仍被客户端自动审批拒绝，不能将协议测试当作真实Worker通过。
 
-已有各切片的 Windows/Go/契约、Electron、源码审计和 Codex 截图自查分别保留；PR #47 默认模型返修未重测浏览器，#48 合并收尾未重跑测试/构建。收官阶段只替换外部进程/服务与故障边界，当前 Windows/Go/HTTP、实际 Electron 单/双任务、独立补丁应用与内部交叉复核已完成，记录在现有台账；不等于负责人完整体验或真实服务准入。真实账户/模型/套餐、全执行器兼容、全量、安装及发布验收尚未完成；正式入口未切换，不宣称逐角色独立原生账号。PR #45 分支、开发工作树/依赖/数据及主目录用户 `default.yaml` 保留。
+各切片历史证据与本轮证据分开保存。本轮 Windows 三个技术栈完整首轮、适用失败修复、真实安装程序的单任务/导出/卸载和Electron视觉检查已有实际记录；残留平台与历史路径失败见[Windows回归](reference/ao-native/closeout-final/windows-regression.md)。最终候选需纳入全部运行修复再构建安装；真实Worker、两套独立干净Windows和负责人完整体验仍未通过。不宣称全部27执行器或套餐额度已验证，不宣称逐角色独立原生账号。PR #45分支、旧依赖/数据和主目录用户default.yaml保持。
 
 ### 保留的旧 clao 架构与历史实现
 

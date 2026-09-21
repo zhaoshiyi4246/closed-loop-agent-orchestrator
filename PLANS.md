@@ -13,9 +13,11 @@
 - 分工：Implementer预算/恢复、Implementer原生UI、Implementer发行；Coordinator负责账户/服务准入、预算台账、治理与集成；最终独立Reviewer读实际集成调用链和用户旅程。
 - 当前真实消耗：HTTP尝试 **6/40**，真实Worker完整任务 **0/6**，累计费用预留 **8.0988/20元**（账单实扣未知）。Kimi K3 的 Verifier、Auditor、Planner 各一组正确/明确缺陷对照均符合预期；输入11018/output1627 token。属于独立语义角色测试，不是安装包或真实Worker闭环通过。开发子智能体单列。
 - 已完成：共享预算HUMAN收束/恢复与正式双任务负例；Windows卷根/OWNER RIGHTS精确校验及原Codex xfail消除（协议替身）；GLM-5.3标准API参数及新连接入口；实际Electron界面与分项事实。独立审查2项P2：连接写后读失败已修复且定向通过；打包Python本地导入已修复探测通过，待最终产物复核。
-- 当前执行：完整Windows回归正在分类；首轮frontend并发耗尽内存已中断并改2 workers；Go官方代理不可达改为官方仓库direct拉取锁定依赖。发行前两轮分别定位许可证枚举和缺失shared模块，均保留失败证据并修复；等待统一干净提交后再构建安装。
+- 当前执行（北京时间09-22 01:15）：Windows frontend、Go、Python完整首轮均结束，失败及定向修复分别记入[Windows回归](docs/reference/ao-native/closeout-final/windows-regression.md)与[前端回归](docs/reference/ao-native/closeout-final/frontend-regression.md)，不宣称全绿。原生64项中的9个失败均直接复核通过，并新增未确认停止的真实重启负例；发现且修复已失败语义角色可通过continue重复进入暂停的产品缺陷。domain官方模块校验下载阻塞已解决，readonly离线复核通过；旧Controller剩余26项限制单列。
+- 已独立复核：Managed Codex共享DACL与真实工厂协议握手；Git导入保护CLAO/自定义状态及Windows junction；Python超长侧车；切换Agent的Windows交接文件私有DACL；官方Kimi 2.0.2部分ACP权限消息与当前工具输入关联。真实请求封装离线21项、进程/预算/审批验收75项通过，未增加真实消耗。
+- 实际发行：干净1002f8d构建、NSIS实际安装、GUI任务→Gate/Verifier→ZIP→独立Git应用→同一Gate通过；旧Python搜索路径负例、6462文件完整性、前提缺失提示、卸载保留数据/官方AO均通过。实际安装应用六组主题/宽度/原生200%检查通过，双Worker便携预演通过；均标识版本，待纳入后续运行层修复的最终构建与安装双任务复验。
 - 外部前提：GLM项目凭据引用、两套独立干净Windows仍待提供；使用现有登录启动测试daemon被客户端自动审批拒绝（仅返回blocked by policy），未重试或通过其他代理绕过。其余验证继续。
-- 下一动作：收敛完整回归失败、第三轮干净构建及实际安装完整旅程、独立复核两项修复、更新PR与交接。状态仅依证据更新，不因时间到或开PR标完成。
+- 下一动作：补齐Kimi正常ACP入口的独立配置/登录准备及Windows凭据保护，经独立审查后进行预算内真实Worker/单Agent对照；最终干净构建、实际安装双任务旅程；更新总PR和交接。
 - 退出仅限：全部交付并复核；到时间窗口且有效工作保存提交；或全部剩余工作均为必须负责人处理的外部前提。
 
 以下为原切片历史记录；与本轮权限冲突的 NOT_RUN/暂缓/停止只描述当时执行范围。

@@ -8,40 +8,23 @@
 
 ## 本轮收尾状态（2026-09-21）
 
-现有PR #49继续返修与安装交付，IN_PROGRESS；本轮已授权预算内真实模型/账户测试、完整回归及独立Windows候选安装包。下方切片的未授权/NOT_RUN为历史记录，不作为本轮禁止条件。当前仍以开发入口运行，正式安装产物和实测结果完成后在本页更新；不把可打开页面、隔离替身或旧截图当作真实准入。
+现有 PR #49 继续返修与安装交付，IN_PROGRESS。本轮已授权预算内真实模型、完整 Windows 回归及独立候选安装器；旧切片的未授权/NOT_RUN仅保留为历史。当前运行及验收事实见 [PROJECT](../docs/PROJECT.md)，具体证据见 [本轮记录](../docs/reference/ao-native/closeout-final/README.md)。
 
 ## 启动
 
-需要 Windows、Git、Node（此次构建 24.19.0）、Go（此次构建 1.26.5）、Python 3.12 与原 `clao` 的依赖。Frontend 依赖/锁文件及 Vite/Forge 构建结构沿用上游；未自动安装编码工具、登录或调用模型。
+普通使用从 **CLAO Native Windows 安装器**安装后启动，或解压便携包运行 `clao/clao-native.exe`；无需源码、Go、Node、Vite或Python venv。系统需有Git、所选编码工具及有效账号，项目测试依赖按项目要求准备。安装位置、独立数据及卸载说明见 [Windows候选说明](../packaging/WINDOWS-CANDIDATE.md)。
 
-普通手动使用入口（从仓库根运行）：
+仅开发和调试时，在仓库根运行：
 
 ```powershell
-Set-Location 'E:\Projects\clao-ao-native'
 ./ao/dev-clao.ps1
 ```
 
-启动器解析本机已有 Node、Go 和 Python venv，开发构建后打开原生 Electron；不自动安装编码工具或登录。普通模式使用独立 CLAO 应用数据，原生工具仍按自己的官方机制选择账号。**本轮没有用真实账号执行该路径**，不能把页面能打开等同模型已就绪。
+开发启动器需要Node、Go和Python 3.12及核心依赖，可用 `-Node`、`-Go`、`-Python` 显式指定；前端依赖用锁文件安装。此次候选构建使用官方Node 22.23.2、Go 1.26.5、随包CPython 3.12.10。开发启动器不自动安装编码工具或登录，`-SkipBuild`复用已有开发daemon，不代表安装包。
 
-本机已实际启动的空账户检查入口（开发 daemon 已构建）：
+默认名称 **CLAO Native**、应用ID `dev.clao.native.desktop`、数据根 `~/.clao-ao`，与官方AO的 `~/.ao` 和更新目标分离；开发端口7312，可用 `-DataHome` / `-Port` 指定。正常模式沿用编码工具自己的官方账号选择机制。`-IsolatedAccount`仅用于独立空账号测试，不是普通用户启动的默认参数。
 
-```powershell
-Set-Location 'E:\Projects\clao-ao-native'
-./ao/dev-clao.ps1 -SkipBuild -IsolatedAccount `
-  -DataHome 'E:\Projects\clao-ao-native\.native-dev\closeout-manual-data' -Port 7318
-```
-
-`-IsolatedAccount` 只对开发子进程设置该数据目录下的 `empty-account-profile`，不使用或搬运现有登录；协议替身旅程由测试脚本另建临时项目和数据，不是正常用户模式。这个命令打开的是原生 Electron，不是旧 7100 Panel。缺少依赖时按错误定位，启动器不会安装；首次依赖准备仍为本目录、`packages/product-ui`、`frontend` 各自的 `npm ci`，需要明确环境准备后执行。
-
-本机已采用工具路径如下；启动器可自动找到，也可用 `-Node`、`-Go`、`-Python` 显式指定：
-
-- Node：`C:\Users\Lenovo\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe`
-- Go：`C:\Users\Lenovo\go\pkg\mod\golang.org\toolchain@v0.0.1-go1.26.5.windows-amd64\bin\go.exe`
-- Python：`E:\Projects\closed-loop-agent-orchestrator\clao\.venv\Scripts\python.exe`
-
-默认名称 **CLAO Native**、应用 ID `dev.clao.native.desktop`、数据根 `~/.clao-ao`、端口 7312；`-DataHome` / `-Port` 可指定独立开发目录与端口。拒绝官方 `~/.ao` 或其子目录；不发现、接管官方 daemon 或使用官方更新目标。`-SkipBuild` 使用已有 `ao/frontend/daemon/ao.exe`，不代表发行安装包。
-
-Codex 的 `account_storage_unsafe` 仍是实际外部环境阻塞。上游 [Windows 账户目录检查](backend/internal/service/agent/codex_secure_fs_windows.go) 检查全部祖先；本机只读定位发现 `C:\` 所有者 TrustedInstaller 不在该实现的可信集合内，AuthenticatedUsers 还有有效 CreateDirectories 权限；`E:\` 的 AuthenticatedUsers 有效 Modify 权限也被拒绝。未修改 ACL、放宽检查、伪造登录或借用用户账号。需要负责人按上游支持条件准备安全的祖先路径，或待上游修正后再做真实账户验证；xfailed 不是执行通过。
+Windows账户目录检查已修复卷根TrustedInstaller/精确CreateDirectories例外及OWNER RIGHTS判断，并共享真实DACL/owner/祖先验证，删除旧xfail。未修改本机ACL或关闭检查；有不可信写权限的目录仍明确拒绝。协议替身的真实账户工厂握手、保存后读取及权限负例通过，不能当成真实Codex服务通过；现有登录daemon实测启动被客户端自动审批拒绝，未绕过。
 
 原生项目、27 个 registry 入口、模型目录/搜索/默认选择、认证、普通 Session、Chat/终端与文件查看由 AO 源码提供。没有复制一张工具映射表替代执行器，也没有把 Python Panel 嵌入窗口。普通工具仍按上游表达安装、登录、Chat 或 TUI 能力；未验证的执行器不计为 CLAO 闭环准入。
 

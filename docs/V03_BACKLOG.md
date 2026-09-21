@@ -14,6 +14,8 @@
 - 已验证实现：共享预算最终HUMAN、继续409/新尝试正常、持久故障仍恢复；Windows精确根ACL/OWNER RIGHTS正负例及Codex原生替身完整DONE（旧xfail删除）；新连接和GLM53本地HTTP正式角色旅程；实际Electron主题/宽度/200%及单/双任务导出。完整回归仍在执行，最终UI整理待定向复查。
 - 内部独立审查2项P2：连接写入后读失败误409，现保留同一身份并503对账，真实SQLite正负回归已通过；嵌入Python固定搜索路径导致Gate导入项目模块失败，改为normal/core双入口，实测项目导入和核心隔离通过，待安装产物复核。
 - 发行首两轮失败均保留：许可证枚举遍历无关Go模块、manifest漏shared前端源码；已修复，未把未完成构建视作安装通过。完整frontend初轮资源耗尽中断，改2workers；Go代理网络失败改官方仓库direct，不关闭校验。GLM引用、Q01两套Windows、客户端自动拒绝真实登录daemon仍单列外部前提。
+- 09-22续验：三个栈完整首轮已执行，适用修复及剩余平台限制详见[Windows回归](reference/ao-native/closeout-final/windows-regression.md)和[前端回归](reference/ao-native/closeout-final/frontend-regression.md)，不将定向集合累计为全量全绿。原生9项失败已复核，角色失败恢复死循环已修复并补正式API负例；Windows交接DACL与官方Kimi部分ACP权限事实绑定已独立复核。
+- 09-22产物：干净1002f8d的NSIS实际安装→GUI完整任务→导出/独立应用→同一Gate、主题/宽度/原生200%、前提缺失提示及卸载保留数据通过，6462文件与便携包一致；最终版本仍待纳入后续运行修复后构建/安装复验。双Worker便携预演通过，不冒称最终安装。Kimi正常ACP登录准备仍在修复，真实额度未增加；两套独立干净Windows仍BLOCKED。
 
 ## 状态与记录格式
 
@@ -114,8 +116,8 @@
 | V03-U03 | M3 | 结果中心与独立导出 | U02/F03 | DONE（PR #42 再次外部审计 PASS / merged） |
 | V03-P01 | M4 | 模型配置／凭据与GLM语义后端 | F01/R01/F04 | IN_PROGRESS（工程切片 DONE；真实准入待集中验证） |
 | V03-P02 | M4 | Kimi语义后端与切换评测 | P01 | IN_PROGRESS（工程切片 DONE；真实准入/评测待验证） |
-| V03-P03 | M4 | 第二Worker能力准入决策 | P01/P02；AO官方契约 | TODO |
-| V03-Q01 | M5 | 新Windows产品验收与发布候选 | G1—G4 | TODO |
+| V03-P03 | M4 | 第二Worker能力准入决策 | P01/P02；AO官方契约 | IN_PROGRESS（Kimi ACP正常路径与有限验收） |
+| V03-Q01 | M5 | 新Windows产品验收与发布候选 | G1—G4 | IN_PROGRESS（独立干净环境BLOCKED） |
 
 G1=F01—F05；G2=R01—R02；G3=U01—U03；G4=P01—P02及P03有记录的支持/拒绝决策；G5=Q01。
 
@@ -481,7 +483,8 @@ P01 工程收尾（2026-09-09，历史）：仅完成 PR #43 rebase merge、背�
 - 评测：预先批准有限次数/时长/费用预算，固定同任务/source/Gate/成功标准做对照与角色消融；评估完成质量、人工介入、耗时和用量，未知用量不伪补，不以 Agent 数量证明优势。演示视频在产品完成后制作，开发夹具不作为用户功能。
 - 完成：固定source SHA、最终artifact hash、任务/Gate/Verifier/SCM证据、浏览器记录、明确模型支持矩阵、已知限制和回滚说明。所有查询/字段错误不能被空成功吞掉。
 - 发布纪律：旧v0.2不可覆盖；产品文件若变，重新验证受影响路径；仅开发文档变可用manifest blob等价性，不重跑昂贵live。
-- 证据：待填。
+- 状态（2026-09-22）：IN_PROGRESS；两套独立干净Windows条件BLOCKED。独立NSIS/便携包、随包Python双入口、应用身份/许可/来源/校验已接通。1002f8d实际安装、完整离线GUI旅程、结果独立应用、真实缩放、前提缺失及卸载保留数据通过；后续运行修复仍需最终重建复验。
+- 证据：[1002f8d安装记录](reference/ao-native/closeout-final/installed-1002f8d/README.md)、[Windows回归](reference/ao-native/closeout-final/windows-regression.md)、[前端回归](reference/ao-native/closeout-final/frontend-regression.md)。真实Worker对照尚未执行；六次Kimi语义角色真实质量对照见本文件顶部台账。
 
 ## 通用证据模板
 
