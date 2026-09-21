@@ -3,6 +3,7 @@ import { AutoUnpackNativesPlugin } from "@electron-forge/plugin-auto-unpack-nati
 import { VitePlugin } from "@electron-forge/plugin-vite";
 import { rebuild } from "@electron/rebuild";
 import electronPackage from "electron/package.json";
+import electronChecksums from "electron/checksums.json";
 import MakerNSIS from "./makers/maker-nsis";
 import MakerDMG, { isSigningConfigured, sealDmg, verifyDmg, verifyMacArtifact } from "./makers/maker-dmg";
 import { machoHasX86_64Slice } from "./makers/macho-archs";
@@ -106,6 +107,9 @@ export function macSignOptionsForFile(filePath: string): { entitlements?: string
 const config: ForgeConfig = {
 	packagerConfig: {
 		asar: true,
+		// The lock-pinned Electron package supplies official artifact checksums.
+		// Validate cached archives without fetching SHASUMS again from GitHub.
+		download: { checksums: electronChecksums },
 		// The Vite plugin normally packages only .vite. better-sqlite3 must stay
 		// external so Electron can load its native binary, so include its minimal
 		// runtime dependency tree explicitly; AutoUnpackNativesPlugin then places

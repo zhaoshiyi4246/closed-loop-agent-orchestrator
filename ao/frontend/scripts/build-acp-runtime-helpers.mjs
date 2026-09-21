@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-const ROOT_BUILD_TOOLS = ["corepack", "corepack.cmd", "npm", "npm.cmd", "npx", "npx.cmd"];
+const ROOT_BUILD_TOOLS = ["corepack", "corepack.cmd", "corepack.ps1", "npm", "npm.cmd", "npm.ps1", "npx", "npx.cmd", "npx.ps1", "install_tools.bat", "nodevars.bat"];
 const BIN_BUILD_TOOLS = ["corepack", "npm", "npx"];
 const BUILD_ONLY_CONTENT = ["include", "lib", "node_modules", "share", "CHANGELOG.md", "README.md"];
 

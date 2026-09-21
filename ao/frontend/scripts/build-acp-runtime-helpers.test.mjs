@@ -133,7 +133,7 @@ describe("pruneNodeDistribution", () => {
 		const nodeRoot = temporaryDirectory();
 		writeFileSync(join(nodeRoot, "node.exe"), "node");
 		writeFileSync(join(nodeRoot, "LICENSE"), "license");
-		for (const name of ["corepack", "corepack.cmd", "npm", "npm.cmd", "npx", "npx.cmd"]) {
+		for (const name of ["corepack", "corepack.cmd", "corepack.ps1", "npm", "npm.cmd", "npm.ps1", "npx", "npx.cmd", "npx.ps1", "install_tools.bat", "nodevars.bat"]) {
 			writeFileSync(join(nodeRoot, name), name);
 		}
 		mkdirSync(join(nodeRoot, "node_modules", "npm"), { recursive: true });
