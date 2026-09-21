@@ -17,6 +17,12 @@ $nodeExe = (Get-Command $Node -ErrorAction Stop).Source
 $goExe = (Get-Command $Go -ErrorAction Stop).Source
 $pythonExe = (Get-Command $Python -ErrorAction Stop).Source
 $oldPath = $env:PATH
+$oldGoWork = $env:GOWORK
+$oldGoToolchain = $env:GOTOOLCHAIN
+$oldGoFlags = $env:GOFLAGS
+$env:GOWORK = 'off'
+$env:GOTOOLCHAIN = 'local'
+$env:GOFLAGS = '-mod=readonly'
 $env:PATH = (Split-Path $nodeExe) + ';' + (Split-Path $goExe) + ';' + $oldPath
 $npm = (Get-Command npm.cmd -ErrorAction Stop).Source
 $frontend = Join-Path $BuildRoot 'ao/frontend'
@@ -85,4 +91,9 @@ try {
     Write-Output "RELEASE_INSTALLER=$installer"
     Write-Output 'PUBLISH=NOT_RUN'
     exit 0
-} finally { $env:PATH = $oldPath }
+} finally {
+    $env:PATH = $oldPath
+    $env:GOWORK = $oldGoWork
+    $env:GOTOOLCHAIN = $oldGoToolchain
+    $env:GOFLAGS = $oldGoFlags
+}

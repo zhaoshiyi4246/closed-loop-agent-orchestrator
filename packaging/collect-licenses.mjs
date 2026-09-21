@@ -17,10 +17,13 @@ function collect(directory, label, recursive) {
   }
 }
 collect(path.join(frontend, 'node_modules'), 'npm', true);
-const modules = execFileSync(go, ['list', '-m', '-f', '{{.Path}}|{{.Version}}|{{.Dir}}', 'all'], {
-  cwd: path.join(root, 'ao', 'backend'), encoding: 'utf8', windowsHide: true,
+// Enumerate the modules actually linked into this binary. `-m all` also walks
+// test-only/transitive module graphs and can fetch unrelated uncached modules.
+const modules = execFileSync(go, ['list', '-deps', '-f', '{{with .Module}}{{.Path}}|{{.Version}}|{{.Dir}}{{end}}', './cmd/ao'], {
+  cwd: path.join(root, 'ao', 'backend'), encoding: 'utf8', windowsHide: true, timeout: 120_000,
+  env: { ...process.env, GOWORK: 'off', GOTOOLCHAIN: 'local', GOFLAGS: '-mod=readonly' },
 });
-for (const line of modules.trim().split(/\r?\n/)) {
+for (const line of new Set(modules.trim().split(/\r?\n/).filter(Boolean))) {
   const [name, version, dir] = line.split('|');
   if (dir) collect(dir, `${name}@${version}`, false);
 }
