@@ -88,7 +88,12 @@ function runPython(args, cwd = home) {
   assert(identity.userData.startsWith(home), 'Electron userData escaped the isolated test profile');
   report.steps.push('real installed Electron identity and independent profile');
   page = app.context().pages()[0] || await app.firstWindow();
-  await page.getByRole('button', { name: '打开本地项目', exact: true }).first().waitFor({ timeout: 60000 });
+  // A new installed profile opens the welcome screen. Enter the existing
+  // project chooser before using its CLAO ordinary-directory action.
+  await page.getByRole('button', { name: 'New project', exact: true }).first().waitFor({ timeout: 60000 });
+  if (!await page.getByRole('button', { name: '打开本地项目', exact: true }).first().isVisible()) {
+    await page.getByRole('button', { name: 'New project', exact: true }).first().click();
+  }
   await app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0].setSize(1440, 1000));
   await page.getByRole('button', { name: '打开本地项目', exact: true }).first().click();
   await page.getByLabel('本地项目名称').fill('Installed ordinary source');
@@ -120,8 +125,10 @@ function runPython(args, cwd = home) {
   report.mission = { id: mission.request.id, state: mission.state, model: mission.request.model, resultHead: mission.resultHead, worker: mission.sessionId, verifier: mission.verifierSessionId };
   unchangedSource();
   if (options.negative) {
-    assert.equal(mission.state, 'FAILED', mission.reason);
+    // maxRepairs=0 hands a deterministic Gate failure to the user.
+    assert.equal(mission.state, 'HUMAN', mission.reason);
     assert.match(JSON.stringify(mission.evidence), /ModuleNotFoundError|No module named .solution/);
+    assert(!mission.resultHead && !mission.verifierSessionId, 'A failed Gate must not materialize or invoke the final verifier');
     report.steps.push('real Gate rejects broken embedded Python local-module imports; source preserved');
     await page.screenshot({ path: path.join(evidence, 'installed-gate-import-negative.png') });
     return;

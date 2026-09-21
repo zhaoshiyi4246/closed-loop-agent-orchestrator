@@ -52,9 +52,11 @@ $oldPath = $env:PATH
 $oldGoWork = $env:GOWORK
 $oldGoToolchain = $env:GOTOOLCHAIN
 $oldGoFlags = $env:GOFLAGS
+$oldBrowserCache = $env:CLAO_BROWSER_CACHE
 $env:GOWORK = 'off'
 $env:GOTOOLCHAIN = 'local'
 $env:GOFLAGS = '-mod=readonly'
+$env:CLAO_BROWSER_CACHE = Join-Path $env:LOCALAPPDATA 'CLAO/BuildCache/browser'
 $env:PATH = (Split-Path $nodeExe) + ';' + (Split-Path $goExe) + ';' + $oldPath
 $frontend = Join-Path $BuildRoot 'ao/frontend'
 $resources = Join-Path $frontend 'resources'
@@ -134,4 +136,5 @@ try {
     $env:GOWORK = $oldGoWork
     $env:GOTOOLCHAIN = $oldGoToolchain
     $env:GOFLAGS = $oldGoFlags
+    $env:CLAO_BROWSER_CACHE = $oldBrowserCache
 }
