@@ -216,16 +216,7 @@ func TestWriteAgentHandoffFileIsPrivateAtomicAndImmutable(t *testing.T) {
 	if written.Hash == "" || written.Path != finalPath || filepath.Base(written.Path) != "agent-handoff.json" {
 		t.Fatalf("written = %#v", written)
 	}
-	info, err := os.Stat(written.Path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if info.Mode().Perm() != 0o600 {
-		t.Fatalf("%s mode = %o, want 600", written.Path, info.Mode().Perm())
-	}
-	if dirInfo, statErr := os.Stat(filepath.Dir(written.Path)); statErr != nil || dirInfo.Mode().Perm() != 0o700 {
-		t.Fatalf("handoff directory = (%v, %v), want mode 700", dirInfo, statErr)
-	}
+	assertPrivateHandoffPermissions(t, written.Path)
 	data, err := os.ReadFile(written.Path)
 	if err != nil {
 		t.Fatal(err)

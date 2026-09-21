@@ -1678,8 +1678,8 @@ func TestBuildSourceHandoffRequestUsesCurrentNativeSessionContext(t *testing.T) 
 		"testsAndResults",
 		"recommendedNextSteps",
 		"taskComplete",
-		candidatePath,
-		aoExecutable,
+		fmt.Sprintf("%q", candidatePath),
+		fmt.Sprintf("%q", aoExecutable),
 		`"switch": "switch-1"`,
 		`"sourceGeneration": "source-generation"`,
 		`"aoExecutable":`,
@@ -2240,7 +2240,7 @@ func TestSwitchAgentFreshPreservesAOIdentityAndDeliversArtifact(t *testing.T) {
 		t.Fatalf("AO rewrote provider transcript metadata while capturing it: before=%+v after=%+v", providerFinalInfo, providerAfterInfo)
 	}
 	if !strings.Contains(target.launchSystemPrompt, "<ao-continuation") ||
-		!strings.Contains(target.launchSystemPrompt, resolvedFinalTranscriptPath) ||
+		!strings.Contains(target.launchSystemPrompt, fmt.Sprintf("%q", resolvedFinalTranscriptPath)) ||
 		!strings.Contains(target.launchSystemPrompt, "FINAL_SOURCE_RECORD") ||
 		!strings.Contains(target.launchSystemPrompt, "implement the feature") ||
 		!strings.Contains(target.launchSystemPrompt, "please keep the API small") ||
@@ -4682,7 +4682,7 @@ func TestSwitchAgentRefreshesLateSourceNativeIdentityAtStopBoundary(t *testing.T
 		t.Fatalf("late source native metadata was not retained: %+v", retained)
 	}
 	continuation := target.launchSystemPrompt
-	if !strings.Contains(continuation, expectedTranscriptPath) {
+	if !strings.Contains(continuation, fmt.Sprintf("%q", expectedTranscriptPath)) {
 		t.Fatalf("continuation omitted final source transcript path:\n%s", continuation)
 	}
 }
