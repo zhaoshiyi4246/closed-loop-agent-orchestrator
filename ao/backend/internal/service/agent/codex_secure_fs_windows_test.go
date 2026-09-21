@@ -4,6 +4,7 @@ package agent
 
 import (
 	"context"
+	"github.com/aoagents/agent-orchestrator/backend/internal/codexsecurity"
 	"os"
 	"path/filepath"
 	"testing"
@@ -71,21 +72,21 @@ func TestWindowsCodexBootstrapUsesPrivateUserDirectory(t *testing.T) {
 func TestWindowsRootExceptionRequiresActualVolumeHandle(t *testing.T) {
 	child := windowsCodexTestDirectory(t)
 	root := filepath.VolumeName(child) + string(filepath.Separator)
-	rootHandle, _, _, _, _, err := openCodexWindowsPath(root, true, false)
+	rootHandle, _, _, _, _, err := codexsecurity.OpenWindowsPath(root, true, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer windows.CloseHandle(rootHandle)
-	if !codexWindowsLocalVolumeRoot(root, rootHandle) {
+	if !codexsecurity.WindowsLocalVolumeRoot(root, rootHandle) {
 		t.Fatal("system temporary directory is not on a verifiable local fixed volume")
 	}
-	childHandle, _, _, _, _, err := openCodexWindowsPath(child, true, false)
+	childHandle, _, _, _, _, err := codexsecurity.OpenWindowsPath(child, true, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer windows.CloseHandle(childHandle)
-	if codexWindowsLocalVolumeRoot(root, childHandle) || codexWindowsLocalVolumeRoot(child, childHandle) ||
-		codexWindowsLocalVolumeRoot(`\\server\share\`, rootHandle) {
+	if codexsecurity.WindowsLocalVolumeRoot(root, childHandle) || codexsecurity.WindowsLocalVolumeRoot(child, childHandle) ||
+		codexsecurity.WindowsLocalVolumeRoot(`\\server\share\`, rootHandle) {
 		t.Fatal("non-root/remote/substituted handle received volume-root policy")
 	}
 	// The root-only policy is unavailable when no trusted child has been
@@ -111,7 +112,7 @@ func TestWindowsOwnerRightsDACLProtectsOnlyItsCurrentOwner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	handle, _, ownerCurrent, _, _, err := openCodexWindowsPathWithAccess(private, true, windows.WRITE_DAC|windows.READ_CONTROL, false)
+	handle, _, ownerCurrent, _, _, err := codexsecurity.OpenWindowsPathWithAccess(private, true, windows.WRITE_DAC|windows.READ_CONTROL, false)
 	if err != nil {
 		t.Fatal(err)
 	}

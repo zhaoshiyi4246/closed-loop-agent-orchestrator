@@ -267,8 +267,9 @@ func TestStartCompletesHandshakeAndOpensThread(t *testing.T) {
 }
 
 func TestResumeReconnectsInitializedHostWithoutNativeResume(t *testing.T) {
+	workspace := t.TempDir()
 	d, srv := newTestDriver(t)
-	proc, err := d.spawn(context.Background(), "codex", "/tmp/ws", nil)
+	proc, err := d.spawn(context.Background(), "codex", workspace, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -281,7 +282,7 @@ func TestResumeReconnectsInitializedHostWithoutNativeResume(t *testing.T) {
 
 	conv, err := d.Resume(context.Background(), ports.ChatResumeConfig{
 		SessionID: "ao-reconnect", ProviderConversationID: "thread-survived",
-		DataDir: t.TempDir(), WorkspacePath: "/tmp/ws",
+		DataDir: t.TempDir(), WorkspacePath: workspace,
 	})
 	if err != nil {
 		t.Fatalf("Resume: %v", err)
@@ -306,6 +307,7 @@ func TestResumeReconnectsInitializedHostWithoutNativeResume(t *testing.T) {
 }
 
 func TestResumeStagesDirectProcessWhenBranchSourceOwnsHost(t *testing.T) {
+	workspace := t.TempDir()
 	d, srv := newTestDriver(t)
 	d.persistent = true
 	d.connectHost = func(context.Context, persistenthost.Config) (*persistenthost.Transport, error) {
@@ -313,7 +315,7 @@ func TestResumeStagesDirectProcessWhenBranchSourceOwnsHost(t *testing.T) {
 	}
 	conv, err := d.Resume(context.Background(), ports.ChatResumeConfig{
 		SessionID: "ao-branch", ProviderConversationID: "thread-branch",
-		DataDir: t.TempDir(), WorkspacePath: "/tmp/ws", AllowConcurrentHostReplacement: true,
+		DataDir: t.TempDir(), WorkspacePath: workspace, AllowConcurrentHostReplacement: true,
 	})
 	if err != nil {
 		t.Fatalf("Resume: %v", err)
@@ -326,6 +328,7 @@ func TestResumeStagesDirectProcessWhenBranchSourceOwnsHost(t *testing.T) {
 }
 
 func TestResumeDoesNotCompeteWithAttachedHostDuringDaemonOverlap(t *testing.T) {
+	workspace := t.TempDir()
 	d, srv := newTestDriver(t)
 	d.persistent = true
 	d.connectHost = func(context.Context, persistenthost.Config) (*persistenthost.Transport, error) {
@@ -333,7 +336,7 @@ func TestResumeDoesNotCompeteWithAttachedHostDuringDaemonOverlap(t *testing.T) {
 	}
 	_, err := d.Resume(context.Background(), ports.ChatResumeConfig{
 		SessionID: "ao-overlap", ProviderConversationID: "thread-live",
-		DataDir: t.TempDir(), WorkspacePath: "/tmp/ws",
+		DataDir: t.TempDir(), WorkspacePath: workspace,
 	})
 	if err == nil || !errors.Is(err, persistenthost.ErrAttached) {
 		t.Fatalf("Resume error = %v, want attached-host refusal", err)
@@ -357,8 +360,9 @@ func TestStartRejectsRelativeWorkspacePath(t *testing.T) {
 }
 
 func TestSendTurnCarriesIdempotencyKey(t *testing.T) {
+	workspace := t.TempDir()
 	d, srv := newTestDriver(t)
-	conv, err := d.Start(context.Background(), ports.ChatStartConfig{WorkspacePath: "/tmp/ws"})
+	conv, err := d.Start(context.Background(), ports.ChatStartConfig{WorkspacePath: workspace})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -402,8 +406,9 @@ func TestSendTurnCarriesIdempotencyKey(t *testing.T) {
 // An empty send is a caller bug, not a way to nudge the agent: there is no
 // keystroke concept in Chat mode.
 func TestSendTurnRejectsEmptyText(t *testing.T) {
+	workspace := t.TempDir()
 	d, _ := newTestDriver(t)
-	conv, err := d.Start(context.Background(), ports.ChatStartConfig{WorkspacePath: "/tmp/ws"})
+	conv, err := d.Start(context.Background(), ports.ChatStartConfig{WorkspacePath: workspace})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -418,8 +423,9 @@ func TestSendTurnRejectsEmptyText(t *testing.T) {
 // request, AO surfaces it with the provider's own decision list, and the user's
 // choice is what unblocks the turn.
 func TestApprovalIsParkedUntilResolved(t *testing.T) {
+	workspace := t.TempDir()
 	d, srv := newTestDriver(t)
-	conv, err := d.Start(context.Background(), ports.ChatStartConfig{WorkspacePath: "/tmp/ws"})
+	conv, err := d.Start(context.Background(), ports.ChatStartConfig{WorkspacePath: workspace})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -495,8 +501,9 @@ func TestApprovalIsParkedUntilResolved(t *testing.T) {
 // an execpolicy amendment — so AO answers with the provider's own payload for the
 // option that was offered.
 func TestStructuredDecisionIsAnsweredWithTheProvidersOwnPayload(t *testing.T) {
+	workspace := t.TempDir()
 	d, srv := newTestDriver(t)
-	conv, err := d.Start(context.Background(), ports.ChatStartConfig{WorkspacePath: "/tmp/ws"})
+	conv, err := d.Start(context.Background(), ports.ChatStartConfig{WorkspacePath: workspace})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -522,8 +529,9 @@ func TestStructuredDecisionIsAnsweredWithTheProvidersOwnPayload(t *testing.T) {
 // be refused, and — just as important — the request must stay pending so the
 // user's real answer still has something to answer.
 func TestDecisionNotOfferedIsRefusedAndLeavesTheRequestPending(t *testing.T) {
+	workspace := t.TempDir()
 	d, srv := newTestDriver(t)
-	conv, err := d.Start(context.Background(), ports.ChatStartConfig{WorkspacePath: "/tmp/ws"})
+	conv, err := d.Start(context.Background(), ports.ChatStartConfig{WorkspacePath: workspace})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -551,8 +559,9 @@ func TestDecisionNotOfferedIsRefusedAndLeavesTheRequestPending(t *testing.T) {
 // Answering a request that is no longer waiting is ordinary — two clients can
 // watch the same approval — so it comes back typed rather than as a raw failure.
 func TestResolvingAnUnknownRequestIsTyped(t *testing.T) {
+	workspace := t.TempDir()
 	d, _ := newTestDriver(t)
-	conv, err := d.Start(context.Background(), ports.ChatStartConfig{WorkspacePath: "/tmp/ws"})
+	conv, err := d.Start(context.Background(), ports.ChatStartConfig{WorkspacePath: workspace})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -567,8 +576,9 @@ func TestResolvingAnUnknownRequestIsTyped(t *testing.T) {
 // A card the user clicks after the request is gone must fail, never resolve
 // something newer.
 func TestResolveUnknownRequestIsRefused(t *testing.T) {
+	workspace := t.TempDir()
 	d, _ := newTestDriver(t)
-	conv, err := d.Start(context.Background(), ports.ChatStartConfig{WorkspacePath: "/tmp/ws"})
+	conv, err := d.Start(context.Background(), ports.ChatStartConfig{WorkspacePath: workspace})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -583,8 +593,9 @@ func TestResolveUnknownRequestIsRefused(t *testing.T) {
 // Answering a request AO does not model could consent to something on the user's
 // behalf, so it must be refused with an error instead.
 func TestUnmodelledServerRequestIsRefused(t *testing.T) {
+	workspace := t.TempDir()
 	d, srv := newTestDriver(t)
-	conv, err := d.Start(context.Background(), ports.ChatStartConfig{WorkspacePath: "/tmp/ws"})
+	conv, err := d.Start(context.Background(), ports.ChatStartConfig{WorkspacePath: workspace})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -599,8 +610,9 @@ func TestUnmodelledServerRequestIsRefused(t *testing.T) {
 }
 
 func TestNotificationsBecomeNeutralEvents(t *testing.T) {
+	workspace := t.TempDir()
 	d, srv := newTestDriver(t)
-	conv, err := d.Start(context.Background(), ports.ChatStartConfig{WorkspacePath: "/tmp/ws"})
+	conv, err := d.Start(context.Background(), ports.ChatStartConfig{WorkspacePath: workspace})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -623,8 +635,9 @@ func TestNotificationsBecomeNeutralEvents(t *testing.T) {
 // an interrupt without an explicit id can stop a child and leave the requested
 // root work running.
 func TestNestedThreadDoesNotReplaceRootActiveTurn(t *testing.T) {
+	workspace := t.TempDir()
 	d, srv := newTestDriver(t)
-	conv, err := d.Start(context.Background(), ports.ChatStartConfig{WorkspacePath: "/tmp/ws"})
+	conv, err := d.Start(context.Background(), ports.ChatStartConfig{WorkspacePath: workspace})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -657,6 +670,7 @@ func TestNestedThreadDoesNotReplaceRootActiveTurn(t *testing.T) {
 // Resume must not quietly become a fresh thread: that would present unrelated
 // history as continuous.
 func TestResumeFailureDoesNotFallBackToStart(t *testing.T) {
+	workspace := t.TempDir()
 	d, srv := newTestDriver(t)
 	srv.mu.Lock()
 	delete(srv.responses, "thread/resume")
@@ -671,7 +685,7 @@ func TestResumeFailureDoesNotFallBackToStart(t *testing.T) {
 	_, err := d.Resume(context.Background(), ports.ChatResumeConfig{
 		SessionID:              "ao-1",
 		ProviderConversationID: "thread-gone",
-		WorkspacePath:          "/tmp/ws",
+		WorkspacePath:          workspace,
 	})
 	if !errors.Is(err, ports.ErrChatResumeFailed) {
 		t.Fatalf("err = %v, want ErrChatResumeFailed", err)
@@ -687,11 +701,12 @@ func TestResumeFailureDoesNotFallBackToStart(t *testing.T) {
 }
 
 func TestResumeReappliesWorkspaceAndStandingInstructions(t *testing.T) {
+	workspace := t.TempDir()
 	d, srv := newTestDriver(t)
 	conv, err := d.Resume(context.Background(), ports.ChatResumeConfig{
 		SessionID:              "ao-1",
 		ProviderConversationID: "thread-1",
-		WorkspacePath:          "/tmp/ws",
+		WorkspacePath:          workspace,
 		Model:                  "selected-resume-model",
 		Effort:                 "high",
 		SystemPrompt:           "current AO standing instructions",
@@ -712,7 +727,7 @@ func TestResumeReappliesWorkspaceAndStandingInstructions(t *testing.T) {
 	if err := json.Unmarshal(resume.Params, &params); err != nil {
 		t.Fatalf("thread/resume params: %v", err)
 	}
-	if params.ThreadID != "thread-1" || params.Cwd != "/tmp/ws" {
+	if params.ThreadID != "thread-1" || params.Cwd != workspace {
 		t.Fatalf("thread resume identity = %#v", params)
 	}
 	if params.Model != "selected-resume-model" {
@@ -727,8 +742,9 @@ func TestResumeReappliesWorkspaceAndStandingInstructions(t *testing.T) {
 }
 
 func TestResumeRequiresStoredThreadID(t *testing.T) {
+	workspace := t.TempDir()
 	d, _ := newTestDriver(t)
-	_, err := d.Resume(context.Background(), ports.ChatResumeConfig{WorkspacePath: "/tmp/ws"})
+	_, err := d.Resume(context.Background(), ports.ChatResumeConfig{WorkspacePath: workspace})
 	if !errors.Is(err, ports.ErrChatResumeFailed) {
 		t.Fatalf("err = %v, want ErrChatResumeFailed", err)
 	}
@@ -820,6 +836,7 @@ func TestInstalledCodexVersionAugmentsNodePATHForNPMLauncher(t *testing.T) {
 }
 
 func TestStartAndResumeAugmentNodePATHForNPMLauncher(t *testing.T) {
+	workspace := t.TempDir()
 	for _, tc := range []struct {
 		name string
 		run  func(context.Context, *Driver) (ports.ChatConversation, error)
@@ -827,14 +844,14 @@ func TestStartAndResumeAugmentNodePATHForNPMLauncher(t *testing.T) {
 		{
 			name: "initial Chat launch",
 			run: func(ctx context.Context, d *Driver) (ports.ChatConversation, error) {
-				return d.Start(ctx, ports.ChatStartConfig{SessionID: "ao-1", WorkspacePath: "/tmp/ws"})
+				return d.Start(ctx, ports.ChatStartConfig{SessionID: "ao-1", WorkspacePath: workspace})
 			},
 		},
 		{
 			name: "Chat restore",
 			run: func(ctx context.Context, d *Driver) (ports.ChatConversation, error) {
 				return d.Resume(ctx, ports.ChatResumeConfig{
-					SessionID: "ao-1", ProviderConversationID: "thread-1", WorkspacePath: "/tmp/ws",
+					SessionID: "ao-1", ProviderConversationID: "thread-1", WorkspacePath: workspace,
 				})
 			},
 		},
@@ -971,25 +988,30 @@ func TestEnvSliceIsSortedForReproducibleRelaunch(t *testing.T) {
 	// nil when the overlay is empty, which it never is in practice, so the provider
 	// was always launched with a replaced environment.
 	got := envSlice(map[string]string{"ZZ_LAST": "z", "AA_FIRST": "a"})
+	if !reflect.DeepEqual(got, envSlice(map[string]string{"AA_FIRST": "a", "ZZ_LAST": "z"})) {
+		t.Fatal("identical relaunch environment is not deterministic")
+	}
 	var previous string
 	for _, entry := range got {
-		if previous != "" && entry < previous {
-			t.Fatalf("env not sorted: %q came after %q", entry, previous)
+		key, _, _ := strings.Cut(entry, "=")
+		if previous != "" && key < previous {
+			t.Fatalf("environment keys not sorted: %q came after %q", key, previous)
 		}
-		previous = entry
+		previous = key
 	}
 	joined := strings.Join(got, "\n")
 	for _, want := range []string{"AA_FIRST=a", "ZZ_LAST=z"} {
 		if !strings.Contains(joined, want) {
-			t.Errorf("overlay entry %q missing from %v", want, got)
+			t.Errorf("overlay entry %q missing", want)
 		}
 	}
 }
 
 // When the process dies, the stream must say so rather than just going quiet.
 func TestControllerStopIsAnnounced(t *testing.T) {
+	workspace := t.TempDir()
 	d, srv := newTestDriver(t)
-	conv, err := d.Start(context.Background(), ports.ChatStartConfig{WorkspacePath: "/tmp/ws"})
+	conv, err := d.Start(context.Background(), ports.ChatStartConfig{WorkspacePath: workspace})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -1008,8 +1030,9 @@ func TestControllerStopIsAnnounced(t *testing.T) {
 // `sandboxPolicy: {type:"workspaceWrite"}`. Sending a thread's shape to a turn is
 // rejected as a missing `type`, so this pins the difference.
 func TestTurnSettingsUseTheTurnLevelWireShapes(t *testing.T) {
+	workspace := t.TempDir()
 	d, srv := newTestDriver(t)
-	conv, err := d.Start(context.Background(), ports.ChatStartConfig{WorkspacePath: "/tmp/ws"})
+	conv, err := d.Start(context.Background(), ports.ChatStartConfig{WorkspacePath: workspace})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -1053,8 +1076,9 @@ func TestTurnSettingsUseTheTurnLevelWireShapes(t *testing.T) {
 // per-turn settings existed: an empty field is not a value the provider has to
 // interpret.
 func TestNoTurnSettingsSendsNoSettingsFields(t *testing.T) {
+	workspace := t.TempDir()
 	d, srv := newTestDriver(t)
-	conv, err := d.Start(context.Background(), ports.ChatStartConfig{WorkspacePath: "/tmp/ws"})
+	conv, err := d.Start(context.Background(), ports.ChatStartConfig{WorkspacePath: workspace})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -1080,13 +1104,14 @@ func TestNoTurnSettingsSendsNoSettingsFields(t *testing.T) {
 // would fail, while the opened thread's effort is more specific than the generic
 // model default returned by model/list.
 func TestListModelsKeepsCatalogAndUsesThreadEffort(t *testing.T) {
+	workspace := t.TempDir()
 	d, srv := newTestDriver(t)
 	// Scripted before Start: the server goroutine reads this map, so writing it
 	// afterwards would race the connection it is already serving.
 	srv.reply("thread/start", `{"thread":{"id":"thread-1"},"model":"a","reasoningEffort":"xhigh","cwd":"/tmp/ws"}`)
 	srv.reply("model/list", `{"data":[{"id":"a","displayName":"Model A","description":"first","isDefault":true,"hidden":false,"defaultReasoningEffort":"medium","supportedReasoningEfforts":[{"reasoningEffort":"low"},{"reasoningEffort":"xhigh"}]},{"id":"secret","displayName":"Hidden","isDefault":false,"hidden":true,"defaultReasoningEffort":"low","supportedReasoningEfforts":[]},{"id":"b","displayName":"Model B","isDefault":false,"hidden":false,"defaultReasoningEffort":"low","supportedReasoningEfforts":[]}]}`)
 
-	conv, err := d.Start(context.Background(), ports.ChatStartConfig{WorkspacePath: "/tmp/ws"})
+	conv, err := d.Start(context.Background(), ports.ChatStartConfig{WorkspacePath: workspace})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -1119,12 +1144,13 @@ func TestListModelsKeepsCatalogAndUsesThreadEffort(t *testing.T) {
 }
 
 func TestListModelsUsesConfiguredThreadDefault(t *testing.T) {
+	workspace := t.TempDir()
 	for _, configured := range []string{"nano", "custom-model"} {
 		t.Run(configured, func(t *testing.T) {
 			d, srv := newTestDriver(t)
 			srv.reply("thread/start", `{"thread":{"id":"thread-1"},"model":"`+configured+`","cwd":"/tmp/ws"}`)
 			srv.reply("model/list", `{"data":[{"id":"astra","isDefault":true},{"id":"nano","isDefault":false}]}`)
-			conv, err := d.Start(context.Background(), ports.ChatStartConfig{WorkspacePath: "/tmp/ws"})
+			conv, err := d.Start(context.Background(), ports.ChatStartConfig{WorkspacePath: workspace})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1146,7 +1172,7 @@ func TestDiscoverModelsReadsCatalogWithoutOpeningThread(t *testing.T) {
 	d, srv := newTestDriver(t)
 	srv.reply("model/list", `{"data":[{"id":"gpt-visible","displayName":"GPT Visible","isDefault":true,"hidden":false},{"id":"gpt-hidden","displayName":"GPT Hidden","hidden":true}]}`)
 
-	models, err := d.DiscoverModels(context.Background(), "/tmp/ws", map[string]string{"CODEX_HOME": "/tmp/codex-home"})
+	models, err := d.DiscoverModels(context.Background(), t.TempDir(), map[string]string{"CODEX_HOME": t.TempDir()})
 	if err != nil {
 		t.Fatalf("DiscoverModels: %v", err)
 	}
@@ -1165,7 +1191,7 @@ func TestDiscoverModelsDrainsEveryModelListPage(t *testing.T) {
 		`{"data":[{"id":"gpt-second","displayName":"Second"}]}`,
 	)
 
-	models, err := d.DiscoverModels(context.Background(), "/tmp/ws", nil)
+	models, err := d.DiscoverModels(context.Background(), t.TempDir(), nil)
 	if err != nil {
 		t.Fatalf("DiscoverModels: %v", err)
 	}
@@ -1193,10 +1219,11 @@ func TestDiscoverModelsDrainsEveryModelListPage(t *testing.T) {
 // result from a live pro account, on ONE line: readFrame is line-delimited, so a
 // pretty-printed reply hangs the test forever rather than failing it.
 func TestReadRateLimitsFromProviderResult(t *testing.T) {
+	workspace := t.TempDir()
 	d, srv := newTestDriver(t)
 	srv.reply("account/rateLimits/read", `{"rateLimits":{"limitId":"codex","limitName":null,"primary":{"usedPercent":71,"windowDurationMins":10080,"resetsAt":4102444800},"secondary":null,"credits":{"hasCredits":false,"unlimited":false,"balance":"0"},"individualLimit":null,"spendControlReached":false,"planType":"pro","rateLimitReachedType":null},"rateLimitsByLimitId":{"codex_bengalfox":{"limitId":"codex_bengalfox","limitName":"GPT-5.3-Codex-Spark","primary":{"usedPercent":0,"windowDurationMins":10080,"resetsAt":4102444800},"secondary":null,"credits":null,"individualLimit":null,"spendControlReached":null,"planType":"pro","rateLimitReachedType":null}},"rateLimitResetCredits":{"availableCount":0,"credits":[]}}`)
 
-	conv, err := d.Start(context.Background(), ports.ChatStartConfig{WorkspacePath: "/tmp/ws"})
+	conv, err := d.Start(context.Background(), ports.ChatStartConfig{WorkspacePath: workspace})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -1254,10 +1281,11 @@ func TestCapabilitiesAdvertiseUsageAndRateLimits(t *testing.T) {
 // turn id and a tagged sandbox policy, and sending a turn's params to a thread
 // method is rejected outright.
 func TestCompactSendsOnlyTheThreadID(t *testing.T) {
+	workspace := t.TempDir()
 	d, srv := newTestDriver(t)
 	srv.reply("thread/compact/start", `{}`)
 
-	conv, err := d.Start(context.Background(), ports.ChatStartConfig{WorkspacePath: "/tmp/ws"})
+	conv, err := d.Start(context.Background(), ports.ChatStartConfig{WorkspacePath: workspace})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -1293,8 +1321,9 @@ func TestCompactSendsOnlyTheThreadID(t *testing.T) {
 // starts, which is why "before" is snapshotted at turn start rather than at the
 // moment Compact is called.
 func TestCompactionReportsWhatItReclaimed(t *testing.T) {
+	workspace := t.TempDir()
 	d, srv := newTestDriver(t)
-	conv, err := d.Start(context.Background(), ports.ChatStartConfig{WorkspacePath: "/tmp/ws"})
+	conv, err := d.Start(context.Background(), ports.ChatStartConfig{WorkspacePath: workspace})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -1336,8 +1365,9 @@ func TestCompactionReportsWhatItReclaimed(t *testing.T) {
 // A provider build that emits both the deprecated notification and the item
 // reports one compaction, not two. The turn id is the only key both carry.
 func TestCompactionIsReportedOncePerTurn(t *testing.T) {
+	workspace := t.TempDir()
 	d, srv := newTestDriver(t)
-	conv, err := d.Start(context.Background(), ports.ChatStartConfig{WorkspacePath: "/tmp/ws"})
+	conv, err := d.Start(context.Background(), ports.ChatStartConfig{WorkspacePath: workspace})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}

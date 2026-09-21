@@ -1,4 +1,4 @@
-package agent
+package codexsecurity
 
 const (
 	codexWindowsAttributeDirectory    uint32 = 0x00000010

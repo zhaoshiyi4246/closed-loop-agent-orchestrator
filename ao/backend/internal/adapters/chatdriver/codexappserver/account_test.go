@@ -30,10 +30,7 @@ func TestAccountFactoryUsesManagedHomeAndFileCredentialStore(t *testing.T) {
 		"initialize":   map[string]any{},
 		"account/read": map[string]any{"account": map[string]any{"type": "chatgpt", "email": "person@example.com", "planType": "pro"}, "requiresOpenaiAuth": true},
 	})
-	home := t.TempDir()
-	if err := os.Chmod(home, 0o700); err != nil {
-		t.Fatal(err)
-	}
+	home := managedAccountTestHome(t)
 	client, err := factory.Open(context.Background(), ports.CodexAccountContext{Home: home, Managed: true})
 	if err != nil {
 		t.Fatal(err)

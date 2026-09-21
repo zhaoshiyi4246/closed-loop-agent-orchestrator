@@ -13,5 +13,5 @@ func replaceCodexFile(source, target string) error {
 	if err != nil {
 		return err
 	}
-	return windows.MoveFileEx(sourcePtr, targetPtr, codexWindowsAtomicReplaceFlags())
+	return windows.MoveFileEx(sourcePtr, targetPtr, windows.MOVEFILE_REPLACE_EXISTING|windows.MOVEFILE_WRITE_THROUGH)
 }
