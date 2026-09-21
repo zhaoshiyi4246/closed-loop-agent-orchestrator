@@ -5,6 +5,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -58,18 +59,27 @@ it("运行过程按实际子任务事实同时高亮，未调用角色不伪造"
   };
   render(<CLAORunView m={parent} onOpenSession={vi.fn()} />);
   expect(runNodes(parent)[0].state).toBe("unused");
-  expect(runNodes({...parent,checkpoint:{stage:"integration_gate"}}).find(n=>n.label.startsWith("Gate"))?.state).toBe("active");
+  expect(runNodes({...parent,checkpoint:{stage:"integration_gate"}}).find(n=>n.label === "命令与范围检查")?.state).toBe("active");
   expect(runNodes({...a,activeWait:"approval"})[0]).toMatchObject({state:"waiting",reason:"等待用户审批"});
   expect(runNodes({...a,activeWait:"read_error"})[0]).toMatchObject({state:"unknown",reason:"执行状态读取失败"});
   const nodes = runNodes(a);
-  expect(nodes.find((n) => n.label === "Worker")?.state).toBe("active");
+  expect(nodes.find((n) => n.label === "执行任务")?.state).toBe("active");
   expect(runNodes(b)[0].state).toBe("unknown");
-  expect(nodes.find((n) => n.label.startsWith("Auditor"))?.state).toBe(
+  expect(nodes.find((n) => n.label === "异常诊断")?.state).toBe(
     "unused",
   );
-  await userEvent.click(screen.getAllByRole("button", { name: /Worker/ })[0]);
+  await userEvent.click(screen.getAllByRole("button", { name: /执行任务/ })[0]);
   expect(screen.getByText("此阶段未记录独立计时")).toBeInTheDocument();
   expect(api).not.toHaveBeenCalled();
+});
+
+it("总规划先于分支，未发生的整体集成与验收不占图", () => {
+  const parent = { ...mission("parent"), sessionId: undefined, checkpoint: { stage: "children" }, subtasks: [{ ...mission("a"), request: { ...mission("a").request, objective: "左侧任务" } }, { ...mission("b"), request: { ...mission("b").request, objective: "右侧任务" } }], roleCalls: [{ id: "decompose", role: "planner", state: "VALIDATED", startedAt: "2026-09-21", choice: { agent: "codex", model: "", inherited: true } }] };
+  const view = render(<CLAORunView m={parent} onOpenSession={vi.fn()} />);
+  const lists = view.getAllByRole("list");
+  expect(lists.map(list => list.getAttribute("aria-label"))).toEqual(["任务规划运行过程", "左侧任务运行过程", "右侧任务运行过程"]);
+  expect(within(lists[0]).getByRole("button", { name: /规划决策/ })).toBeInTheDocument();
+  expect(screen.queryByText("整体集成与验收")).not.toBeInTheDocument();
 });
 
 it("来源重新读取撤销原确认，并明确展示排除事实", async () => {
@@ -212,7 +222,7 @@ it("旧历史只在显式读取路径后导入，不自动寻找用户配置", a
   });
   render(wrap(<CLAOLegacy />));
   expect(api).not.toHaveBeenCalled();
-  await userEvent.click(screen.getByText("旧 CLAO 历史与连接"));
+  await userEvent.click(screen.getByText("迁移旧 CLAO 数据"));
   await waitFor(() => expect(api).toHaveBeenCalledWith("/imports"));
   fireEvent.change(screen.getByLabelText("旧配置文件"), {
     target: { value: "E:\\isolated\\default.yaml" },

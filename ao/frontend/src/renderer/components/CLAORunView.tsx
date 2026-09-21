@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { Mission } from "./CLAOAcceptance";
+import { acceptanceFacts, factLabel, readableRunReason } from "./CLAOFacts";
 
 type NodeState =
   | "active"
@@ -27,7 +28,7 @@ const labels: Record<NodeState, string> = {
   unused: "未调用",
 };
 const tones: Record<NodeState, string> = {
-  active: "border-primary bg-primary/10",
+  active: "border-blue-500 bg-blue-500/10 ring-1 ring-blue-500/30",
   waiting: "border-amber-500 bg-amber-500/10",
   done: "border-green-600 bg-green-600/10",
   failed: "border-destructive bg-destructive/10",
@@ -42,10 +43,11 @@ const activeStates = new Set([
   "REPLANNING",
 ]);
 
-export function runNodes(m: Mission): RunNode[] {
+export function runNodes(m: Mission, readError = false): RunNode[] {
+  const facts = acceptanceFacts(m);
   const current = (active: boolean, fallback: NodeState): NodeState =>
     active
-      ? m.activeWait === "read_error"
+      ? readError || m.activeWait === "read_error" || ["UNKNOWN", "DONE", "FAILED", "CANCELLED"].includes(m.state)
         ? "unknown"
         : m.cancelRequested ||
             m.activeWait ||
@@ -59,7 +61,7 @@ export function runNodes(m: Mission): RunNode[] {
   const workerOps = m.operations.filter((op) => op.target === m.sessionId);
   const worker: RunNode = {
     id: m.request.id + ":worker",
-    label: "Worker",
+    label: "执行任务",
     state: current(
       ((!!m.sessionId || m.checkpoint?.stage === "worker") &&
         activeStates.has(m.state)) ||
@@ -90,19 +92,14 @@ export function runNodes(m: Mission): RunNode[] {
   const gates = m.evidence.filter((e) => e.gate);
   const gate: RunNode = {
     id: m.request.id + ":gate",
-    label: "Gate · 范围与完整性",
+    label: "命令与范围检查",
     state: current(
-      ["gate", "recheck", "final", "integration_gate"].includes(
+      (["gate", "recheck", "integration_gate"].includes(
         m.checkpoint?.stage || "",
-      ) && !["DONE", "FAILED", "CANCELLED", "HUMAN"].includes(m.state),
-      gates.length
-        ? gates.at(-1)?.ok
-          ? "done"
-          : "failed"
-        : m.checkpoint
-          ? "unused"
-          : "unknown",
+      ) || (m.checkpoint?.stage === "final" && m.checkpoint.localState === "IN_FLIGHT")) && !["DONE", "FAILED", "CANCELLED", "HUMAN"].includes(m.state),
+      facts.deterministic,
     ),
+    reason: `命令：${factLabel(facts.command)} · 完整性：${factLabel(facts.integrity)} · 范围：${factLabel(facts.scope)} · 取证：${factLabel(facts.collection)}`,
     facts: gates.map((e) => ({
       ok: e.ok,
       scopeOK: e.scopeOK,
@@ -119,9 +116,9 @@ export function runNodes(m: Mission): RunNode[] {
     return calls.length
       ? calls.map((call) => ({
           id: call.id,
-          label: role === "auditor" ? "Auditor · 诊断" : "Planner · 决策",
+          label: role === "auditor" ? "异常诊断" : "规划决策",
           state:
-            (
+            current(["STARTING", "RUNNING"].includes(call.state), (
               {
                 STARTING: "active",
                 RUNNING: "active",
@@ -132,7 +129,7 @@ export function runNodes(m: Mission): RunNode[] {
                 UNKNOWN: "unknown",
                 CANCELLED: "waiting",
               } as Record<string, NodeState>
-            )[call.state] || "unknown",
+            )[call.state] || "unknown"),
           session: call.sessionId,
           reason: call.error,
           startedAt: call.startedAt,
@@ -147,7 +144,7 @@ export function runNodes(m: Mission): RunNode[] {
       : [
           {
             id: m.request.id + ":" + role,
-            label: role === "auditor" ? "Auditor · 诊断" : "Planner · 决策",
+            label: role === "auditor" ? "异常诊断" : "规划决策",
             state: m.roles ? "unused" : "unknown",
             reason: m.roles ? undefined : "历史未提供调用记录",
             facts: [],
@@ -156,7 +153,7 @@ export function runNodes(m: Mission): RunNode[] {
   });
   const integration: RunNode = {
     id: m.request.id + ":integration",
-    label: "集成与固定结果",
+    label: m.coordinatorId ? "固定子任务结果" : "集成与固定结果",
     state: current(
       ["materialize", "integrate"].includes(m.checkpoint?.stage || "") &&
         !["DONE", "FAILED", "CANCELLED", "HUMAN"].includes(m.state),
@@ -173,14 +170,14 @@ export function runNodes(m: Mission): RunNode[] {
     m.roleCalls?.filter((call) => call.role === "verifier") ?? [];
   const verifier: RunNode = {
     id: m.request.id + ":verifier",
-    label: "Verifier · 最终复核",
+    label: "独立最终复核",
     state: current(
-      m.state === "VERIFYING",
+      verifierCalls.some(c => ["STARTING", "RUNNING"].includes(c.state)),
       verifierCalls.length
         ? verifierCalls.at(-1)?.state === "VALIDATED"
-          ? verifierCalls.at(-1)?.result?.verdict === "FAIL"
-            ? "failed"
-            : "done"
+          ? facts.semantic
+          : verifierCalls.at(-1)?.state === "RECEIVED"
+            ? "waiting"
           : verifierCalls.at(-1)?.state === "UNKNOWN"
             ? "unknown"
             : "failed"
@@ -189,6 +186,7 @@ export function runNodes(m: Mission): RunNode[] {
           : "unused",
     ),
     session: m.verifierSessionId,
+    reason: facts.semantic === "failed" ? "语义复核未通过；命令、完整性与范围结论分别保留。" : verifierCalls.at(-1)?.error,
     facts: verifierCalls.map((c) => ({
       state: c.state,
       result: c.result,
@@ -203,19 +201,22 @@ export function runNodes(m: Mission): RunNode[] {
 export function CLAORunView({
   m,
   onOpenSession,
+  readError = false,
 }: {
   m: Mission;
   onOpenSession: (id: string) => void;
+  readError?: boolean;
 }) {
   const [selected, setSelected] = useState<string>();
-  const groups = [
-    ...(m.subtasks ?? []).map((child) => ({
-      mission: child,
-      label: child.request.objective,
-    })),
-    { mission: m, label: m.subtasks?.length ? "整体任务" : "本次执行" },
-  ];
-  const all = groups.flatMap((g) => runNodes(g.mission));
+  const [showUnused, setShowUnused] = useState(false);
+  const parentNodes = runNodes(m, readError);
+  const planningIds = new Set(m.roleCalls?.filter(c => c.role === "planner").map(c => c.id));
+  const groups = m.subtasks?.length ? [
+    { mission: m, label: "任务规划", nodes: parentNodes.filter(n => planningIds.has(n.id)), showPath: false },
+    ...m.subtasks.map(child => ({ mission: child, label: child.request.objective, nodes: runNodes(child, readError), showPath: true })),
+    { mission: m, label: "整体集成与验收", nodes: [parentNodes.find(n => n.id === m.request.id + ":integration")!, parentNodes.find(n => n.id === m.request.id + ":gate")!, ...parentNodes.filter(n => !planningIds.has(n.id) && ![m.request.id + ":worker", m.request.id + ":integration", m.request.id + ":gate"].includes(n.id))], showPath: true },
+  ] : [{ mission: m, label: "本次执行", nodes: parentNodes, showPath: true }];
+  const all = groups.flatMap(g => g.nodes);
   const node = all.find((n) => n.id === selected);
   const recordedPath = (v: Mission) => {
     const steps: string[] = [];
@@ -245,24 +246,25 @@ export function CLAORunView({
     return steps;
   };
   return (
-    <details className="mt-3" data-testid="clao-run-view">
-      <summary className="cursor-pointer py-1">运行过程</summary>
+    <section className="mt-4 rounded-lg border border-border p-3" data-testid="clao-run-view" aria-label="运行过程">
+      <div className="flex flex-wrap items-center justify-between gap-2"><strong>当前执行与待处理</strong><button type="button" className="text-xs text-muted-foreground underline" onClick={() => setShowUnused(!showUnused)}>{showUnused ? "隐藏未调用阶段" : "查看未调用阶段"}</button></div>
+      {readError && <p role="status" className="mt-2 text-amber-600">连接中断 · 以下为最后已知记录，非实时活动。</p>}
       <div className="space-y-3 py-2">
-        {groups.map((group) => (
-          <div key={group.mission.request.id}>
+        {groups.filter(g => showUnused || g.nodes.some(n => n.state !== "unused")).map((group) => (
+          <div key={group.mission.request.id + group.label}>
             <p className="mb-2 break-words font-medium">{group.label}</p>
             <ol
               aria-label={group.label + "运行过程"}
               className="flex flex-wrap items-stretch gap-2"
             >
-              {runNodes(group.mission).map((n) => (
-                <li key={n.id} className="min-w-32 flex-1">
+              {group.nodes.filter(n => showUnused || n.state !== "unused").map((n) => (
+                <li key={n.id} className="min-w-0 basis-36 flex-1">
                   <button
                     type="button"
                     data-state={n.state}
                     aria-pressed={n.id === selected}
                     className={
-                      "h-full w-full rounded-lg border p-3 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary " +
+                      "h-full w-full rounded-lg border p-3 text-left break-words focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary " +
                       tones[n.state]
                     }
                     onClick={() => setSelected(n.id)}
@@ -273,13 +275,8 @@ export function CLAORunView({
                 </li>
               ))}
             </ol>
-            {!!recordedPath(group.mission).length && (
-              <p
-                className="mt-2 break-words text-xs text-muted-foreground"
-                aria-label="已记录的执行路径"
-              >
-                {recordedPath(group.mission).join(" · ")}
-              </p>
+            {group.showPath && !!recordedPath(group.mission).length && (
+              <details className="mt-2 break-words text-xs text-muted-foreground"><summary className="cursor-pointer">查看已记录路径</summary><p aria-label="已记录的执行路径">{recordedPath(group.mission).join(" · ")}</p></details>
             )}
           </div>
         ))}
@@ -293,7 +290,7 @@ export function CLAORunView({
             {node.label} · {labels[node.state]}
           </strong>
           {node.reason && (
-            <p className="whitespace-pre-wrap break-words">{node.reason}</p>
+            <p className="whitespace-pre-wrap break-words">{readableRunReason(node.reason)}</p>
           )}
           {node.startedAt ? (
             <p>
@@ -311,17 +308,17 @@ export function CLAORunView({
               className="my-2 underline"
               onClick={() => onOpenSession(node.session!)}
             >
-              打开对应原生 Session
+              打开对应会话
             </button>
           )}
           <details>
-            <summary className="cursor-pointer">动作与验收证据</summary>
+            <summary className="cursor-pointer">高级：动作与验收证据</summary>
             <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words text-xs">
               {JSON.stringify(node.facts, null, 2)}
             </pre>
           </details>
         </section>
       )}
-    </details>
+    </section>
   );
 }

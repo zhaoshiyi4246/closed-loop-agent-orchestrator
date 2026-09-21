@@ -60,7 +60,7 @@ export const legacyQuery = {
   refetchOnWindowFocus: false,
 };
 
-function ConnectionCredential({
+export function ConnectionCredential({
   connection,
 }: {
   connection: ImportedConnection;
@@ -164,7 +164,7 @@ export function CLAOLegacy() {
       onToggle={(e) => setOpened(e.currentTarget.open)}
       data-testid="clao-legacy"
     >
-      <summary className="cursor-pointer">旧 CLAO 历史与连接</summary>
+      <summary className="cursor-pointer">迁移旧 CLAO 数据</summary>
       <div className="space-y-3 py-3">
         <p>
           只读取你指定的旧配置或运行记录，不迁移登录令牌。旧任务作为只读记录保留。
@@ -209,24 +209,6 @@ export function CLAOLegacy() {
           <p role="status" className="break-words text-amber-600" key={i}>
             {issue}
           </p>
-        ))}
-        {records.data?.connections.map((c) => (
-          <div key={c.id} className="rounded border border-border p-2">
-            <strong>
-              {c.name} · {c.service}
-            </strong>
-            <p>
-              {c.model} ·{" "}
-              {c.billing === "standard_api" ? "标准 API" : c.billing}
-            </p>
-            <p>
-              {c.authPending ? "凭据保存待确认，请重新连接后再选择本连接。" : c.compatible
-                ? "可用于语义角色；运行前仍需确认外发范围"
-                : (c.reason || "无法映射") +
-                  "；请在旧配置中新建不同名称的标准 API 连接，再显式导入；已有连接与冻结任务不会被覆盖。也可在任务角色中选择原生执行器。"}
-            </p>
-            {c.compatible && <ConnectionCredential key={c.id} connection={c} />}
-          </div>
         ))}
         {records.data?.configurations?.map((c) => (
           <details key={c.id}>

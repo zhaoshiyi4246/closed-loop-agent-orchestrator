@@ -11,6 +11,7 @@ import { HarnessSettingsSection } from "./HarnessSettingsSection";
 import { KeyboardShortcutsContent } from "./KeyboardShortcutsContent";
 import { MobileDevicesSection } from "./MobileDevicesSection";
 import { ReportProblemContent } from "./ReportProblemContent";
+import { CLAOConnections } from "../CLAOConnections";
 import { SettingsSection } from "./SettingsSection";
 
 const UpdatesSection = lazy(async () => {
@@ -41,6 +42,7 @@ const globalSettingsCatalog: SettingsCatalogItem[] = [
 		label: (t) => t("settings.general"),
 		render: (_t, titleHidden) => <GeneralSettingsSection titleHidden={titleHidden} />,
 	},
+	{ id: "clao", icon: Bot, label: () => "模型连接与迁移", render: () => <CLAOConnections /> },
 	{
 		id: "harness",
 		icon: Bot,

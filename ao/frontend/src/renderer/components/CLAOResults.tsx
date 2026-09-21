@@ -418,7 +418,7 @@ export function CLAOResults({ m }: { m: Mission }) {
               </ul>
             </section>
             <section>
-              <strong>Gate</strong>
+              <strong>检查命令</strong>
               <p>{verdict(value.evidence?.gates?.status)}</p>
               {value.evidence?.gates?.records?.map((gate, i) => (
                 <details
@@ -448,7 +448,7 @@ export function CLAOResults({ m }: { m: Mission }) {
               ))}
             </section>
             <section>
-              <strong>Verifier</strong>
+              <strong>独立复核</strong>
               <p>
                 {verdict(
                   value.evidence?.verifier?.record?.verdict ||
@@ -456,7 +456,7 @@ export function CLAOResults({ m }: { m: Mission }) {
                 )}
               </p>
               <details>
-                <summary>复核记录</summary>
+                <summary>高级：复核记录</summary>
                 <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words text-xs">
                   {JSON.stringify(
                     value.evidence?.verifier?.record ?? "历史未提供",
@@ -467,7 +467,7 @@ export function CLAOResults({ m }: { m: Mission }) {
               </details>
             </section>
             <details>
-              <summary>基线与结果标识</summary>
+              <summary>高级：基线与结果标识</summary>
               <p className="break-all">
                 {value.baseCommit || "历史缺失"} →{" "}
                 {value.resultCommit || "尚无固定成果"}

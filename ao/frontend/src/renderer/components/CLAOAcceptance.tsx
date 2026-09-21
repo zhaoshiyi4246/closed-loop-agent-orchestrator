@@ -8,7 +8,7 @@ import { CLAODirectives, type DirectiveReceipt } from "./CLAODirectives";
 import { CLAOResults } from "./CLAOResults";
 import { CLAORunView } from "./CLAORunView";
 import { CLAOLocalProject } from "./CLAOLocalProject";
-import { CLAOLegacy } from "./CLAOLegacy";
+import { acceptanceFacts, factLabel, readableRunReason } from "./CLAOFacts";
 import type { SourcePreview } from "./CLAOSource";
 
 export type RoleChoice = { agent: string; model: string; connectionId?: string; connectionRevision?: number; connection?: {name:string;service:string;billing:string} };
@@ -23,9 +23,9 @@ export type AcceptanceRequest = {
 type Evidence = { ok: boolean; scopeOK: boolean; readError?: string; paths: string[]; forbidden: string[]; outside: string[]; gate?: { command_ok: boolean; integrity_ok: boolean }; records?: unknown; verification?: { verdict: string; summary: string; ac_checks: { ac_id: string; verdict: string; note: string }[] }; resultHead?: string };
 type RoleCall = { id: string; role: string; incidentId?: string; sessionId?: string; choice: RoleChoice & { accountRef?: string; inherited: boolean }; resolvedModel?: string; confirmedModel?: string; modelFactSource?: string; state: string; startedAt: string; finishedAt?: string; result?: { verdict?: string; diagnosis?: string; decision?: string; action?: string; reason?: string; evidence?: {summary: string;reference?:string}[] }; error?: string };
 type Decision = { id: string; workerId: string; auditId: string; plannerId: string; action?: string; reason?: string; state: string; outcome?: string };
-export type Mission = { activeWait?:string; source?: SourcePreview; sourcePath?: string; base?: string; subtasks?: Mission[]; coordinatorId?: string; directives?: DirectiveReceipt[]; checkpoint?: {stage:string}; recovery?: {canContinue:boolean;reason:string;stage?:string}; request: AcceptanceRequest; state: string; reason: string; revision: number; sessionId?: string; verifierSessionId?: string; workspace?: string; resultHead?: string; repairs: number; cancelRequested: boolean; evidence: Evidence[]; operations: {id:string;kind:string;target:string;state:string;reason?:string}[]; roles?: Record<string, RoleChoice & {inherited: boolean; accountRef?: string}>; roleCalls?: RoleCall[]; decisions?: Decision[]; replans?: number };
+export type Mission = { activeWait?:string; source?: SourcePreview; sourcePath?: string; base?: string; subtasks?: Mission[]; coordinatorId?: string; directives?: DirectiveReceipt[]; checkpoint?: {stage:string; localState?:string}; recovery?: {canContinue:boolean;reason:string;stage?:string}; request: AcceptanceRequest; state: string; reason: string; revision: number; sessionId?: string; verifierSessionId?: string; workspace?: string; resultHead?: string; repairs: number; cancelRequested: boolean; evidence: Evidence[]; operations: {id:string;kind:string;target:string;state:string;reason?:string}[]; roles?: Record<string, RoleChoice & {inherited: boolean; accountRef?: string}>; roleCalls?: RoleCall[]; decisions?: Decision[]; replans?: number };
 const terminal = new Set(["DONE", "FAILED", "CANCELLED", "UNKNOWN", "HUMAN"]);
-const states: Record<string, string> = { PAUSED:"已暂停", RESUMING:"继续原任务", HUMAN: "需要处理", DIAGNOSING: "异常诊断", PLANNING: "规划决策", REPLANNING: "替换 Worker", SPAWNING: "准备中", RUNNING: "执行中", STOPPING: "确认停止", GATE: "验收中", REPAIRING: "修复中", MATERIALIZING: "固定结果", VERIFYING: "独立复核", DONE: "验收通过", FAILED: "验收未通过", CANCELLED: "已取消", UNKNOWN: "结果尚未确认" };
+const states: Record<string, string> = { PAUSED:"已暂停", RESUMING:"继续原任务", HUMAN: "需要处理", DIAGNOSING: "异常诊断", PLANNING: "规划决策", REPLANNING: "重新安排执行", SPAWNING: "准备中", RUNNING: "执行中", STOPPING: "确认停止", GATE: "验收中", REPAIRING: "修复中", MATERIALIZING: "固定结果", VERIFYING: "独立复核", DONE: "验收通过", FAILED: "验收未通过", CANCELLED: "已取消", UNKNOWN: "结果尚未确认" };
 const lines = (value: string) => value.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
 
 export async function request<T>(path: string, body?: unknown): Promise<T> {
@@ -40,7 +40,7 @@ export async function request<T>(path: string, body?: unknown): Promise<T> {
 	}
 	const response = await fetch(base + "/api/v1/clao" + path, { method: body === undefined ? "GET" : "POST", headers, body: body === undefined ? undefined : JSON.stringify(body), cache: "no-store" });
 	const data = await response.json();
-	if (!response.ok) throw new Error(data.directive?.reason || data.message || data.error?.message || "闭环请求失败");
+	if (!response.ok) throw Object.assign(new Error(data.directive?.reason || data.message || data.error?.message || "闭环请求失败"), { status: response.status });
 	return data as T;
 }
 export async function createAcceptance(id: string, fields: AcceptanceFields, input: { projectId: string; brief: string; agent?: string; model?: string; mode?: string; approvalMode?: string; attachments?: unknown[] }): Promise<Mission> {
@@ -63,20 +63,21 @@ export async function createAcceptance(id: string, fields: AcceptanceFields, inp
 }
 export function AcceptanceForm({ value, onChange }: { value: AcceptanceFields; onChange: (value: AcceptanceFields) => void }) {
 	const field = (key: "criteria" | "allowed" | "forbidden" | "gates", label: string, placeholder: string) => <label className="flex min-w-0 flex-col gap-1 text-sm">{label}<textarea className="min-h-16 rounded-md border border-border bg-background p-2" aria-label={label} value={value[key]} placeholder={placeholder} onChange={e => onChange({ ...value, [key]: e.target.value })} /></label>;
-	return <div className="grid max-h-64 grid-cols-2 gap-3 overflow-y-auto px-4 py-3" data-testid="clao-acceptance-form">
+	return <div className="grid max-h-72 grid-cols-1 sm:grid-cols-2 gap-3 overflow-y-auto px-4 py-3" data-testid="clao-acceptance-form">
 		{field("criteria", "验收条件（每行一项）", "说明什么结果才算通过")}
-		{field("gates", "Gate 命令（每行一条）", "使用项目真实的检查命令")}
+		{field("gates", "检查命令（每行一条）", "使用项目真实的检查命令")}
 		{field("allowed", "允许修改范围", "例如 src/**；请明确填写")}
 		{field("forbidden", "禁止修改范围", "可留空")}
-		<label className="col-span-2 text-sm">执行安排<select aria-label="执行安排" value={value.maxTasks ?? 1} onChange={e=>onChange({...value,maxTasks:Number(e.target.value)})} className="ml-2 rounded border border-border bg-background p-2"><option value={1}>单 Worker（默认）</option><option value={2}>允许 Planner 分为最多两个独立子任务</option></select></label>
+		<label className="sm:col-span-2 text-sm">执行安排<select aria-label="执行安排" value={value.maxTasks ?? 1} onChange={e=>onChange({...value,maxTasks:Number(e.target.value)})} className="ml-2 rounded border border-border bg-background p-2"><option value={1}>单任务（默认）</option><option value={2}>最多两个独立子任务</option></select></label>
 		<label className="text-sm">最多修复次数<input aria-label="最多修复次数" type="number" min={0} max={3} step={1} value={value.repairs} onChange={e => onChange({ ...value, repairs: e.target.valueAsNumber })} className="ml-2 w-16 rounded border border-border bg-background p-1" /></label>
-		<label className="text-sm">Gate 超时（秒）<input aria-label="Gate 超时（秒）" type="number" min={1} max={600} step="any" value={value.timeout} onChange={e => onChange({ ...value, timeout: e.target.valueAsNumber })} className="ml-2 w-20 rounded border border-border bg-background p-1" /></label>
+		<label className="text-sm">检查超时（秒）<input aria-label="检查超时（秒）" type="number" min={1} max={600} step="any" value={value.timeout} onChange={e => onChange({ ...value, timeout: e.target.valueAsNumber })} className="ml-2 w-20 rounded border border-border bg-background p-1" /></label>
 	</div>;
 }
 export function CLAOAcceptance({ sessionId }: { sessionId: string }) {
 	const query = useQuery({ queryKey: ["clao-missions"], queryFn: () => request<{ missions: Mission[] }>("/missions"), refetchInterval: 1500, retry: false });
 	const candidates = query.data?.missions.flatMap(m=>[m,...(m.subtasks ?? [])]);
-	const m = candidates?.find(m => m.sessionId === sessionId || m.verifierSessionId === sessionId || m.roleCalls?.some(c => c.sessionId === sessionId) || m.decisions?.some(d => d.workerId === sessionId));
+	const selected = candidates?.find(m => m.sessionId === sessionId || m.verifierSessionId === sessionId || m.roleCalls?.some(c => c.sessionId === sessionId) || m.decisions?.some(d => d.workerId === sessionId));
+	const m = selected?.coordinatorId ? query.data?.missions.find(parent => parent.request.id === selected.coordinatorId) || selected : selected;
 	if (!m) return query.isError ? <p className="px-4 text-sm text-destructive">验收记录读取失败</p> : null;
 	return <MissionContent key={m.request.id} m={m} readError={query.isError} />;
 }
@@ -99,8 +100,7 @@ export function CLAOMissionList({ projectId }: { projectId?: string }) {
 		<details open><summary className="cursor-pointer">任务记录 · {rows.length}</summary>
 		{query.isError && <p role="alert" className="text-destructive">闭环记录读取失败，保留最后已知状态。</p>}
 		<ul className="max-h-32 overflow-auto">{rows.map(m => <li key={m.request.id} className="flex items-center gap-3 py-1"><button type="button" className="min-w-0 flex-1 truncate text-left underline" onClick={() => setSelected(m.request.id)} aria-label={"查看原请求：" + m.request.objective}>{m.request.objective}</button><span>{(m.coordinatorId && m.state === "DONE" ? "子任务已完成，待整体验收" : states[m.state] || m.state)}</span></li>)}</ul></details>
-		<CLAOLegacy />
-		<Dialog.Root open={selected !== null} onOpenChange={open => { if (!open) setSelected(null); }}><Dialog.Portal><Dialog.Overlay className="dialog-overlay" /><Dialog.Content className="fixed left-1/2 top-1/2 z-overlay max-h-[85vh] w-dialog-xl max-w-[95vw] -translate-x-1/2 -translate-y-1/2 overflow-auto rounded-lg border border-border bg-popover p-4 shadow-xl">
+		<Dialog.Root open={selected !== null} onOpenChange={open => { if (!open) setSelected(null); }}><Dialog.Portal><Dialog.Overlay className="dialog-overlay" /><Dialog.Content className="fixed left-1/2 top-1/2 z-overlay max-h-[85vh] w-[min(56rem,95vw)] max-w-[95vw] -translate-x-1/2 -translate-y-1/2 overflow-auto rounded-lg border border-border bg-popover p-4 shadow-xl">
 		<Dialog.Title>闭环请求与验收</Dialog.Title><Dialog.Description className="sr-only">持久请求、执行事实与处理操作</Dialog.Description>
 		{selected && <CLAOMissionDetail missionId={selected} onNewAttempt={r => { setSelected(null); newTask(r.projectId, r); }} onOpenSession={() => setSelected(null)} />}
 		<Dialog.Close className="mt-3 rounded-md border border-border px-3 py-2">关闭</Dialog.Close>
@@ -111,7 +111,7 @@ export function CLAOMissionList({ projectId }: { projectId?: string }) {
 function MissionContent({ m, readError, onNewAttempt, onOpenSession }: { m: Mission; readError: boolean; onNewAttempt?: (request: AcceptanceRequest) => void; onOpenSession?: (id: string) => void }) {
 	const queryClient = useQueryClient();
     const [now,setNow]=useState(Date.now());
-    useEffect(()=>{if(terminal.has(m.state))return;const timer=setInterval(()=>setNow(Date.now()),1000);return ()=>clearInterval(timer)},[m.state]);
+    useEffect(()=>{if(terminal.has(m.state)||readError)return;const timer=setInterval(()=>setNow(Date.now()),1000);return ()=>clearInterval(timer)},[m.state,readError]);
 	const navigate = useNavigate();
 	const [pending, setPending] = useState(false);
 	const [error, setError] = useState<{ id: string; text: string } | null>(null);
@@ -129,26 +129,26 @@ function MissionContent({ m, readError, onNewAttempt, onOpenSession }: { m: Miss
         catch(e){setError({id,text:e instanceof Error?e.message:"继续请求未确认，请查看原任务；不会重新提交"});}
         finally{setPending(false);}
     };
-	const latest = m.evidence.at(-1);
+	const facts = acceptanceFacts(m);
 	return <section className="shrink-0 border-b border-border bg-background px-4 py-3 text-sm" data-testid="clao-result">
-		<div className="flex items-center justify-between gap-3"><strong className={m.state === "DONE" ? "text-green-600" : m.state === "FAILED" || m.state === "UNKNOWN" ? "text-destructive" : ""}>CLAO · {m.cancelRequested && !terminal.has(m.state) ? "取消中" : (m.coordinatorId && m.state === "DONE" ? "子任务已完成，待整体验收" : states[m.state] || m.state)}</strong>
-		{(!terminal.has(m.state) || m.state === "UNKNOWN") && <button type="button" onClick={() => void cancel()} disabled={pending || m.cancelRequested && m.state !== "UNKNOWN"} className="rounded-md border border-border px-3 py-1.5">{m.cancelRequested ? m.state === "UNKNOWN" ? "重新确认停止" : "取消已接收" : "取消闭环"}</button>}</div>
+		<div className="flex flex-wrap items-center justify-between gap-3"><strong className={m.state === "DONE" ? "text-green-600" : m.state === "FAILED" || m.state === "UNKNOWN" ? "text-destructive" : ""}>CLAO · {m.cancelRequested && !terminal.has(m.state) ? "取消中" : (m.coordinatorId && m.state === "DONE" ? "子任务已完成，待整体验收" : states[m.state] || m.state)}</strong>
+		{(!terminal.has(m.state) || m.state === "UNKNOWN") && <button type="button" onClick={() => void cancel()} disabled={pending || m.cancelRequested && m.state !== "UNKNOWN"} className="rounded-md border border-border px-3 py-1.5">{m.cancelRequested ? m.state === "UNKNOWN" ? "重新确认停止" : "取消已接收" : "取消任务"}</button>}</div>
 		<p className="mt-1 whitespace-pre-wrap break-words">{m.request.objective}</p>
-		<p className="mt-1 break-words">{m.reason}</p>
+		<p className="mt-1 break-words">{readableRunReason(m.reason)}</p>
         {m.coordinatorId && <p className="mt-2">这是整体任务中的独立子任务；继续与取消由整体任务统一处理。</p>}
         {m.checkpoint && ["PAUSED","UNKNOWN","RESUMING"].includes(m.state) && <p>保存的阶段：{({worker:"Worker 回合",gate:"Gate 验收",decide:"审核／规划",action:"已校验动作",materialize:"固定结果",verify:"独立复核",final:"最终验收"} as Record<string,string>)[m.checkpoint.stage] || m.checkpoint.stage}</p>}
         {m.recovery && m.recovery.reason!==m.reason && <p className="text-destructive">{m.recovery.reason}</p>}
         {!m.coordinatorId && ["PAUSED","UNKNOWN"].includes(m.state) && !m.cancelRequested && <button type="button" className="mt-2 rounded border border-border px-3 py-2" disabled={pending||readError} onClick={()=>void resume()}>继续原任务</button>}
 		{readError && <p className="text-destructive">连接中断，保留最后已知验收状态。</p>}
 		<div className="mt-2 flex flex-wrap gap-3">
-		{m.sessionId && <button type="button" className="underline" onClick={() => { void navigate({ to: "/projects/$projectId/sessions/$sessionId", params: { projectId: m.request.projectId, sessionId: m.sessionId! } }); onOpenSession?.(m.sessionId!); }}>打开原生 Session</button>}
+		{m.sessionId && <button type="button" className="underline" onClick={() => { void navigate({ to: "/projects/$projectId/sessions/$sessionId", params: { projectId: m.request.projectId, sessionId: m.sessionId! } }); onOpenSession?.(m.sessionId!); }}>打开执行会话</button>}
 		{onNewAttempt && ["FAILED", "CANCELLED", "DONE", "HUMAN"].includes(m.state) && <button type="button" className="rounded-md border border-border px-3 py-2" disabled={readError} onClick={() => onNewAttempt(m.request)}>创建新的尝试（保留草稿）</button>}
 		</div>
 		{error?.id === m.request.id && <p role="alert" className="text-destructive">{error.text}</p>}
-        <CLAOResults key={"result:"+m.request.id} m={m}/>
-        <CLAORunView key={"run:"+m.request.id} m={m} onOpenSession={id=>{void navigate({to:"/projects/$projectId/sessions/$sessionId",params:{projectId:m.request.projectId,sessionId:id}});onOpenSession?.(id);}}/>
-        {m.subtasks?.map(child=><details key={child.request.id} className="mt-3 rounded border border-border p-2"><summary className="cursor-pointer">子任务：{child.request.objective} · {(child.state === "DONE" ? "子任务已完成" : states[child.state] || child.state)}</summary><MissionContent m={child} readError={readError} onOpenSession={onOpenSession}/></details>)}
+        <CLAORunView key={"run:"+m.request.id} m={m} readError={readError} onOpenSession={id=>{void navigate({to:"/projects/$projectId/sessions/$sessionId",params:{projectId:m.request.projectId,sessionId:id}});onOpenSession?.(id);}}/>
         <CLAODirectives key={m.request.id} m={m} readError={readError}/>
+        <section className="mt-4 space-y-3" aria-label="验收摘要"><strong>结果与验收</strong><div className="flex flex-wrap gap-x-5 gap-y-2"><span>命令：{factLabel(facts.command)}</span><span>完整性：{factLabel(facts.integrity)}</span><span>范围：{factLabel(facts.scope)}</span><span>取证：{factLabel(facts.collection)}</span><span>独立复核：{factLabel(facts.semantic)}</span></div><ul>{m.request.criteria.map(ac => {const check=facts.verification?.ac_checks?.find(c=>c.ac_id===ac.id);return <li key={ac.id} className="break-words">{ac.description} — {check?.verdict === "PASS" ? "通过" : check?.verdict === "FAIL" ? "未通过" : "尚无复核结果"}</li>;})}</ul><CLAOResults key={"result:"+m.request.id} m={m}/></section>
+        <details className="mt-4" data-testid="clao-advanced"><summary className="cursor-pointer text-muted-foreground">高级详情</summary>
         <details className="mt-3" data-testid="clao-role-facts"><summary className="cursor-pointer">角色与决策</summary>
         <div className="mt-2 space-y-3">{["worker", "auditor", "planner", "verifier"].map(role => {
             const chosen=m.roles?.[role]; const calls=m.roleCalls?.filter(c=>c.role===role) ?? [];
@@ -165,16 +165,8 @@ function MissionContent({ m, readError, onNewAttempt, onOpenSession }: { m: Miss
                 </div>)}
             </div>;
         })}{m.decisions?.map(d=><div key={d.id} className="rounded border border-border p-2"><strong>程序动作：{d.action || "等待决策"}</strong><p>{d.reason}</p><p>{d.outcome !== d.reason ? d.outcome || "尚未执行" : "已交给用户处理；未执行自动修复"}</p><details><summary>关联执行与状态</summary>{d.workerId} · {d.state}</details></div>)}</div></details>
-		<details className="mt-2"><summary className="cursor-pointer">验收条件、文件与证据</summary><div className="mt-2 max-h-56 space-y-2 overflow-auto">
-		<div className="flex flex-wrap gap-x-6 gap-y-1">
-            <span>Gate 命令：{latest?.gate ? latest.gate.command_ok ? "通过" : "未通过" : "尚未提供"}</span>
-            <span>仓库完整性：{latest?.gate ? latest.gate.integrity_ok ? "通过" : "未通过" : "尚未提供"}</span>
-            <span>范围：{latest?.readError ? "取证失败" : latest ? latest.scopeOK ? "通过" : "未通过" : "尚未提供"}</span>
-            <span>Verifier：{latest?.verification?.verdict || "未提供结论"}</span>
-        </div>
-        <ul>{m.request.criteria.map(ac => { const check=latest?.verification?.ac_checks?.find(c=>c.ac_id===ac.id);return <li key={ac.id}>{ac.id} · {ac.description} — {check ? check.verdict : "尚无复核结果"}</li>; })}</ul>
-		{latest?.paths?.length ? <ul>{latest.paths.map(p => <li key={p} className="break-all">{p}</li>)}</ul> : <p>尚无文件证据</p>}
-		<details><summary className="cursor-pointer">原始请求与操作记录</summary><pre className="overflow-auto whitespace-pre-wrap break-words text-xs">{JSON.stringify({ request: m.request, evidence: m.evidence, operations: m.operations, resultHead: m.resultHead, revision: m.revision }, null, 2)}</pre></details>
-		</div></details>
+        <details className="mt-2"><summary className="cursor-pointer">原始请求与验收记录</summary><pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words text-xs">{JSON.stringify({ request: m.request, state: m.state, reason: m.reason, evidence: m.evidence, operations: m.operations, resultHead: m.resultHead, revision: m.revision }, null, 2)}</pre></details>
+        {m.subtasks?.map(child=><details key={child.request.id} className="mt-3 rounded border border-border p-2"><summary className="cursor-pointer break-words">子任务材料：{child.request.objective} · {child.state === "DONE" ? "子任务已完成" : states[child.state] || child.state}</summary><p className="break-words">{child.reason}</p><CLAODirectives m={child} readError={readError}/><CLAOResults m={child}/></details>)}
+        </details>
 	</section>;
 }

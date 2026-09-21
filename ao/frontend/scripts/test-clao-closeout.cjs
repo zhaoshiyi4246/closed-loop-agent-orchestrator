@@ -16,7 +16,7 @@ module.exports=async({page,app,home,env,evidence,base})=>{
  const fill=async(parallel=false)=>{
   await page.getByLabel('CLAO 闭环验收').check();await page.getByLabel('使用上述当前内容快照').check({timeout:20000});
   await page.getByLabel('验收条件（每行一项）').fill(parallel?'left.txt accepted\nright.txt accepted':'result.txt accepted');
-  await page.getByLabel('Gate 命令（每行一条）').fill(parallel?'python check.py left.txt\npython check.py right.txt':'python check.py result.txt');
+  await page.getByLabel('检查命令（每行一条）').fill(parallel?'python check.py left.txt\npython check.py right.txt':'python check.py result.txt');
   await page.getByLabel('允许修改范围').fill(parallel?'left.txt\nright.txt':'result.txt');await page.getByLabel('最多修复次数').fill('0');
   await page.getByLabel('执行安排').selectOption(parallel?'2':'1');
   await page.getByRole('button',{name:'Agent',exact:true}).click();await page.getByRole('menu').getByText('opencode',{exact:true}).click();
@@ -44,23 +44,33 @@ module.exports=async({page,app,home,env,evidence,base})=>{
  cp.execFileSync(env.CLAO_CORE_PYTHON,['-c',`import sys,zipfile,shutil,subprocess\nfrom pathlib import Path\nsource,archive,target,unpack=map(Path,sys.argv[1:])\nshutil.copytree(source,target)\nwith zipfile.ZipFile(archive) as z: z.extractall(unpack)\npatch=next(unpack.rglob('*.patch'))\nsubprocess.run(['git','apply',str(patch)],cwd=target,check=True)\nassert (target/'result.txt').read_text()=='accepted\\n'\nsubprocess.run([sys.executable,'check.py','result.txt'],cwd=target,check=True)`,source,downloadPath,independent,unpack],{env,stdio:'inherit'});
  await center.getByText('下载已保存结果包',{exact:true}).waitFor();await page.screenshot({path:path.join(evidence,'saved-independent-package.png')});
  await page.getByRole('button',{name:'关闭',exact:true}).click();
+ await page.getByRole('button',{name:'Settings',exact:true}).first().click();await page.getByRole('button',{name:'模型连接与迁移',exact:true}).click();
  const legacy=page.getByTestId('clao-legacy');await legacy.locator('summary').first().click();
  const config=path.join(home,'legacy-config.json');fs.writeFileSync(config,JSON.stringify({worker:{model:'test/native'},gate:{timeout_seconds:20},roles:{planner:{model:'test/native'}}}));
  await legacy.getByLabel('旧配置文件').fill(config);await legacy.getByRole('button',{name:'读取并导入所选内容',exact:true}).click();
  await legacy.getByText(/已读取的兼容配置/).waitFor({timeout:15000});await page.screenshot({path:path.join(evidence,'explicit-legacy-import.png')});
- await legacy.locator('summary').first().click();
+ await page.getByRole('button',{name:'Close settings',exact:true}).click();
  await open();await fill(true);await page.getByRole('button',{name:'Start task',exact:true}).click();
  const dual=await wait(async()=>{const m=(await rows()).find(m=>m.request.maxTasks===2);return m?.subtasks?.length===2?m:null;},'real planner did not produce two tasks');
  if(!await page.getByRole('dialog').isVisible())await page.getByRole('button',{name:'查看原请求：'+dual.request.objective,exact:true}).click();
- const graph=page.getByRole('dialog').getByTestId('clao-run-view').first();await graph.locator('summary').first().click();
+ const graph=page.getByRole('dialog').getByTestId('clao-run-view');if(await graph.count()!==1)throw Error('parallel mission should have one total graph');
  await wait(async()=>await graph.locator('button[data-state="active"]').count()>=2,'two real workers not active in graph');
- await graph.getByRole('button',{name:/Worker/}).first().click();await page.screenshot({path:path.join(evidence,'two-worker-process.png')});
+ await graph.getByRole('button',{name:/执行任务/}).first().click();await page.screenshot({path:path.join(evidence,'two-worker-process.png')});
+ // Disconnect the actual polling transport while the two actual Sessions remain active.
+ const disconnectedRoute = '**/api/v1/clao/missions**';
+ await page.route(disconnectedRoute, route=>route.abort('failed'));
+ await graph.getByText('连接中断 · 以下为最后已知记录，非实时活动。',{exact:true}).waitFor({timeout:15000});
+ if(await graph.locator('button[data-state="active"]').count())throw Error('disconnected graph still claims realtime activity');
+ await page.screenshot({path:path.join(evidence,'disconnected-last-known.png')});
+ await page.unroute(disconnectedRoute);
+ await wait(async()=>await graph.locator('button[data-state="active"]').count()>=2,'reconnected graph did not resume real activity');
  fs.writeFileSync(env.CLAO_FIXTURE_PARALLEL_RELEASE,'release');
  const done=await wait(async()=>{const m=(await rows()).find(m=>m.request.id===dual.request.id);if(['FAILED','UNKNOWN','HUMAN'].includes(m.state))throw Error('parallel failed '+m.reason);return m.state==='DONE'?m:null;},'parallel did not finish');
  if(done.subtasks.some(m=>m.state!=='DONE')||!done.evidence.at(-1).verification||done.evidence.at(-1).verification.verdict!=='PASS')throw Error('partial success masquerades as mission completion');
  await page.getByRole('dialog').getByText('CLAO · 验收通过',{exact:true}).first().waitFor();
  const parentCenter=page.getByRole('dialog').getByTestId('clao-result-center').first();await parentCenter.locator('summary').first().click();await parentCenter.getByText('固定成果可读取',{exact:true}).waitFor();
  await page.screenshot({path:path.join(evidence,'integrated-acceptance.png')});
+ await require('./test-clao-visual.cjs')({page,app,evidence,objective:done.request.objective});
  if(fs.existsSync(path.join(source,'.git'))||fs.existsSync(path.join(source,'result.txt'))||Object.keys(sourceBefore).some(n=>fs.readFileSync(path.join(source,n),'utf8')!==sourceBefore[n]))throw Error('source directory was modified');
  console.log('NATIVE_CLOSEOUT_DESKTOP_PASS',JSON.stringify({normal:normal.request.id,parallel:done.request.id,workers:done.subtasks.map(m=>m.sessionId)}),evidence);
 };

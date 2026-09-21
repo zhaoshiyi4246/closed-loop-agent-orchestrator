@@ -98,10 +98,16 @@ export function SessionsBoard({ projectId }: SessionsBoardProps) {
 	// Board chrome stays route-oriented; project context remains in the sidebar.
 	const boardLabel = t("shell.board");
 	const liveSessions = workspaces.flatMap((workspace) => workerSessions(workspace.sessions));
+	// CLAO owns these Sessions' task lifecycle. Their native SCM columns remain
+	// available as advanced process details, never as a competing task verdict.
+	const [showCLAOSessions, setShowCLAOSessions] = useState(false);
+	const hasCLAOSessions = liveSessions.some(session => !!session.claoMissionId);
+	const ordinarySessions = liveSessions.filter(session => !session.claoMissionId);
+	const boardSessions = showCLAOSessions ? liveSessions : ordinarySessions;
 	const demoWorkspaceId = projectId ?? workspaces[0]?.id;
 	const sessions = usesPreviewWorkspaceData && demoWorkspaceId && liveSessions.length === 0
 		? demoBoardSessions(demoWorkspaceId)
-		: liveSessions;
+		: boardSessions;
 	const usageBySession = usesPreviewWorkspaceData
 		? new Map<string, SessionUsageSummary>(
 				sessions.map((session, index) => [
@@ -131,6 +137,7 @@ export function SessionsBoard({ projectId }: SessionsBoardProps) {
 	const requestNewTask = useUiStore((state) => state.requestNewTask);
 	const isProjectRestarting = projectId ? restartingProjectIds.has(projectId) : false;
 	const health = workspace ? orchestratorHealth(workspace, isProjectRestarting) : { state: "ok" as const };
+	const claoOnly = hasCLAOSessions && ordinarySessions.length === 0 && !orchestrator;
 	const visibleSpawnError = formatOrchestratorStartupError(spawnError ?? orchestratorStartupError ?? "");
 
 	// The board instance survives project-to-project navigation (same route,
@@ -138,6 +145,7 @@ export function SessionsBoard({ projectId }: SessionsBoardProps) {
 	useEffect(() => {
 		setSpawnError(null);
 		setCanCreateAsTui(false);
+		setShowCLAOSessions(false);
 	}, [projectId]);
 	const previousProjectIdRef = useRef(projectId);
 	useEffect(() => {
@@ -176,7 +184,7 @@ export function SessionsBoard({ projectId }: SessionsBoardProps) {
 		!daemonHasFailed &&
 		(!isDaemonReady || workspaceStartupState === "loading" || (!workspaceQuery.isSuccess && !workspaceQuery.isError) || requirementsBlocked);
 	const showWelcome = !projectId && isLoaded && all.length === 0;
-	const showProjectEmpty = projectId !== undefined && isLoaded && workspaces.length > 0 && sessions.length === 0;
+	const showProjectEmpty = projectId !== undefined && isLoaded && workspaces.length > 0 && sessions.length === 0 && !claoOnly;
 	const hasArchive = archived.length > 0;
 	const terminateSession = useTerminateSession();
 	const activeProjectIdRef = useRef(projectId);
@@ -288,7 +296,7 @@ export function SessionsBoard({ projectId }: SessionsBoardProps) {
 				</TooltipTrigger>
 				<TooltipContent side="bottom">{t("shell.newTask")}</TooltipContent>
 			</Tooltip>
-			<Tooltip>
+			{(!claoOnly || showCLAOSessions) && <Tooltip>
 				<TooltipTrigger asChild>
 					<span className="inline-flex">
 						<TopbarButton
@@ -318,7 +326,7 @@ export function SessionsBoard({ projectId }: SessionsBoardProps) {
 								? t("shell.openOrchestrator")
 								: t("shell.spawnOrchestrator")}
 				</TooltipContent>
-			</Tooltip>
+			</Tooltip>}
 			{boardOwnsNotificationCenter ? (
 				<>
 					<NotificationCenter />
@@ -332,6 +340,7 @@ export function SessionsBoard({ projectId }: SessionsBoardProps) {
 	return (
 		<div className="relative flex h-full min-h-0 flex-col bg-background text-foreground" data-testid="board">
 			<CLAOMissionList key={projectId ?? "all"} projectId={projectId} />
+			{hasCLAOSessions && <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-sm"><p className="text-muted-foreground">闭环任务的进度与验收以上方记录为准；执行会话可从运行图打开。</p><button type="button" className="underline" onClick={() => setShowCLAOSessions(value => !value)}>{showCLAOSessions ? "收起运行会话" : "查看运行会话（高级）"}</button></div>}
 			{!boardActionsInPanel && isLoaded && visibleSpawnError && !showProjectEmpty ? (
 				<p role="alert" className="mx-3 my-3 whitespace-pre-wrap break-words text-sm text-destructive">
 					{visibleSpawnError}
@@ -368,7 +377,7 @@ export function SessionsBoard({ projectId }: SessionsBoardProps) {
 			{/* Reserve only the collapsed archive bar. Expanded archive overlays the
 			    board so lane height (and Needs You scrollbars) stay stable. */}
 			<div className={cn("min-h-0 flex-1 overflow-hidden", hasArchive && archiveToggleOffsetClassName)}>
-				{projectId && health.state !== "ok" ? (
+				{projectId && health.state !== "ok" && !(claoOnly && health.state === "missing") ? (
 					<div className="mx-3 my-3 flex items-center gap-3 rounded-md border border-border bg-surface px-3 py-2 text-xs text-muted-foreground">
 						<AlertTriangle className="size-icon-base shrink-0 text-warning" aria-hidden="true" />
 						<span className="min-w-0 flex-1">{health.message}</span>
@@ -400,7 +409,7 @@ export function SessionsBoard({ projectId }: SessionsBoardProps) {
 						onOpenOrchestratorAsTui={canCreateAsTui ? () => void openOrchestrator("tui") : undefined}
 						spawnError={visibleSpawnError}
 					/>
-				) : (
+				) : claoOnly && !showCLAOSessions ? null : (
 					<SessionsBoardGridView
 						columns={columns}
 						key={projectId ?? "all"}

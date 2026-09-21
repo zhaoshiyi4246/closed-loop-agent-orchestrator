@@ -51,7 +51,7 @@ export function NewTaskDialog({ open, projectId, initialRequest, onCreated, onOp
 		<Dialog.Root open={open} onOpenChange={onOpenChange}>
 			<Dialog.Portal>
 				<Dialog.Overlay className="dialog-overlay data-[state=open]:animate-overlay-in" />
-				<Dialog.Content className="fixed left-1/2 top-1/2 z-overlay max-h-[90vh] w-dialog-xl max-w-[95vw] -translate-x-1/2 -translate-y-1/2 overflow-auto rounded-lg border border-border bg-popover p-0 text-popover-foreground shadow-xl data-[state=open]:animate-modal-in motion-reduce:animate-none">
+				<Dialog.Content className="fixed left-1/2 top-1/2 z-overlay max-h-[90vh] w-[min(56rem,95vw)] max-w-[95vw] -translate-x-1/2 -translate-y-1/2 overflow-auto rounded-lg border border-border bg-popover p-0 text-popover-foreground shadow-xl data-[state=open]:animate-modal-in motion-reduce:animate-none">
 					{/* One title line names the dialog, styled like every other settings-style
 					    modal; everything else stays the composer's surface, no bordered header. */}
 					<Dialog.Title className="settings-dialog-title px-4 pt-3">{receiptId ? "闭环任务详情" : t("newTask.title")}</Dialog.Title>
