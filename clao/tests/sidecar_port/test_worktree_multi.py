@@ -7,6 +7,7 @@ Covers the two properties that make N parallel workers safe:
 2. sidecar commit + integration merge — clean merge of disjoint edits,
    deterministic conflict detection.
 """
+import json
 import subprocess
 from pathlib import Path
 
@@ -60,6 +61,54 @@ def test_two_workers_freeze_isolated_bases(tmp_path):
     # w1 vs its base: nothing either (its edit predates its freeze) — the
     # point is neither sees the OTHER's tree
     assert wt.changed_paths(w1, b1) == []
+
+
+def test_long_sidecar_freezes_and_never_rebases_after_head_changes(tmp_path):
+    repo = _init_repo(tmp_path / "repo")
+    task_id = "TASK-" + "t" * 120
+    scope = "worker-" + "w" * 80
+    tag = task_id + ":" + scope
+    logical_path = repo.parent / (".base-" + tag.replace(":", "-") + ".json")
+    assert len(str(logical_path)) >= 260
+    assert len(logical_path.name) < 255
+    store = StateStore(tmp_path / "s.db")
+    try:
+        base = wt._current_head(repo)
+        assert base
+        assert wt.freeze_base(str(repo), store, task_id, scope=scope) == base
+        sidecar = wt._sidecar_path(str(repo), tag)
+        assert json.loads(sidecar.read_text(encoding="utf-8")) == {"base_commit": base}
+        original = sidecar.read_bytes()
+
+        (repo / "app.py").write_text("x = 2\n", encoding="utf-8")
+        assert _run(repo, "commit", "-q", "-am", "worker edit").returncode == 0
+        changed_head = wt._current_head(repo)
+        assert changed_head and changed_head != base
+        assert wt.freeze_base(str(repo), store, task_id, scope=scope) == base
+        assert wt.freeze_base(str(repo), store, task_id, scope=scope, expected=changed_head) == ""
+        assert sidecar.read_bytes() == original
+
+        sidecar.unlink()
+        assert wt.freeze_base(str(repo), store, task_id, scope=scope) == ""
+        assert store.counter_get("base_commit:" + tag) == 1
+        assert not sidecar.exists()
+    finally:
+        store.close()
+
+
+def test_legacy_sidecar_is_read_without_rewriting_or_new_freeze(tmp_path):
+    repo = _init_repo(tmp_path / "repo")
+    legacy = repo.parent / ".base-TASK-old-worker.json"
+    legacy.write_text(json.dumps({"base_commit": "a" * 40}), encoding="utf-8")
+    original = legacy.read_bytes()
+    store = StateStore(tmp_path / "s.db")
+    try:
+        store.counter_set("base_commit:TASK-old:worker", 1)
+        assert wt.freeze_base(str(repo), store, "TASK-old", scope="worker") == "a" * 40
+        assert legacy.read_bytes() == original
+        assert list(repo.parent.glob(".base-*")) == [legacy]
+    finally:
+        store.close()
 
 
 def test_path_gate_scoped_per_worker(tmp_path):

@@ -80,7 +80,17 @@ def freeze_base(worktree: str, store, task_id: str, scope: str = "", *, expected
 
 def _sidecar_path(worktree: str, tag: str) -> Path:
     # lives outside the worktree so worker edits cannot tamper with it
-    return Path(worktree).parent / (".base-" + tag.replace(":", "-") + ".json")
+    path = Path(worktree).parent / (".base-" + tag.replace(":", "-") + ".json")
+    if os.name == "nt":
+        # The worktree may fit MAX_PATH while the task/session sidecar does
+        # not. Use the Win32 extended spelling for I/O, preserving the exact
+        # existing location and filename (including already frozen bases).
+        absolute = os.path.abspath(path)
+        if not absolute.startswith("\\\\?\\"):
+            absolute = ("\\\\?\\UNC\\" + absolute[2:] if absolute.startswith("\\\\")
+                        else "\\\\?\\" + absolute)
+        return Path(absolute)
+    return path
 
 
 def _read_base_sidecar(worktree: str, tag: str) -> str:
