@@ -10,6 +10,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
+import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -18,9 +19,50 @@ import {
 	patchClaudeRetryDetails,
 	pruneNodeDistribution,
 	runtimeSourceFiles,
+	windowsNodeExtraction,
 } from "./build-acp-runtime-helpers.mjs";
 
 const temporaryDirectories = [];
+
+describe.skipIf(process.platform !== "win32")("Windows Node ZIP extraction", () => {
+	function fixture(names) {
+		const root = temporaryDirectory();
+		const archive = join(root, "node's archive.zip");
+		const literal = (value) => `'${value.replaceAll("'", "''")}'`;
+		const script = `$ErrorActionPreference='Stop'; Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
+$zip=[IO.Compression.ZipFile]::Open(${literal(archive)}, [IO.Compression.ZipArchiveMode]::Create)
+try { foreach ($name in @(${names.map(literal).join(",")})) {
+  $entry=$zip.CreateEntry($name); $writer=[IO.StreamWriter]::new($entry.Open())
+  try { $writer.Write('fixture-runtime') } finally { $writer.Dispose() }
+} } finally { $zip.Dispose() }`;
+		const result = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], { encoding: "utf8", windowsHide: true });
+		expect(result.status, result.stderr).toBe(0);
+		return { root, archive };
+	}
+
+	it("extracts only exact runtime entries despite deeply nested npm paths", () => {
+		const { root, archive } = fixture(["node-test/node.exe", "node-test/LICENSE", `node-test/node_modules/${"nested/".repeat(45)}tool.js`]);
+		const destination = join(root, "deep-build-root-".repeat(5), "node's runtime");
+		const invocation = windowsNodeExtraction(archive, destination, "node-test");
+		const result = spawnSync(invocation.command, invocation.args, { encoding: "utf8", windowsHide: true });
+		expect(result.status, result.stderr).toBe(0);
+		expect(readdirSync(destination).sort()).toEqual(["LICENSE", "node.exe"]);
+		expect(readFileSync(join(destination, "node.exe"), "utf8")).toBe("fixture-runtime");
+	}, 15000);
+
+	it.each([
+		["missing", ["node-test/node.exe"]],
+		["duplicate", ["node-test/node.exe", "node-test/LICENSE", "node-test/LICENSE"]],
+	])("rejects %s required entries before creating output", (_label, names) => {
+		const { root, archive } = fixture(names);
+		const destination = join(root, "node");
+		const invocation = windowsNodeExtraction(archive, destination, "node-test");
+		const result = spawnSync(invocation.command, invocation.args, { encoding: "utf8", windowsHide: true });
+		expect(result.status).not.toBe(0);
+		expect(result.stderr).toContain("Missing, empty or duplicate Node runtime entry");
+		expect(existsSync(destination)).toBe(false);
+	}, 15000);
+});
 
 afterEach(() => {
 	for (const directory of temporaryDirectories.splice(0)) {

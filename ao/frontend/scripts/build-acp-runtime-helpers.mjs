@@ -16,6 +16,34 @@ export function createWorkDirectory(outputRoot) {
 	return mkdtempSync(join(outputRoot, ".node-download-"));
 }
 
+export function windowsNodeExtraction(archivePath, destination, archiveRoot) {
+	if (!/^[A-Za-z0-9._-]+$/.test(archiveRoot) || archiveRoot === "." || archiveRoot === "..") {
+		throw new Error("Invalid Node archive root");
+	}
+	const literal = (value) => `'${value.replaceAll("'", "''")}'`;
+	// Select only the runtime and its license. Expanding npm before deleting it
+	// can exceed Windows MAX_PATH even when every shipped path is short enough.
+	const script = `
+$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$archive = [IO.Compression.ZipFile]::OpenRead(${literal(archivePath)})
+try {
+  $selected = @()
+  foreach ($name in @('node.exe', 'LICENSE')) {
+    $entryName = ${literal(archiveRoot + "/")} + $name
+    $entries = @($archive.Entries | Where-Object { $_.FullName -ceq $entryName })
+    if ($entries.Count -ne 1 -or $entries[0].Length -eq 0) { throw ('Missing, empty or duplicate Node runtime entry: ' + $entryName) }
+    $selected += $entries[0]
+  }
+  [IO.Directory]::CreateDirectory(${literal(destination)}) | Out-Null
+  foreach ($entry in $selected) {
+    [IO.Compression.ZipFileExtensions]::ExtractToFile($entry, (Join-Path ${literal(destination)} $entry.Name), $false)
+  }
+} finally { $archive.Dispose() }
+`;
+	return { command: "powershell.exe", args: ["-NoProfile", "-NonInteractive", "-Command", script] };
+}
+
 export function npmInvocation(
 	args,
 	{
