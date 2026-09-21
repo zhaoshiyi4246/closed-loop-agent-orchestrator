@@ -17,6 +17,9 @@ type sourceCore interface {
 	Integrate(context.Context, Mission, []Mission) (IntegrationResult, error)
 }
 
+// An atomic budget refusal is a business outcome, not a failed checkpoint write.
+var errSharedBudgetExhausted = errors.New("Mission 共享修复/替换预算耗尽")
+
 func (m Mission) sourceRepository() string {
 	if m.Source != nil {
 		return m.Source.ProjectPath
@@ -50,7 +53,7 @@ func (s *Service) mutateSubtask(parent, id string, f func(*Mission) error) (Miss
 			totalReplans += sub.Replans
 		}
 		if totalRepairs+totalReplans > outer.Request.MaxRepairs || totalReplans > outer.Request.MaxReplans {
-			return *v, errors.New("Mission 共享修复/替换预算耗尽")
+			return *v, errSharedBudgetExhausted
 		}
 		outer.Repairs, outer.Replans = totalRepairs, totalReplans
 		v.Revision++
@@ -168,14 +171,16 @@ func (s *Service) runChildren(id string, m Mission) error {
 	// Check every saved lane before starting any continuation. An invalid later
 	// lane must never release the parent claim with an earlier lane still live.
 	for _, child := range m.Subtasks {
-		if child.State != "DONE" && finalState(child.State) {
-			return s.human(id, "子任务未通过："+child.Reason)
+		if finalState(child.State) {
+			if err := s.requireOwnedStopped(child.Request.ID); err != nil {
+				return err
+			}
 		}
 	}
 	// Parent retains the sole scheduling claim. Each lane reuses execute/run;
 	// no Create, initial replay, separate runtime or externally claimable owner.
 	for _, child := range m.Subtasks {
-		if child.State == "DONE" {
+		if finalState(child.State) {
 			continue
 		}
 		wg.Add(1)
@@ -190,8 +195,16 @@ func (s *Service) runChildren(id string, m Mission) error {
 		return errCancelled
 	}
 	for _, child := range current.Subtasks {
-		if child.State != "DONE" {
+		if !finalState(child.State) {
 			return errors.New("子任务尚未通过或执行待确认：" + child.Reason)
+		}
+	}
+	for _, child := range current.Subtasks {
+		if child.State != "DONE" {
+			if err := s.requireOwnedStopped(id); err != nil {
+				return err
+			}
+			return s.human(id, "子任务未通过："+child.Reason)
 		}
 	}
 	_, err = s.advance(id, "integrate", "MATERIALIZING", "集成两个已停止并验收的子任务成果")

@@ -220,4 +220,65 @@ def test_native_two_workers_cancel_and_shared_budget(native):
     assert limited['state']!='DONE' and not limited.get('resultHead'),limited
     assert limited['repairs']==sum(s['repairs'] for s in limited['subtasks'])==1,limited
     assert sum(op['kind']=='repair_send' for s in limited['subtasks'] for op in s['operations'])==1,limited
-    assert api('/api/v1/clao/missions/'+request['id']+'/cancel',{}, {'X-CLAO-Nonce':nonce})[0]==202
+    assert limited['state']=='HUMAN',limited
+    assert sorted(s['state'] for s in limited['subtasks'])==['DONE','HUMAN'],limited
+
+
+@pytest.mark.parametrize('terminal_write_fault', [False, True])
+def test_shared_budget_exhaustion_is_terminal_and_new_attempt_is_independent(native, terminal_write_fault):
+    from tests.test_ao_native_recovery import fault, clear_fault, trace
+    _,api,nonce,_,_,temp=native
+    original=temp/'last shared allowance';check_source(original)
+    pid=create_local(api,nonce,original)
+    request=spec(api,pid,'closeout-last-budget',True)
+    request.update(objective='PARALLEL_REPAIR',maxRepairs=1)
+    if terminal_write_fault:
+        # A real SQLite write failure must still be recoverable; the business
+        # refusal itself must never become a repeatedly resumable checkpoint.
+        fault(temp,"(json_extract(NEW.document,'$.subtasks[0].state')='HUMAN' AND json_extract(OLD.document,'$.subtasks[0].state')!='HUMAN') OR "
+                   "(json_extract(NEW.document,'$.subtasks[1].state')='HUMAN' AND json_extract(OLD.document,'$.subtasks[1].state')!='HUMAN')")
+    assert api('/api/v1/clao/missions',request,{'X-CLAO-Nonce':nonce})[0]==202
+    first=wait_mission(api,request['id'])
+    before=trace(temp)
+    if terminal_write_fault:
+        assert first['state']=='PAUSED',first
+        assert sorted(s['state'] for s in first['subtasks'])==['DONE','PAUSED'],first
+        clear_fault(temp)
+        nonce=api.restart()
+        restored=api('/api/v1/clao/missions/'+request['id'])[1]['mission']
+        assert restored['recovery']['canContinue'],restored
+        assert api('/api/v1/clao/missions/'+request['id']+'/continue',{}, {'X-CLAO-Nonce':nonce})[0]==202
+    settled=wait_mission(api,request['id'])
+    assert settled['state']=='HUMAN' and '共享' in settled['reason'],settled
+    assert sorted(s['state'] for s in settled['subtasks'])==['DONE','HUMAN'],settled
+    assert settled['request']==first['request'] and settled['roles']==first['roles']
+    assert settled['repairs']==sum(s['repairs'] for s in settled['subtasks'])==1
+    assert settled['replans']==0 and not settled.get('resultHead')
+    assert sum(op['kind']=='repair_send' for s in settled['subtasks'] for op in s['operations'])==1
+    refused=next(s for s in settled['subtasks'] if s['state']=='HUMAN')
+    assert refused['repairs']==0 and len(refused['decisions'])==1
+    assert refused['decisions'][0]['state']=='HUMAN' and not refused['decisions'][0]['charged']
+    assert not any(op['kind'] in ('repair_send','resume','spawn_replacement') for op in refused['operations'])
+    assert all(op['state']=='CONFIRMED_SUCCESS' for s in settled['subtasks'] for op in s['operations'])
+    # Check native stop facts for workers and semantic sessions before a new
+    # attempt is admitted. HTTP success alone is not proof of stopped execution.
+    owners=[settled,*settled['subtasks']]
+    session_ids={s['sessionId'] for s in settled['subtasks']}
+    session_ids.update(c['sessionId'] for owner in owners for c in owner.get('roleCalls',[]) if c.get('sessionId'))
+    for sid in session_ids:
+        status,snapshot=api('/api/v1/sessions/'+sid+'/conversation')
+        assert status==200 and snapshot['controller']=='stopped',snapshot
+    assert trace(temp)==before  # recovery used saved role results, no extra calls
+    nonce=api.restart()
+    saved=api('/api/v1/clao/missions/'+request['id'])[1]['mission']
+    assert saved==settled
+    for _ in range(2):
+        assert api('/api/v1/clao/missions/'+request['id']+'/continue',{}, {'X-CLAO-Nonce':nonce})[0]==409
+    assert trace(temp)==before
+    again=spec(api,pid,'closeout-budget-new-attempt',True)
+    again.update(parentId=request['id'],maxRepairs=1)
+    assert api('/api/v1/clao/missions',again,{'X-CLAO-Nonce':nonce})[0]==202
+    final=wait_mission(api,again['id'])
+    assert final['state']=='DONE' and final['request']['parentId']==request['id'],final
+    assert final['repairs']==0 and not session_ids.intersection(s['sessionId'] for s in final['subtasks'])
+    assert api('/api/v1/clao/missions/'+request['id'])[1]['mission']==saved

@@ -50,6 +50,9 @@ def native(tmp_path, native_engine, native_core_python):
     binary, engine = native_engine
     home = tmp_path / "isolated-home"
     home.mkdir()
+    # AccountFactory launches its protocol-only client with this as cwd. Keep
+    # the device profile empty and isolated; no real credentials are imported.
+    (home / ".codex").mkdir()
     source = tmp_path / "项目 source"
     source.mkdir()
     git(source, "init", "-b", "main")
@@ -297,9 +300,6 @@ def test_native_approval_is_once_and_native_retry_cannot_bypass_owner(native):
 def test_native_codex_uses_same_acceptance_service(native):
     submit, api, nonce, source, base, temp = native
     result = submit('Create accepted output using the Codex protocol', agent='codex')
-    if result['state'] in {'UNKNOWN', 'FAILED'} and 'Codex account setup did not complete' in result['reason']:
-        assert not result.get('resultHead') and not result['evidence']
-        pytest.xfail('AO v0.12.12 Windows account_storage_unsafe in isolated profile; native account checks remain enforced')
     assert result['state'] == 'DONE', result
 
 

@@ -367,6 +367,14 @@ func (s *Service) applyDecision(id string, m Mission) error {
 			return nil
 		})
 		if err != nil {
+			if errors.Is(err, errSharedBudgetExhausted) {
+				// Another lane claimed the last allowance. No counter or intent
+				// from this rejected mutation was saved, and no action was sent.
+				if stopErr := s.requireOwnedStopped(id); stopErr != nil {
+					return stopErr
+				}
+				return s.human(id, err.Error())
+			}
 			return err
 		}
 	}

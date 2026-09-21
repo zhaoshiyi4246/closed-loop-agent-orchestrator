@@ -63,6 +63,45 @@ func (s *Service) requireStopped(sid domain.SessionID) error {
 	return nil
 }
 
+func (s *Service) requireOwnedStopped(id string) error {
+	m, err := s.Get(s.ctx, id)
+	if err != nil {
+		return err
+	}
+	rows, err := s.ownedSessions(id)
+	if err != nil {
+		return err
+	}
+	expected := map[domain.SessionID]bool{}
+	var collect func(Mission)
+	collect = func(v Mission) {
+		for _, sid := range []domain.SessionID{v.SessionID, v.VerifierSessionID} {
+			if sid != "" {
+				expected[sid] = true
+			}
+		}
+		for _, call := range v.RoleCalls {
+			if call.SessionID != "" {
+				expected[call.SessionID] = true
+			}
+		}
+		for _, child := range v.Subtasks {
+			collect(child)
+		}
+	}
+	collect(m)
+	for _, row := range rows {
+		if err := s.requireStopped(row.ID); err != nil {
+			return err
+		}
+		delete(expected, row.ID)
+	}
+	if len(expected) != 0 {
+		return errors.New("原生 Session 停止记录或 owner 关联缺失")
+	}
+	return nil
+}
+
 // A failed send-intent write proves that namedOperation never called Send.
 // Stop the newly resumed controller while its real handle is still available,
 // so a later daemon restart can continue this charged, still-unsent action.
@@ -245,8 +284,13 @@ func (s *Service) recoveryCheck(m Mission) error {
 		}
 		if m.Checkpoint.Stage == "children" || m.Checkpoint.Stage == "integrate" {
 			for _, child := range m.Subtasks {
-				if child.State == "DONE" {
-					if e := s.deliveryStopped(child); e != nil {
+				if finalState(child.State) {
+					if child.State == "DONE" {
+						if e := s.deliveryStopped(child); e != nil {
+							return e
+						}
+					}
+					if e := s.requireOwnedStopped(child.Request.ID); e != nil {
 						return e
 					}
 					continue

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -55,6 +56,7 @@ func validateCodexDirectoryAncestors(path string) error {
 	if err != nil {
 		return errors.New("codex directory path is invalid")
 	}
+	verifiedChild := false
 	for current := abs; ; current = filepath.Dir(current) {
 		ptr, ptrErr := windows.UTF16PtrFromString(current)
 		if ptrErr != nil {
@@ -62,6 +64,7 @@ func validateCodexDirectoryAncestors(path string) error {
 		}
 		attributes, attrErr := windows.GetFileAttributes(ptr)
 		if errors.Is(attrErr, windows.ERROR_FILE_NOT_FOUND) || errors.Is(attrErr, windows.ERROR_PATH_NOT_FOUND) {
+			verifiedChild = false
 			if parent := filepath.Dir(current); parent != current {
 				continue
 			}
@@ -74,14 +77,45 @@ func validateCodexDirectoryAncestors(path string) error {
 		if openErr != nil {
 			return errors.New("codex directory ancestor could not be verified")
 		}
+		// A local volume root cannot be renamed/replaced through its parent.
+		// Creation of sibling directories there does not grant mutation of an
+		// already-verified child. Never use this policy for a missing direct
+		// child, UNC root, vault directory/file, or other ancestor.
+		if verifiedChild && codexWindowsLocalVolumeRoot(current, handle) {
+			_, ownerTrusted, aclSafe, openErr = codexWindowsHandleSecurityPolicy(handle, false, true)
+		}
 		_ = windows.CloseHandle(handle)
+		if openErr != nil {
+			return errors.New("codex directory ancestor could not be verified")
+		}
 		if !codexWindowsPathMetadataIsSafe(codexWindowsMetadata(info, ownerTrusted, aclSafe), true, false) {
 			return errors.New("codex directory ancestor ACL is unsafe")
 		}
 		if parent := filepath.Dir(current); parent == current {
 			return nil
 		}
+		verifiedChild = true
 	}
+}
+
+func codexWindowsLocalVolumeRoot(path string, handle windows.Handle) bool {
+	clean := filepath.Clean(path)
+	volume := filepath.VolumeName(clean)
+	if len(volume) != 2 || volume[1] != ':' || clean != volume+string(filepath.Separator) {
+		return false
+	}
+	ptr, err := windows.UTF16PtrFromString(clean)
+	if err != nil || windows.GetDriveType(ptr) != windows.DRIVE_FIXED {
+		return false
+	}
+	var root, actual [260]uint16
+	if windows.GetVolumeNameForVolumeMountPoint(ptr, &root[0], uint32(len(root))) != nil {
+		return false
+	}
+	// VOLUME_NAME_GUID ties the exception to the opened object itself. A SUBST
+	// drive or a mapped directory must not hide unverified physical ancestors.
+	n, err := windows.GetFinalPathNameByHandle(handle, &actual[0], uint32(len(actual)), 1)
+	return err == nil && n > 0 && n < uint32(len(actual)) && strings.EqualFold(windows.UTF16ToString(root[:]), windows.UTF16ToString(actual[:]))
 }
 
 func openCodexWindowsPath(path string, directory, requirePrivate bool) (windows.Handle, windows.ByHandleFileInformation, bool, bool, bool, error) {
@@ -131,6 +165,10 @@ func codexWindowsMetadata(info windows.ByHandleFileInformation, ownerTrusted, ac
 }
 
 func codexWindowsHandleSecurity(handle windows.Handle, requirePrivate bool) (bool, bool, bool, error) {
+	return codexWindowsHandleSecurityPolicy(handle, requirePrivate, false)
+}
+
+func codexWindowsHandleSecurityPolicy(handle windows.Handle, requirePrivate, localRootWithVerifiedChild bool) (bool, bool, bool, error) {
 	token, err := windows.OpenCurrentProcessToken()
 	if err != nil {
 		return false, false, false, err
@@ -148,6 +186,10 @@ func codexWindowsHandleSecurity(handle windows.Handle, requirePrivate bool) (boo
 	if err != nil {
 		return false, false, false, err
 	}
+	ownerRights, err := windows.CreateWellKnownSid(windows.WinCreatorOwnerRightsSid)
+	if err != nil {
+		return false, false, false, err
+	}
 	sd, err := windows.GetSecurityInfo(handle, windows.SE_FILE_OBJECT, windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION)
 	if err != nil || sd == nil {
 		return false, false, false, errors.New("codex path security descriptor is unavailable")
@@ -158,6 +200,20 @@ func codexWindowsHandleSecurity(handle windows.Handle, requirePrivate bool) (boo
 	}
 	ownerCurrent := owner.Equals(user.User.Sid)
 	ownerTrusted := ownerCurrent || owner.Equals(system) || owner.Equals(administrators)
+	var authenticatedUsers *windows.SID
+	if localRootWithVerifiedChild && !requirePrivate {
+		// Exact Windows Modules Installer service SID, never a name/prefix or
+		// arbitrary NT SERVICE principal. Vault ownership remains current-user.
+		installer, sidErr := windows.StringToSid("S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464")
+		if sidErr != nil {
+			return false, false, false, sidErr
+		}
+		ownerTrusted = ownerTrusted || owner.Equals(installer)
+		authenticatedUsers, sidErr = windows.CreateWellKnownSid(windows.WinAuthenticatedUserSid)
+		if sidErr != nil {
+			return false, false, false, sidErr
+		}
+	}
 	dacl, _, err := sd.DACL()
 	if err != nil || dacl == nil {
 		return ownerCurrent, ownerTrusted, false, nil
@@ -174,16 +230,22 @@ func codexWindowsHandleSecurity(handle windows.Handle, requirePrivate bool) (boo
 			continue
 		}
 		allowed := prefix.header.AceType == windows.ACCESS_ALLOWED_ACE_TYPE
-		ace := codexWindowsACE{Allowed: allowed, Mask: uint32(prefix.mask)}
+		ace := codexWindowsACE{Allowed: allowed, Mask: uint32(prefix.mask), Unsupported: !allowed && prefix.header.AceType != windows.ACCESS_DENIED_ACE_TYPE}
 		if allowed {
 			sid := (*windows.SID)(unsafe.Pointer(&raw.SidStart))
 			ace.PrincipalTrusted = sid.Equals(user.User.Sid) || sid.Equals(system) || sid.Equals(administrators)
+			// OWNER RIGHTS is the current object's owner, not a new trustee.
+			// Both policies first require that owner to be trusted. Do not apply
+			// this to CREATOR OWNER, object/callback ACEs, or arbitrary SIDs.
+			// https://learn.microsoft.com/en-us/windows-server/identity/ad-ds/manage/understand-special-identities-groups#owner-rights
+			ace.OwnerRights = sid.Equals(ownerRights)
+			ace.RootDirectoryCreateOnly = authenticatedUsers != nil && sid.Equals(authenticatedUsers) && uint32(prefix.mask) == codexWindowsAppendData
 		} else if prefix.header.AceType == 5 || prefix.header.AceType == 9 || prefix.header.AceType == 11 {
 			ace.Allowed = true
 		}
 		aces = append(aces, ace)
 	}
-	aclSafe := codexWindowsAncestorACLIsSafe(ownerTrusted, aces)
+	aclSafe := codexWindowsAncestorACLPolicy(ownerTrusted, aces, localRootWithVerifiedChild && !requirePrivate)
 	if requirePrivate {
 		aclSafe = codexWindowsVaultACLIsSafe(ownerTrusted, aces)
 	}
