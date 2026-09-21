@@ -35,6 +35,8 @@ type ConnectionResponse struct {
 	Connection LegacyConnection `json:"connection"`
 }
 
+var ErrConnectionSaveUnconfirmed = errors.New("连接保存结果待确认，请保留原请求重试")
+
 func (s *Service) ConnectionCatalog(ctx context.Context) (ConnectionCatalog, error) {
 	core, ok := s.acceptance.(legacyCore)
 	if !ok {
@@ -86,16 +88,20 @@ func (s *Service) CreateConnection(ctx context.Context, in ConnectionRequest) (C
 	}
 	doc, _ := json.Marshal(value)
 	if err = st.ImportCLAORecords(ctx, []domain.CLAOImportRecord{{ID: id, Kind: "connection", Document: string(doc), CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}}); err != nil {
-		return ConnectionResponse{}, err
+		if errors.Is(err, domain.ErrCLAOImportConflict) {
+			return ConnectionResponse{}, err
+		}
+		// A commit error does not prove that the write did not happen.
+		return ConnectionResponse{}, ErrConnectionSaveUnconfirmed
 	}
 	catalog, err := s.LegacyCatalog(ctx)
 	if err != nil {
-		return ConnectionResponse{}, err
+		return ConnectionResponse{}, ErrConnectionSaveUnconfirmed
 	}
 	for _, saved := range catalog.Connections {
 		if saved.ID == id {
 			return ConnectionResponse{Connection: saved}, nil
 		}
 	}
-	return ConnectionResponse{}, errors.New("连接保存结果待确认，请保留原请求重试")
+	return ConnectionResponse{}, ErrConnectionSaveUnconfirmed
 }

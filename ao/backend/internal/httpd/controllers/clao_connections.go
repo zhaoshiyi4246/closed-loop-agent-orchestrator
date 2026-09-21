@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/envelope"
@@ -39,6 +40,10 @@ func (c *CLAOController) createConnection(w http.ResponseWriter, r *http.Request
 	}
 	v, err := svc.CreateConnection(r.Context(), in)
 	if err != nil {
+		if errors.Is(err, claoloop.ErrConnectionSaveUnconfirmed) {
+			c.fail(w, r, http.StatusServiceUnavailable, err.Error())
+			return
+		}
 		c.fail(w, r, 409, err.Error())
 		return
 	}

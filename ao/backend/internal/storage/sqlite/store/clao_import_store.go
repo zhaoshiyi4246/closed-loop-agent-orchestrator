@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"fmt"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 )
@@ -24,7 +23,7 @@ func (s *Store) ImportCLAORecords(ctx context.Context, records []domain.CLAOImpo
 		err = tx.QueryRowContext(ctx, "SELECT document FROM clao_imports WHERE id=?", r.ID).Scan(&previous)
 		if err == nil {
 			if previous != r.Document {
-				return fmt.Errorf("原导入来源已变化，未覆盖已有记录；请保留原记录并明确重新连接")
+				return domain.ErrCLAOImportConflict
 			}
 			continue
 		}
