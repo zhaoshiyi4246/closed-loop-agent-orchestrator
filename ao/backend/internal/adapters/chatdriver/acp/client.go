@@ -75,6 +75,11 @@ func (c *conversation) RequestPermission(
 				"provider permission policy selected unoffered option %q", selected)
 		}
 	}
+	tool, binding, valid := c.permissionTool(params)
+	if !valid {
+		return acpsdk.RequestPermissionResponse{Outcome: acpsdk.NewRequestPermissionOutcomeCancelled()}, nil
+	}
+	params.ToolCall = tool
 	decisions := make([]ports.ChatDecisionOption, 0, len(params.Options))
 	for _, option := range params.Options {
 		id := string(option.OptionId)
@@ -87,13 +92,21 @@ func (c *conversation) RequestPermission(
 	if params.ToolCall.Title != nil && strings.TrimSpace(*params.ToolCall.Title) != "" {
 		summary = *params.ToolCall.Title
 	}
-	selected, err := c.RequestApproval(ctx, ClientApprovalRequest{
+	selected, err := c.requestApproval(ctx, ClientApprovalRequest{
 		Summary: summary, ActivityKind: activityKindFromTool(pointerValue(params.ToolCall.Kind)),
 		Detail:    approvalToolDetail(params.ToolCall, activityKindFromTool(pointerValue(params.ToolCall.Kind))),
 		Decisions: decisions,
-	})
+	}, binding)
 	if err != nil || selected == "" {
 		return acpsdk.RequestPermissionResponse{Outcome: acpsdk.NewRequestPermissionOutcomeCancelled()}, err
+	}
+	if binding != nil {
+		c.mu.Lock()
+		current := c.permissionBindingCurrent(binding)
+		c.mu.Unlock()
+		if !current {
+			return acpsdk.RequestPermissionResponse{Outcome: acpsdk.NewRequestPermissionOutcomeCancelled()}, nil
+		}
 	}
 	return acpsdk.RequestPermissionResponse{
 		Outcome: acpsdk.NewRequestPermissionOutcomeSelected(acpsdk.PermissionOptionId(selected)),
@@ -105,6 +118,10 @@ func (c *conversation) RequestApproval(
 	ctx context.Context,
 	params ClientApprovalRequest,
 ) (string, error) {
+	return c.requestApproval(ctx, params, nil)
+}
+
+func (c *conversation) requestApproval(ctx context.Context, params ClientApprovalRequest, binding *permissionBinding) (string, error) {
 	if len(params.Decisions) == 0 {
 		return "", nil
 	}
@@ -113,10 +130,10 @@ func (c *conversation) RequestApproval(
 	for _, option := range params.Decisions {
 		options[option.ID] = append(json.RawMessage(nil), option.Raw...)
 	}
-	request := &parkedPermission{options: options, result: make(chan string, 1)}
+	request := &parkedPermission{options: options, result: make(chan string, 1), binding: binding}
 
 	c.mu.Lock()
-	if c.closed {
+	if c.closed || (binding != nil && !c.permissionBindingCurrent(binding)) {
 		c.mu.Unlock()
 		return "", nil
 	}
@@ -532,13 +549,17 @@ func (c *conversation) SessionUpdate(_ context.Context, params acpsdk.SessionNot
 		}
 	case update.ToolCall != nil:
 		tool := &toolState{
-			id: string(update.ToolCall.ToolCallId), title: update.ToolCall.Title,
+			id: string(update.ToolCall.ToolCallId), title: update.ToolCall.Title, turnID: turnID,
 			kind: update.ToolCall.Kind, status: update.ToolCall.Status,
 			locations: update.ToolCall.Locations, content: update.ToolCall.Content,
 			rawInput: update.ToolCall.RawInput, rawOutput: update.ToolCall.RawOutput,
 			meta: cloneMeta(update.ToolCall.Meta),
 		}
 		c.mu.Lock()
+		if prior := c.tools[tool.id]; prior != nil {
+			// Reusing an id cannot erase an earlier approval's binding.
+			tool.approvalUsed = true
+		}
 		c.tools[tool.id] = tool
 		c.mu.Unlock()
 		c.emit(c.toolEvent(turnID, tool, toolTerminal(tool.status)))
@@ -609,8 +630,16 @@ func (c *conversation) mergeToolUpdate(update *acpsdk.SessionToolCallUpdate) *to
 	defer c.mu.Unlock()
 	tool := c.tools[id]
 	if tool == nil {
+		// A standalone update can be displayed but does not establish a live
+		// tool identity from which missing permission facts may be recovered.
 		tool = &toolState{id: id}
 		c.tools[id] = tool
+	}
+	if tool.approvalUsed && (toolTerminal(tool.status) ||
+		(update.Kind != nil && *update.Kind != tool.kind) ||
+		(update.RawInput != nil && !samePermissionInput(update.RawInput, tool.rawInput)) ||
+		(update.Locations != nil && !samePermissionInput(update.Locations, tool.locations))) {
+		tool.approvalInvalid = true
 	}
 	if update.Title != nil {
 		tool.title = *update.Title
