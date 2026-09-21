@@ -114,6 +114,22 @@ beforeEach(() => {
 });
 
 describe("SessionsBoard", () => {
+	it("keeps CLAO task verdicts separate from native process columns", async () => {
+		workspaceQueryMock.mockReturnValue({ data: [workspaceWithSessions([boardSession({ id: "owned", title: "managed worker", status: "idle", claoMissionId: "mission" })])], isError: false, isSuccess: true });
+		renderBoard("p1");
+		expect(screen.queryByText("managed worker")).not.toBeInTheDocument();
+		expect(screen.queryByText("No orchestrator is running for this project.")).not.toBeInTheDocument();
+		await userEvent.click(screen.getByText("查看运行会话（高级）"));
+		expect(screen.getByText("managed worker")).toBeInTheDocument();
+		expect(screen.getByText("收起运行会话")).toBeInTheDocument();
+	});
+	it("preserves ordinary sessions and orchestrator health in mixed projects", () => {
+		workspaceQueryMock.mockReturnValue({ data: [workspaceWithSessions([boardSession({ id: "owned", title: "managed worker", status: "idle", claoMissionId: "mission" }), boardSession({ id: "ordinary", title: "ordinary task", status: "idle" })])], isError: false, isSuccess: true });
+		renderBoard("p1");
+		expect(screen.queryByText("managed worker")).not.toBeInTheDocument();
+		expect(screen.getByText("ordinary task")).toBeInTheDocument();
+		expect(screen.getByText("No orchestrator is running for this project.")).toBeInTheDocument();
+	});
 	it("uses the last human message time rather than generic session updatedAt", () => {
 		const presentation = toBoardSessionPresentation(
 			boardSession({
@@ -1434,7 +1450,7 @@ describe("SessionsBoard", () => {
 
 		await waitFor(() => expect(postMock).toHaveBeenCalledTimes(1));
 		expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-		expect(await screen.findByRole("alert")).toHaveTextContent("Failed to terminate session (500)");
+		expect(await screen.findByText("Failed to terminate session (500)")).toHaveAttribute("role", "alert");
 		expect(screen.getByRole("button", { name: "Terminate merged worker" })).toBeEnabled();
 	});
 

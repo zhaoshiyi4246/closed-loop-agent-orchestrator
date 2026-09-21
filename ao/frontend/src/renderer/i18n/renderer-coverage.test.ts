@@ -9,6 +9,17 @@ const displayAttributes = new Set(["alt", "aria-label", "placeholder", "title"])
 // These are content/data, product names, technical units, or keyboard chords—not
 // English UI copy. Keeping this allowlist exact makes newly introduced chrome fail.
 const approvedLiterals: Record<string, readonly string[]> = {
+	// CLAO's Chinese surface contains product/protocol names and source filenames.
+	// Keep exact strings so this does not exempt new English chrome in these files.
+	"components/CLAOAcceptance.tsx": ["CLAO ·", "· AO 解析：", "，非单次 provider 请求证明）", "· 用量/费用：unknown"],
+	"components/CLAOConnections.tsx": ["为规划、诊断和最终复核配置标准 API。执行任务继续使用原生模型与账号。", "搜索 API 型号", "常用 API 型号", "自定义 API 型号", "· 标准 API 计费", "· 标准 API"],
+	"components/CLAODirectives.tsx": ["当前 Worker ·", "原 Worker（不再接收）", "原 Worker 已替换或不再接收。请确认接收对象；不会自动改发 Planner 或新 Worker。"],
+	"components/CLAOLegacy.tsx": ["连接 / 更新 API Key", "· 标准 API", "API Key", "迁移旧 CLAO 数据", "default.yaml 的完整路径", "runtime 目录或 state.db 的完整路径"],
+	"components/CLAOLocalProject.tsx": ["使用普通目录、空项目或 Git 当前内容；不初始化或提交原目录。"],
+	"components/CLAOResults.tsx": ["KB ·", "· exit"],
+	"components/CLAORoleForm.tsx": ["局部修复和替换共用上述修复预算；替换先确认旧 Worker 停止，保留旧会话，从冻结来源重新执行。"],
+	"components/CLAOSource.tsx": ["KB · 当前磁盘内容", "包含当前未提交修改，在 CLAO 私有工作区执行；不提交或改写原目录。"],
+	"components/NewTaskDialog.tsx": ["CLAO 闭环验收"],
 	"components/BrowserPanel.tsx": [
 		"AO Preview",
 		"Demo app preview",
@@ -28,7 +39,7 @@ const approvedLiterals: Record<string, readonly string[]> = {
 		"Tracker intake is not available for scratch projects.",
 	],
 	"components/SessionInspector.tsx": ["PR #"],
-	"components/Sidebar.tsx": ["Agent Orchestrator", "daemon"],
+	"components/Sidebar.tsx": ["Agent Orchestrator", "CLAO Native", "daemon"],
 	"components/WindowTitlebar.tsx": [
 		"Alt+F4",
 		"Ctrl+Z",
