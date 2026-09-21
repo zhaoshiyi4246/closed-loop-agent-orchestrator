@@ -12,6 +12,9 @@
 - 初轮离线Windows语义/GLM53参数/旧导入：`pytest tests/test_native_connections.py tests/test_p01_bigmodel.py tests/test_ao_legacy.py -q --tb=short` → **58 passed /14.15s**。真实请求尚未执行时已准备本记录，后续结果由脱敏ledger记入。
 - 首次原生连接回归遗漏CLAO_NATIVE_BINARY，**4 skipped**，不计通过；补齐本轮daemon后**4 passed /93.96s**，含GLM53混合角色及新建连接幂等/重启/不外发边界。
 - Kimi K3真实Verifier对照：正确加法PASS、明确减法缺陷FAIL；2次HTTP200，token合计输入4141/输出698，费用预留2.79916元，账单实扣未知。首例脚本最后锁文件清理因Windows占用失败，模型/校验/ledger已成功；修正关闭句柄后删除锁，未重发正例。完整脱敏ledger在本次交接时附入。
+- 随后同一正式传输与schema补Auditor/Planner各正反例：PASS/LOCAL_FIX、CANDIDATE_DONE/SEND_LOCAL_FIX均符合预期，Planner修复指向原synthetic-worker且消息涉及add实现。累计6次HTTP200、输入11018/输出1627 token、费用预留8.0988元。仅构造小型加法输入，不是实际安装包/真实Worker完整闭环，不据此宣称原生多模型全部支持。
+- 2026-09-21 独立审查发现连接写后读失败误409及随包Python遮蔽Gate本地模块导入。连接故障注入覆盖真实SQLite成功写入后失败/丢commit确认、同UUID重试不重复、异内容冲突保留；Go service/controllers定向通过。Python采用normal/core双入口，项目script/-c本地导入及恶意cwd/PYTHONPATH不替换core探测通过；仍待最终安装候选验证与复核。
+- 共享预算/Windows账户修复见 `bbb4539`，连接对账修复见 `f7bd03e`。原Codex native回归删除xfail后1 passed/27.34s（外部协议进程替身）；真实现有登录测试daemon被自动审批以blocked by policy拒绝，未代理重试。GUI最新证据见 [closeout-final](closeout-final/README.md)，不与打包验收混称。
 
 ## PR #46 启动失败局部返修
 

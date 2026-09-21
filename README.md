@@ -20,13 +20,13 @@ CLAO 基于 AO v0.12.12 的原生桌面应用，为编码任务提供范围检�
 
 ## 模型与交付边界
 
-| 路径 | CLAO 接入范围 | 当前真实证据 |
-|---|---|---|
-| 原生 Codex | Worker；独立只读语义角色；原生账号及模型选择 | 本轮账户安全路径和完整旅程验证进行中 |
-| 原生 OpenCode | Worker与有明确只读权限的语义角色 | 生产daemon/协议替身旅程已验证；真实服务另列 |
-| BigModel 标准 API | GLM-5.3/GLM-4.7建议型号，Planner/Auditor/Verifier | GLM-5.3实际参数与混合角色离线通过；真实凭据待确认 |
-| Kimi 国内标准 API | kimi-k3，Planner/Auditor/Verifier | 真实Verifier正确成果PASS、明确缺陷FAIL；完整混合旅程尚待验证 |
-| 其他上游编码工具 | 保留原生目录、安装和账号入口 | 不代表已获CLAO自动语义角色或真实闭环准入 |
+| 路径 | 上游保留 | CLAO 接入范围 | 当前真实证据 |
+|---|---|---|---|
+| 原生 Codex | App Server、账号、模型、Chat | Worker及独立只读语义角色；来源/验收/恢复 | 协议替身完整旅程通过；现有登录daemon启动被客户端自动审批阻止，真实Worker尚未验证 |
+| 原生 OpenCode | ACP、账号、模型、Chat | Worker与有明确只读权限的语义角色 | 生产daemon/协议替身旅程已验证；没有据此宣称真实服务通过 |
+| BigModel 标准 API | 独立CLAO连接，不冒充原生执行器 | GLM-5.3/GLM-4.7建议型号，Planner/Auditor/Verifier | GLM-5.3实际参数与混合角色离线通过；真实凭据引用待确认 |
+| Kimi 国内标准 API | 独立CLAO连接，不冒充原生执行器 | kimi-k3，Planner/Auditor/Verifier | 三个角色各一组真实正反质量对照通过；真实Worker混合完整旅程尚待验证 |
+| 其他上游编码工具 | 原生目录、安装和账号入口 | 仅按已具备的协议与确定性权限准入 | 未逐一真实验证，不代表全部可用于自动语义角色 |
 
 自定义型号需兼容所选传输，并由服务确认权限。标准 API 按量计费；不能将其视为 Coding Plan 套餐。未知用量或账单保持未知，不会静默改用其他供应商。
 

@@ -4,7 +4,9 @@
 
 ## 2026-09-21 当前收尾事实
 
-现有 PR #49 仍 OPEN，开发分支 HEAD 起点 `c30d694f4356dc9afc951b424e850967e85182c1`。本轮已授权真实预算内测试及独立安装交付，当前 **IN_PROGRESS**，尚无本轮 live/发行通过结论。已确认审计待修：共享预算耗尽的恢复循环、运行图混用综合验收结论；旧标准连接模型校验仍限 `glm-4.7`；Codex账户祖先ACL阻塞尚待处理。具体完成门、额度及下一动作由 [PLANS](../PLANS.md) 与 [台账](V03_BACKLOG.md) 维护，下方旧限制为历史。
+现有 PR #49 仍 OPEN，开发分支起点 `c30d694f4356dc9afc951b424e850967e85182c1`，当前 **IN_PROGRESS**。共享预算耗尽改为确认所有Session停止后的HUMAN业务结论；Gate与语义Verifier分项投影，断连不显示实时活动。新标准API连接接通GLM-5.3真实参数（thinking enabled、reasoning_effort），支持受约束的自定义型号，不代表账户准入。Windows卷根与OWNER RIGHTS校验已精确修正，原生Codex协议替身完整旅程通过，旧xfail删除；未改用户ACL或官方AO。
+
+Kimi K3六次真实HTTP角色质量对照通过（Verifier/Auditor/Planner各正反例），费用按保守上界预留，真实Worker完整任务仍0。现有登录daemon启动被客户端自动审批拒绝；GLM凭据引用及两套干净Windows未取得。独立安装工具已实现，构建失败中发现的许可证枚举、shared模块映射和Python Gate本地导入问题正在统一修复验证，尚无最终安装通过结论。具体完成门、额度及下一动作由 [PLANS](../PLANS.md) 与 [台账](V03_BACKLOG.md) 维护，下方旧限制为历史。
 
 ## 1. 版本与基线
 

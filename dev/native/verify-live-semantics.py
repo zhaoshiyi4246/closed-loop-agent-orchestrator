@@ -18,6 +18,9 @@ from loopcore.bigmodel import BigModelTransport
 from loopcore.diagnostics import Diagnostics
 from loopcore.model_profiles import SERVICE, KIMI_SERVICE
 from loopcore.verifier import CodexCliVerifierProvider, VerifierInput
+from loopcore.auditor import CodexCliAuditorProvider, EvidenceBundle
+from loopcore.planner_adapter import CodexCliPlannerProvider
+from loopcore.mission_contracts import AuditResult, AuditDecision
 
 # Official CNY / million tokens, checked 2026-09-21. Kimi reserves both
 # uncached input (20) and the more expensive 1h cache write (40).
@@ -77,12 +80,14 @@ def main():
     parser.add_argument('--model')
     parser.add_argument('--ledger', type=Path, required=True)
     parser.add_argument('--case', choices=['correct', 'defect'], required=True)
+    parser.add_argument('--role', choices=['verifier', 'auditor', 'planner'], default='verifier')
     args = parser.parse_args()
     lock = args.ledger.with_suffix('.lock')
     args.ledger.parent.mkdir(parents=True, exist_ok=True)
     with lock.open('x'):
         pass
     try:
+        previous_count = len(json.loads(args.ledger.read_text('utf-8'))['attempts']) if args.ledger.exists() else 0
         config = yaml.safe_load(args.config.read_text('utf-8'))
         profile = copy.deepcopy(next(p for p in config['model_profiles'] if p['id'] == args.profile))
         profile.update(timeout_seconds=120, max_attempts=1, retry_delay_seconds=0)
@@ -101,20 +106,42 @@ def main():
             gate_output='Syntax compilation passed; no behavioral checks were run.',
             changed_paths=['add.py'], deterministic_findings=[])
         facts = Facts()
-        provider = CodexCliVerifierProvider(model=profile['model'], transport=BudgetedTransport(profile, args.ledger, args.case))
+        transport = BudgetedTransport(profile, args.ledger, args.role + ':' + args.case)
+        provider = {'verifier': CodexCliVerifierProvider, 'auditor': CodexCliAuditorProvider,
+                    'planner': CodexCliPlannerProvider}[args.role](model=profile['model'], transport=transport)
         provider.diagnostics = Diagnostics(facts, 'SYNTHETIC-ADD')
-        expected = 'PASS' if args.case == 'correct' else 'FAIL'
+        expected = {'verifier': ('PASS', 'FAIL'), 'auditor': ('PASS', 'LOCAL_FIX'),
+                    'planner': ('CANDIDATE_DONE', 'SEND_LOCAL_FIX')}[args.role][args.case == 'defect']
         try:
-            result = provider.verify(inp, 'VERIFY-SYNTHETIC-ADD')
-            summary = {'verdict': result.verdict, 'expected': expected, 'quality_pass': result.verdict == expected}
+            if args.role == 'verifier':
+                result = provider.verify(inp, 'VERIFY-SYNTHETIC-ADD')
+                verdict = result.verdict
+            elif args.role == 'auditor':
+                result = provider.audit(EvidenceBundle(task_spec=inp.task_spec, alert=None,
+                    git_diff=inp.diff, test_output=inp.gate_output, audit_type='COMPLETION'), 'AUDIT-SYNTHETIC-ADD')
+                verdict = result.decision
+            else:
+                audit = AuditResult(audit_id='AUDIT-SYNTHETIC-ADD', task_id='SYNTHETIC-ADD',
+                    decision=AuditDecision.PASS if args.case == 'correct' else AuditDecision.LOCAL_FIX,
+                    evidence=[{'type': 'code_review', 'summary': 'Reviewed the synthetic two-line integer-addition implementation.'}],
+                    diagnosis='Addition is implemented correctly.' if args.case == 'correct' else 'add.py subtracts b; add(7,2) returns 5 instead of 9.',
+                    recommended_action='' if args.case == 'correct' else 'Change add.py to add the integers; retain the scope and acceptance checks.',
+                    confidence=0.99, failed_criteria=[] if args.case == 'correct' else ['AC1'])
+                task = {**inp.task_spec, 'allowed_paths': ['add.py'], 'forbidden_paths': ['check.py']}
+                result = provider.plan(audit, task, 'PLAN-SYNTHETIC-ADD', target_session_id='synthetic-worker', remaining_replans=0)
+                verdict = result.action
+            quality = verdict == expected
+            if args.role == 'planner' and args.case == 'defect':
+                quality = quality and result.target_session_id == 'synthetic-worker' and bool(result.message and 'add' in result.message.lower())
+            summary = {'verdict': verdict, 'expected': expected, 'quality_pass': quality}
         except Exception as exc:
             summary = {'quality_pass': False, 'category': getattr(exc, 'category', type(exc).__name__)}
         attempt = next((r for r in reversed(facts.rows) if r.get('phase') == 'model_request'), {})
-        summary.update(case=args.case, model=profile['model'], usage=attempt.get('usage'), confirmed_model=attempt.get('confirmed_model'))
+        summary.update(role=args.role, case=args.case, model=profile['model'], usage=attempt.get('usage'), confirmed_model=attempt.get('confirmed_model'))
         print(json.dumps(summary, ensure_ascii=False))
         if args.ledger.exists():
             ledger = json.loads(args.ledger.read_text('utf-8'))
-            if ledger['attempts']:
+            if len(ledger['attempts']) > previous_count:
                 ledger['attempts'][-1]['validation'] = summary
                 args.ledger.write_text(json.dumps(ledger, ensure_ascii=False, indent=2), 'utf-8')
         return 0 if summary['quality_pass'] else 1
