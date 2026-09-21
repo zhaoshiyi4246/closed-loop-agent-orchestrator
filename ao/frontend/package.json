@@ -1,16 +1,16 @@
 {
-	"name": "agent-orchestrator",
-	"productName": "Agent Orchestrator",
-	"version": "0.10.3",
+	"name": "clao-native",
+	"productName": "CLAO Native",
+	"version": "0.3.0-rc.1",
 	"private": true,
-	"description": "Electron + TypeScript frontend for the agent-orchestrator rewrite",
-	"author": "Agent Orchestrator",
-	"license": "MIT",
-	"homepage": "https://github.com/aoagents/agent-orchestrator",
+	"description": "CLAO Native Windows closed-loop desktop",
+	"author": "CLAO contributors",
+	"license": "Apache-2.0",
+	"homepage": "https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator",
 	"main": ".vite/build/main.js",
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/aoagents/agent-orchestrator"
+		"url": "https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator"
 	},
 	"scripts": {
 		"build:acp-runtime": "node ./scripts/build-acp-runtime.mjs",
