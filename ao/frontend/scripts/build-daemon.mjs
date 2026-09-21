@@ -51,7 +51,10 @@ if (isWindowsDev) {
 	mkdirSync(outDir, { recursive: true });
 }
 
-const result = spawnSync("go", ["build", "-o", buildOutPath, "./cmd/ao"], {
+const releaseFlags = process.env.CLAO_RELEASE_BUILD === "tracked-head-windows-x64"
+	? ["-trimpath", "-ldflags=-s -w -X github.com/aoagents/agent-orchestrator/backend/internal/cli.Version=0.3.0-rc.1"]
+	: [];
+const result = spawnSync("go", ["build", ...releaseFlags, "-o", buildOutPath, "./cmd/ao"], {
 	cwd: backendRoot,
 	stdio: "inherit",
 	windowsHide: true,

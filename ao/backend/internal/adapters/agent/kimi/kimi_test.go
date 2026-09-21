@@ -279,7 +279,7 @@ func TestGetRestoreCommandNoID(t *testing.T) {
 
 func TestGetAgentHooksInstallsSystemPromptInstructions(t *testing.T) {
 	workspace := t.TempDir()
-	kimiHome := t.TempDir()
+	kimiHome := privateKimiHome(t)
 
 	if err := (&Plugin{}).GetAgentHooks(context.Background(), ports.WorkspaceHookConfig{
 		WorkspacePath: workspace,
@@ -339,7 +339,7 @@ func TestKimiInstructionsPathUsesProviderDiscoveredDirectory(t *testing.T) {
 
 func TestGetAgentHooksInstallsKimiConfigHooksWithoutSystemPrompt(t *testing.T) {
 	workspace := t.TempDir()
-	kimiHome := t.TempDir()
+	kimiHome := privateKimiHome(t)
 	configPath := filepath.Join(kimiHome, "config.toml")
 	existing := `default_model = "kimi-code/kimi-for-coding"
 
@@ -392,18 +392,24 @@ timeout = 7
 func TestGetAgentHooksSeedsAOManagedConfigFromUserKimiConfig(t *testing.T) {
 	workspace := t.TempDir()
 	userHome := t.TempDir()
-	aoHome := t.TempDir()
+	aoHome := privateKimiHome(t)
 	t.Setenv(kimiCodeHomeEnv, userHome)
-	userConfig := `api_key = "user-key"
-default_model = "kimi-code/kimi-for-coding"
+	userConfig := `default_model = "kimi-code/kimi-for-coding"
+[providers.test]
+type = "kimi"
+base_url = "https://api.example.invalid/v1"
+api_key = "user-key"
+[models."kimi-code/kimi-for-coding"]
+provider = "test"
 `
 	if err := os.WriteFile(filepath.Join(userHome, "config.toml"), []byte(userConfig), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
+	env := map[string]string{kimiCodeHomeEnv: aoHome}
 	if err := (&Plugin{}).GetAgentHooks(context.Background(), ports.WorkspaceHookConfig{
 		WorkspacePath: workspace,
-		Env:           map[string]string{kimiCodeHomeEnv: aoHome},
+		Env:           env,
 	}); err != nil {
 		t.Fatalf("GetAgentHooks err = %v", err)
 	}
@@ -413,9 +419,19 @@ default_model = "kimi-code/kimi-for-coding"
 		t.Fatalf("read AO config: %v", err)
 	}
 	text := string(data)
+	if strings.Contains(text, "user-key") || !strings.Contains(text, "api_key_env") {
+		t.Fatal("inline key persisted or reference absent")
+	}
+	if len(env) != 2 {
+		t.Fatal("launch-only credential binding absent")
+	}
+	for key, value := range env {
+		if key != kimiCodeHomeEnv && value != "user-key" {
+			t.Fatal("launch-only credential value changed")
+		}
+	}
 	for _, want := range []string{
-		`api_key = "user-key"`,
-		`default_model = "kimi-code/kimi-for-coding"`,
+		`kimi-code/kimi-for-coding`,
 		`command = "ao hooks kimi session-start"`,
 	} {
 		if !strings.Contains(text, want) {
@@ -447,7 +463,7 @@ provider = "managed:kimi-code"
 func TestGetAgentHooksSeedsAOManagedConfigFromOAuthUserKimiHome(t *testing.T) {
 	workspace := t.TempDir()
 	userHome := t.TempDir()
-	aoHome := t.TempDir()
+	aoHome := privateKimiHome(t)
 	t.Setenv(kimiCodeHomeEnv, userHome)
 	userCredentials := []byte(`{"refresh_token":"user-refresh"}`)
 	writeKimiOAuthProfile(t, userHome, userCredentials)
@@ -473,7 +489,7 @@ func TestGetAgentHooksSeedsCredentialReferencedByOAuthConfig(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			workspace := t.TempDir()
 			userHome := t.TempDir()
-			aoHome := t.TempDir()
+			aoHome := privateKimiHome(t)
 			t.Setenv(kimiCodeHomeEnv, userHome)
 
 			const scopedName = "kimi-code-env-a1b2c3"
@@ -536,7 +552,7 @@ func TestGetAgentHooksSeedsCredentialReferencedByOAuthConfig(t *testing.T) {
 func TestGetAgentHooksReseedsHookOnlyAOManagedConfigFromOAuthUserKimiHome(t *testing.T) {
 	workspace := t.TempDir()
 	userHome := t.TempDir()
-	aoHome := t.TempDir()
+	aoHome := privateKimiHome(t)
 	t.Setenv(kimiCodeHomeEnv, userHome)
 	userCredentials := []byte(`{"access_token":"user-access"}`)
 	aoCredentials := []byte(`{"refresh_token":"ao-refresh"}`)
@@ -628,7 +644,7 @@ func assertKimiOAuthProfileSeeded(
 func TestGetAgentHooksSeedsAOManagedCredentialsFromUserKimiHome(t *testing.T) {
 	workspace := t.TempDir()
 	userHome := t.TempDir()
-	aoHome := t.TempDir()
+	aoHome := privateKimiHome(t)
 	t.Setenv(kimiCodeHomeEnv, userHome)
 	userCredentials := []byte(`{"access_token":"user-token","refresh_token":"refresh-token"}`)
 	userCredentialsPath := filepath.Join(userHome, "credentials", "kimi-code.json")
@@ -654,19 +670,13 @@ func TestGetAgentHooksSeedsAOManagedCredentialsFromUserKimiHome(t *testing.T) {
 	if string(got) != string(userCredentials) {
 		t.Fatalf("AO credentials = %s, want %s", got, userCredentials)
 	}
-	info, err := os.Stat(targetPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got, want := info.Mode().Perm(), os.FileMode(0o600); got != want {
-		t.Fatalf("AO credentials permissions = %o, want %o", got, want)
-	}
+	assertKimiPrivateFile(t, targetPath)
 }
 
 func TestGetAgentHooksPreservesExistingAOManagedCredentials(t *testing.T) {
 	workspace := t.TempDir()
 	userHome := t.TempDir()
-	aoHome := t.TempDir()
+	aoHome := privateKimiHome(t)
 	t.Setenv(kimiCodeHomeEnv, userHome)
 	for path, data := range map[string][]byte{
 		filepath.Join(userHome, "credentials", "kimi-code.json"): []byte(`{"access_token":"user-token"}`),
@@ -700,9 +710,9 @@ func TestGetAgentHooksPreservesExistingAOManagedCredentials(t *testing.T) {
 func TestGetAgentHooksReseedsAOManagedConfigWithoutAuth(t *testing.T) {
 	workspace := t.TempDir()
 	userHome := t.TempDir()
-	aoHome := t.TempDir()
+	aoHome := privateKimiHome(t)
 	t.Setenv(kimiCodeHomeEnv, userHome)
-	if err := os.WriteFile(filepath.Join(userHome, "config.toml"), []byte(`api_key = "user-key"`+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(userHome, "config.toml"), []byte("[providers.test]\ntype = 'kimi'\napi_key = 'user-key'\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(aoHome, "config.toml"), []byte(kimiHooksConfigBlock()), 0o600); err != nil {
@@ -721,7 +731,10 @@ func TestGetAgentHooksReseedsAOManagedConfigWithoutAuth(t *testing.T) {
 		t.Fatalf("read AO config: %v", err)
 	}
 	text := string(data)
-	for _, want := range []string{`api_key = "user-key"`, `command = "ao hooks kimi session-start"`} {
+	if strings.Contains(text, "user-key") {
+		t.Fatal("inline key persisted")
+	}
+	for _, want := range []string{`api_key_env`, `command = "ao hooks kimi session-start"`} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("AO config missing %q:\n%s", want, text)
 		}
@@ -733,7 +746,7 @@ func TestGetAgentHooksReseedsAOManagedConfigWithoutAuth(t *testing.T) {
 
 func TestGetAgentHooksRewritesManagedKimiConfigBlock(t *testing.T) {
 	workspace := t.TempDir()
-	kimiHome := t.TempDir()
+	kimiHome := privateKimiHome(t)
 	configPath := filepath.Join(kimiHome, "config.toml")
 	existing := "before = true\n\n" +
 		kimiHooksSentinelStart + "\nold = true\n" + kimiHooksSentinelEnd + "\n\n" +
@@ -797,7 +810,7 @@ func TestGetAgentHooksRequiresAOManagedKimiHome(t *testing.T) {
 
 func TestGetAgentHooksReadsSystemPromptFile(t *testing.T) {
 	workspace := t.TempDir()
-	kimiHome := t.TempDir()
+	kimiHome := privateKimiHome(t)
 	promptFile := filepath.Join(t.TempDir(), "system.md")
 	if err := os.WriteFile(promptFile, []byte("file rules\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -822,7 +835,7 @@ func TestGetAgentHooksReadsSystemPromptFile(t *testing.T) {
 
 func TestGetAgentHooksPreservesUserInstructions(t *testing.T) {
 	workspace := t.TempDir()
-	kimiHome := t.TempDir()
+	kimiHome := privateKimiHome(t)
 	path := kimiInstructionsPath(workspace)
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		t.Fatal(err)
@@ -860,7 +873,7 @@ func TestGetAgentHooksPreservesUserInstructions(t *testing.T) {
 
 func TestGetAgentHooksRewritesManagedInstructions(t *testing.T) {
 	workspace := t.TempDir()
-	kimiHome := t.TempDir()
+	kimiHome := privateKimiHome(t)
 	path := kimiInstructionsPath(workspace)
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		t.Fatal(err)
@@ -889,7 +902,7 @@ func TestGetAgentHooksRewritesManagedInstructions(t *testing.T) {
 
 func TestGetAgentHooksRewritesManagedBlockAndPreservesSurroundingUserInstructions(t *testing.T) {
 	workspace := t.TempDir()
-	kimiHome := t.TempDir()
+	kimiHome := privateKimiHome(t)
 	path := kimiInstructionsPath(workspace)
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		t.Fatal(err)

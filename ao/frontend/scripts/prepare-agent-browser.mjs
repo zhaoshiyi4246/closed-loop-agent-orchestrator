@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { chmod, copyFile, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const VERSION = "0.33.1";
@@ -7,7 +7,7 @@ const RELEASE_BASE = `https://github.com/vercel-labs/agent-browser/releases/down
 const OUTPUT_DIR = path.resolve("agent-browser");
 const quiet = process.argv.includes("--quiet");
 const DOWNLOAD_ATTEMPTS = 3;
-const DOWNLOAD_RETRY_DELAY_MS = 1000;
+const DOWNLOAD_RETRY_DELAY_MS = 10000;
 
 const TARGETS = {
 	"darwin-arm64": {
@@ -39,19 +39,38 @@ if (!target) {
 
 const binaryName = process.platform === "win32" ? "agent-browser.exe" : "agent-browser";
 const binaryPath = path.join(OUTPUT_DIR, binaryName);
+const cachedBinary = process.env.CLAO_BROWSER_CACHE
+	? path.join(path.resolve(process.env.CLAO_BROWSER_CACHE), target.sha256, target.asset)
+	: null;
 const licenseVersionPath = path.join(OUTPUT_DIR, ".license-version");
 
 await mkdir(OUTPUT_DIR, { recursive: true });
+if (cachedBinary && (await fileSHA256(cachedBinary)) === target.sha256) {
+	await copyFile(cachedBinary, binaryPath);
+}
 if ((await fileSHA256(binaryPath)) !== target.sha256) {
 	const temporaryPath = `${binaryPath}.download`;
 	await rm(temporaryPath, { force: true });
-	const response = await fetchWithRetry(`${RELEASE_BASE}/${target.asset}`, {
-		description: `agent-browser ${VERSION}`,
-	});
-	if (!response.body) {
-		throw new Error(`download agent-browser ${VERSION}: empty response body`);
+	for (let attempt = 1; attempt <= DOWNLOAD_ATTEMPTS; attempt++) {
+		try {
+			const response = await fetch(`${RELEASE_BASE}/${target.asset}`, { redirect: "follow", signal: AbortSignal.timeout(120000) });
+			if (!response.ok) {
+				const error = new Error(`HTTP ${response.status}`);
+				error.retryable = response.status >= 500;
+				throw error;
+			}
+			if (!response.body) throw new Error("empty response body");
+			// Keep stream consumption inside the retry boundary: headers alone
+			// do not prove the complete binary reached disk.
+			await writeFile(temporaryPath, response.body);
+			break;
+		} catch (error) {
+			await rm(temporaryPath, { force: true });
+			if (!retryableNetworkError(error) || attempt === DOWNLOAD_ATTEMPTS) throw error;
+			console.warn(`Browser download network failure; retry ${attempt + 1}/${DOWNLOAD_ATTEMPTS} in 10 seconds`);
+			await delay(DOWNLOAD_RETRY_DELAY_MS);
+		}
 	}
-	await writeFile(temporaryPath, response.body);
 	const actual = await fileSHA256(temporaryPath);
 	if (actual !== target.sha256) {
 		await rm(temporaryPath, { force: true });
@@ -59,6 +78,10 @@ if ((await fileSHA256(binaryPath)) !== target.sha256) {
 	}
 	await rename(temporaryPath, binaryPath);
 	if (process.platform !== "win32") await chmod(binaryPath, 0o755);
+}
+if (cachedBinary && (await fileSHA256(cachedBinary)) !== target.sha256) {
+	await mkdir(path.dirname(cachedBinary), { recursive: true });
+	await copyFile(binaryPath, cachedBinary);
 }
 
 if ((await readText(licenseVersionPath)).trim() !== VERSION) {
@@ -109,19 +132,26 @@ async function fetchWithRetry(url, { description }) {
 	let lastError;
 	for (let attempt = 1; attempt <= DOWNLOAD_ATTEMPTS; attempt += 1) {
 		try {
-			const response = await fetch(url, { redirect: "follow" });
+			const response = await fetch(url, { redirect: "follow", signal: AbortSignal.timeout(120000) });
 			if (response.ok) return response;
 			lastError = new Error(`HTTP ${response.status}`);
+			lastError.retryable = response.status >= 500;
 		} catch (error) {
 			lastError = error;
 		}
+		if (!retryableNetworkError(lastError)) throw lastError;
 
 		if (attempt < DOWNLOAD_ATTEMPTS) {
 			if (!quiet) console.warn(`Download ${description} failed; retrying (${attempt}/${DOWNLOAD_ATTEMPTS})`);
-			await delay(DOWNLOAD_RETRY_DELAY_MS * attempt);
+			await delay(DOWNLOAD_RETRY_DELAY_MS);
 		}
 	}
 	throw new Error(`download ${description}: ${lastError?.message ?? String(lastError)}`);
+}
+
+function retryableNetworkError(error) {
+	return error.retryable || error.name === "TimeoutError" || error.cause?.name === "TimeoutError"
+		|| ["ECONNRESET", "ECONNREFUSED", "ETIMEDOUT", "ENOTFOUND", "EAI_AGAIN", "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_SOCKET"].includes(error.cause?.code || error.code);
 }
 
 function delay(ms) {

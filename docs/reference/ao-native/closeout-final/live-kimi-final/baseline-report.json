@@ -1,0 +1,31 @@
+{
+  "case": "kimi-baseline-final-step-bound",
+  "cli_version": "2.0.2",
+  "service": "moonshot_cn",
+  "model": "kimi-k3",
+  "environment": "development daemon with official CLI and test-only budget transport",
+  "source_sha256": "68f296ab02736c88716ce53e874c972495d3eefd96226be5c6676d9c89a9f436",
+  "human_interventions": 0,
+  "worker_completed": false,
+  "gate_pass": true,
+  "automated_scope_approvals": 0,
+  "processes_stopped": true,
+  "exit_code": 1,
+  "scope_pass": true,
+  "changed_files": [
+    "solution.py"
+  ],
+  "source_unchanged": true,
+  "elapsed_seconds": 27.265,
+  "key_persisted_or_logged": false,
+  "budget_evidence_valid": true,
+  "attempts": [
+    16,
+    17,
+    18,
+    19
+  ],
+  "reserved_cny": 6.0773,
+  "accounted_upper_cny": 1.07776,
+  "total_accounted_upper_cny": 4.36718
+}

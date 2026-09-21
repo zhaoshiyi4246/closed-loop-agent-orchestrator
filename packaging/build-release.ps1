@@ -1,7 +1,10 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [string]$OutputDirectory
+    [string]$OutputDirectory,
+    [string]$Node = "node",
+    [string]$Go = "go",
+    [string]$Python = "python"
 )
 
 $ErrorActionPreference = "Stop"
@@ -60,8 +63,10 @@ try {
     if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
         throw "Release manifest is missing."
     }
+    $commit = ((Invoke-Git -Arguments @('-C', $repoRoot, 'rev-parse', 'HEAD')) -join '').Trim()
+    if ($commit -notmatch '^[0-9a-f]{40}$') { throw 'Could not resolve the source commit.' }
     $entries = @(
-        Get-Content -LiteralPath $manifestPath -Encoding UTF8 |
+        Invoke-Git -Arguments @('-C', $repoRoot, 'show', ($commit + ':packaging/release-manifest.txt')) |
             ForEach-Object { $_.Trim() } |
             Where-Object { $_ -and -not $_.StartsWith("#") }
     )
@@ -70,9 +75,17 @@ try {
     }
 
     $mappings = [Collections.Generic.List[object]]::new()
+    $runtimeResources = [Collections.Generic.List[string]]::new()
     $seenMappings = [Collections.Generic.HashSet[string]]::new(
         [StringComparer]::Ordinal)
     foreach ($entry in $entries) {
+        if ($entry.StartsWith('@resource ')) {
+            $resource = $entry.Substring(10).Trim()
+            Assert-RelativePosixPath -Path $resource -Label 'runtime resource'
+            if ($runtimeResources.Contains($resource)) { throw "Duplicate runtime resource: $resource" }
+            $runtimeResources.Add($resource)
+            continue
+        }
         if ([regex]::Matches($entry, '=>').Count -ne 1) {
             throw "Release manifest mapping must contain exactly one =>: $entry"
         }
@@ -99,12 +112,6 @@ try {
         })
     }
 
-    $commitOutput = Invoke-Git -Arguments @("-C", $repoRoot, "rev-parse",
-                                             "HEAD")
-    $commit = ($commitOutput -join "").Trim()
-    if ($commit -notmatch '^[0-9a-f]{40}$') {
-        throw "Could not resolve the source commit."
-    }
     [string[]]$tracked = @(Invoke-Git -Arguments @(
         "-c", "core.quotepath=false", "-C", $repoRoot, "ls-tree", "-r",
         "--name-only", $commit))
@@ -171,13 +178,24 @@ try {
     if (Test-Path -LiteralPath $outputRoot) {
         throw "OutputDirectory already exists; choose a new empty path."
     }
+    # Reject junction/symlink ancestors before creating or recursively removing
+    # anything below the requested outside output directory.
+    $ancestor = Split-Path -Parent $outputRoot
+    while ($ancestor) {
+        if ((Test-Path -LiteralPath $ancestor) -and ((Get-Item -LiteralPath $ancestor).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            throw 'OutputDirectory must not traverse a junction or symbolic link.'
+        }
+        $ancestor = Split-Path -Parent $ancestor
+    }
     New-Item -ItemType Directory -Path $outputRoot | Out-Null
     $sourceStage = Join-Path $outputRoot "source-stage"
     $sourceArchive = Join-Path $outputRoot "source-from-head.zip"
-    $productRoot = Join-Path $outputRoot "clao"
+    $productRoot = Join-Path $outputRoot "build-root"
 
+    # Use the bounded manifest pathspecs, not thousands of expanded filenames
+    # (the native source tree exceeds Windows' process command-line limit).
     $archiveArgs = @("-C", $repoRoot, "archive", "--format=zip",
-                     "--output=$sourceArchive", $commit, "--") + $expectedSources
+                     "--output=$sourceArchive", $commit, "--") + @($mappings | ForEach-Object { $_.Source.TrimEnd('/') })
     & $script:GitCommand @archiveArgs
     if ($LASTEXITCODE -ne 0 -or
             -not (Test-Path -LiteralPath $sourceArchive -PathType Leaf)) {
@@ -220,105 +238,25 @@ try {
     if ($staged.Count -ne $expectedDestinations.Count -or $productDifference) {
         throw "Product file set does not match the manifest mapping."
     }
+    if (-not ([IO.Path]::GetFullPath($sourceStage).StartsWith($outputRoot.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase))) { throw 'Source stage escaped output directory.' }
     Remove-Item -LiteralPath $sourceStage -Recurse -Force
 
-    $forbiddenNames = @(
-        ".venv", "runtime", "__pycache__", ".pytest_cache", "clao-src",
-        "ao-supervision-sidecar", "closed-loop-demo",
-        "closed-loop-demo-origin.git", "交付", "closed-loop-v2", "release")
-    $forbiddenFiles = @(
-        "PLANS.md", "AGENTS.md", "PROJECT.md", "README-交付说明.md",
-        "ARCHITECTURE-v0.2.md")
-    foreach ($relative in $staged) {
-        $segments = $relative.Split("/")
-        $leaf = $segments[-1]
-        if (@($segments | Where-Object {
-                    $_ -in $forbiddenNames
-                }).Count -gt 0 -or $leaf -in $forbiddenFiles -or
-                $leaf -like "*.pyc" -or $leaf -like "*.db-wal" -or
-                $leaf -like "*.db-shm" -or $leaf -eq "state.db" -or
-                $leaf -eq "bus_traffic.jsonl" -or
-                $leaf -like "mission-panel-*.json" -or
-                $leaf -like "codex-last-message*" -or
-                $leaf -like "*.log") {
-            throw "Generated, development, or historical content reached product: $relative"
-        }
-    }
-
-    $missingLinks = @()
-    foreach ($markdown in (
-            Get-ChildItem -LiteralPath $productRoot -Recurse -File -Filter "*.md")) {
-        $text = Get-Content -LiteralPath $markdown.FullName -Raw -Encoding UTF8
-        foreach ($match in [regex]::Matches(
-                $text, '\[[^\]]+\]\(([^)]+)\)')) {
-            $target = $match.Groups[1].Value.Split("#")[0]
-            if (-not $target -or $target -match '^(https?://|mailto:)') {
-                continue
-            }
-            $candidate = Join-Path $markdown.DirectoryName ([uri]::UnescapeDataString($target))
-            if (-not (Test-Path -LiteralPath $candidate)) {
-                $missingLinks += (
-                    Get-RelativeProductPath $productRoot $markdown.FullName)
-            }
-        }
-    }
-    if ($missingLinks.Count -ne 0) {
-        throw "Product Markdown contains missing local links."
-    }
-
-    $secretPatterns = @(
-        '(?i)[A-Z]:\\Users\\',
-        '(?i)E:\\桌面\\',
-        '(?i)sk-[A-Za-z0-9_-]{20,}',
-        '(?i)gh[pousr]_[A-Za-z0-9]{20,}',
-        '(?i)Authorization\s*:\s*Bearer\s+[A-Za-z0-9._~-]{20,}',
-        '(?i)(OPENAI_API_KEY|ANTHROPIC_API_KEY)\s*[:=]\s*["'']?[A-Za-z0-9_-]{16,}'
-    )
-    foreach ($relative in $staged) {
-        $file = Join-Path $productRoot $relative.Replace("/", "\")
-        try {
-            $text = Get-Content -LiteralPath $file -Raw -Encoding UTF8
-        }
-        catch {
-            continue
-        }
-        foreach ($pattern in $secretPatterns) {
-            if ($text -match $pattern) {
-                throw "Potential credential or developer path in product: $relative"
-            }
-        }
-    }
-
-    $hashLines = [Collections.Generic.List[string]]::new()
-    foreach ($relative in $staged) {
-        $file = Join-Path $productRoot $relative.Replace("/", "\")
-        $hash = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash
-        $hashLines.Add($hash.ToLowerInvariant() + "  " + $relative)
-    }
-    $hashFile = Join-Path $productRoot "SHA256SUMS.txt"
-    [IO.File]::WriteAllLines(
-        $hashFile, $hashLines, [Text.UTF8Encoding]::new($false))
-    if (-not (Test-Path -LiteralPath $hashFile -PathType Leaf)) {
-        throw "Failed to generate SHA256SUMS.txt."
-    }
-
-    $zipName = "clao-v0.2-$($commit.Substring(0, 12)).zip"
-    $zipPath = Join-Path $outputRoot $zipName
-    Compress-Archive -LiteralPath $productRoot -DestinationPath $zipPath
-    if (-not (Test-Path -LiteralPath $zipPath -PathType Leaf)) {
-        throw "Failed to generate the release zip."
-    }
-
+    # Build only the committed helper extracted by this manifest. Build tools and
+    # source files remain in build-root and never enter the distributable clao/.
+    $env:CLAO_RELEASE_BUILD = "tracked-head-windows-x64"
+    if ($runtimeResources.Count -eq 0) { throw 'Manifest does not declare runtime resources.' }
+    $env:CLAO_RELEASE_RESOURCES = ConvertTo-Json -InputObject @($runtimeResources) -Compress
+    & (Join-Path $productRoot "packaging/native-release.ps1") -BuildRoot $productRoot -OutputRoot $outputRoot -SourceCommit $commit -Node $Node -Go $Go -Python $Python
+    if ($LASTEXITCODE -ne 0) { throw "Native candidate build failed." }
     Write-Output "SOURCE_COMMIT=$commit"
     Write-Output "MANIFEST_FILES=$($expectedDestinations.Count)"
-    Write-Output "PRODUCT_ROOT=clao"
-    Write-Output "MARKDOWN_MISSING=0"
-    Write-Output "SECRET_FINDINGS=0"
-    Write-Output "SHA256SUMS=clao/SHA256SUMS.txt"
-    Write-Output "RELEASE_ZIP=$zipName"
     exit 0
 }
 catch {
     Write-Error ("Release build failed: " + $_.Exception.Message)
     exit 1
+}
+finally {
+    Remove-Item Env:CLAO_RELEASE_BUILD -ErrorAction SilentlyContinue
+    Remove-Item Env:CLAO_RELEASE_RESOURCES -ErrorAction SilentlyContinue
 }

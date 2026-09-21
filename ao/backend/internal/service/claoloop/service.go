@@ -25,20 +25,23 @@ type Criterion struct {
 	Description string `json:"description"`
 }
 type Request struct {
-	ParentID       string                `json:"parentId,omitempty"`
-	Roles          map[string]RoleChoice `json:"roles,omitempty"`
-	MaxReplans     int                   `json:"maxReplans"`
-	ID             string                `json:"id"`
-	ProjectID      domain.ProjectID      `json:"projectId"`
-	Objective      string                `json:"objective"`
-	AllowedPaths   []string              `json:"allowedPaths"`
-	ForbiddenPaths []string              `json:"forbiddenPaths"`
-	Criteria       []Criterion           `json:"criteria"`
-	GateCommands   []string              `json:"gateCommands"`
-	Agent          domain.AgentHarness   `json:"agent"`
-	Model          string                `json:"model"`
-	MaxRepairs     int                   `json:"maxRepairs"`
-	GateTimeout    float64               `json:"gateTimeout"`
+	SourceRevision         string                `json:"sourceRevision,omitempty"`
+	MaxTasks               int                   `json:"maxTasks,omitempty"`
+	ExternalServiceConsent []string              `json:"externalServiceConsent,omitempty"`
+	ParentID               string                `json:"parentId,omitempty"`
+	Roles                  map[string]RoleChoice `json:"roles,omitempty"`
+	MaxReplans             int                   `json:"maxReplans"`
+	ID                     string                `json:"id"`
+	ProjectID              domain.ProjectID      `json:"projectId"`
+	Objective              string                `json:"objective"`
+	AllowedPaths           []string              `json:"allowedPaths"`
+	ForbiddenPaths         []string              `json:"forbiddenPaths"`
+	Criteria               []Criterion           `json:"criteria"`
+	GateCommands           []string              `json:"gateCommands"`
+	Agent                  domain.AgentHarness   `json:"agent"`
+	Model                  string                `json:"model"`
+	MaxRepairs             int                   `json:"maxRepairs"`
+	GateTimeout            float64               `json:"gateTimeout"`
 }
 type Operation struct {
 	ID        string `json:"id"`
@@ -65,6 +68,12 @@ type Evidence struct {
 	Verification   json.RawMessage `json:"verification,omitempty"`
 }
 type Mission struct {
+	ActiveWait        string                `json:"activeWait,omitempty"`
+	CoordinatorID     string                `json:"coordinatorId,omitempty"`
+	Subtasks          []Mission             `json:"subtasks,omitempty"`
+	Plan              json.RawMessage       `json:"plan,omitempty"`
+	Source            *SourceSnapshot       `json:"source,omitempty"`
+	Exports           []ResultPackage       `json:"exports,omitempty"`
 	SourcePath        string                `json:"sourcePath,omitempty"`
 	Checkpoint        *Checkpoint           `json:"checkpoint,omitempty"`
 	Directives        []Directive           `json:"directives,omitempty"`
@@ -182,6 +191,9 @@ func Validate(r Request) error {
 			return errors.New("Gate 必须是明确的单条命令")
 		}
 	}
+	if r.MaxTasks < 0 || r.MaxTasks > 2 || strings.Contains(r.ID, "--task-") {
+		return errors.New("最多两个独立子任务，任务身份不能使用内部子任务前缀")
+	}
 	if r.MaxReplans < 0 || r.MaxReplans > r.MaxRepairs || r.MaxRepairs < 0 || r.MaxRepairs > 3 || math.IsNaN(r.GateTimeout) || math.IsInf(r.GateTimeout, 0) || r.GateTimeout < 1 || r.GateTimeout > 600 {
 		return errors.New("修复次数须为 0–3，Gate 超时须为 1–600 秒")
 	}
@@ -204,6 +216,19 @@ func (s *Service) Get(ctx context.Context, id string) (Mission, error) {
 		return Mission{}, err
 	}
 	if !ok {
+		parent, child, found := subtaskIdentity(id)
+		if found {
+			outer, e := s.Get(ctx, parent)
+			if e != nil {
+				return Mission{}, e
+			}
+			for _, m := range outer.Subtasks {
+				if m.Request.ID == child {
+					m.CancelRequested = m.CancelRequested || outer.CancelRequested
+					return m, nil
+				}
+			}
+		}
 		return Mission{}, errors.New("闭环任务不存在")
 	}
 	return decode(r)
@@ -230,6 +255,10 @@ func record(m Mission) domain.CLAOMissionRecord {
 func (s *Service) mutate(id string, f func(*Mission) error) (Mission, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	parentID, _, child := subtaskIdentity(id)
+	if child {
+		return s.mutateSubtask(parentID, id, f)
+	}
 	m, err := s.Get(s.ctx, id)
 	if err != nil {
 		return m, err
@@ -274,12 +303,29 @@ func (s *Service) Create(ctx context.Context, r Request) (Mission, error) {
 	if err != nil {
 		return Mission{}, err
 	}
-	if !ok || p.Kind.WithDefault() != domain.ProjectKindSingleRepo {
+	if !ok || (p.Kind.WithDefault() != domain.ProjectKindSingleRepo && p.Kind != domain.ProjectKindScratch) {
 		return Mission{}, errors.New("当前闭环迁移支持单 Git 项目；普通 AO Session 能力不变")
 	}
-	base, err := s.acceptance.Source(ctx, p.Path)
-	if err != nil {
-		return Mission{}, err
+	base, stage := "", "worker"
+	var source *SourceSnapshot
+	if core, supported := s.acceptance.(sourceCore); supported {
+		preview, e := core.SourcePreview(ctx, r.ProjectID, p.Path)
+		if e != nil {
+			return Mission{}, e
+		}
+		if r.SourceRevision == "" || r.SourceRevision != preview.Revision {
+			return Mission{}, errors.New("来源尚未确认或已经变化，请重新读取并确认当前磁盘内容")
+		}
+		source = &SourceSnapshot{OriginalPath: p.Path, Revision: r.SourceRevision}
+		stage = "source"
+	} else {
+		base, err = s.acceptance.Source(ctx, p.Path)
+		if err != nil {
+			return Mission{}, err
+		}
+	}
+	if stage == "worker" && r.MaxTasks == 2 {
+		stage = "decompose"
 	}
 	roles, err := s.freezeRoles(ctx, r)
 	if err != nil {
@@ -291,7 +337,7 @@ func (s *Service) Create(ctx context.Context, r Request) (Mission, error) {
 			return Mission{}, errors.New("新尝试必须关联同项目已结束的原任务")
 		}
 	}
-	m := Mission{SourcePath: p.Path, Checkpoint: &Checkpoint{Stage: "worker", Proof: -1}, Roles: roles, RoleCalls: []RoleCall{}, Decisions: []Decision{}, Request: r, State: "SPAWNING", Reason: "准备原生 Session", Base: base, Revision: 1, Operations: []Operation{}, Evidence: []Evidence{}, UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano)}
+	m := Mission{Source: source, SourcePath: p.Path, Checkpoint: &Checkpoint{Stage: stage, Proof: -1}, Roles: roles, RoleCalls: []RoleCall{}, Decisions: []Decision{}, Request: r, State: "SPAWNING", Reason: "准备原生 Session", Base: base, Revision: 1, Operations: []Operation{}, Evidence: []Evidence{}, UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano)}
 	if err = s.store.CreateCLAOMission(ctx, record(m)); err != nil {
 		return Mission{}, err
 	}
@@ -300,6 +346,9 @@ func (s *Service) Create(ctx context.Context, r Request) (Mission, error) {
 	return m, nil
 }
 func (s *Service) Cancel(ctx context.Context, id string) (Mission, error) {
+	if parent, _, ok := subtaskIdentity(id); ok {
+		return s.Cancel(ctx, parent)
+	}
 	m, err := s.mutate(id, func(m *Mission) error {
 		if m.State == "DONE" || m.State == "FAILED" || m.State == "CANCELLED" || m.State == "HUMAN" {
 			return errors.New("终态不可取消")
@@ -333,7 +382,7 @@ func (s *Service) ownedSessions(id string) ([]domain.SessionRecord, error) {
 	}
 	result := []domain.SessionRecord{}
 	for _, r := range rows {
-		if ports.CLAOMissionOwner(r.Metadata.CLAOMissionID) == id {
+		if owner := ports.CLAOMissionOwner(r.Metadata.CLAOMissionID); owner == id || strings.HasPrefix(owner, id+"--task-") {
 			result = append(result, r)
 		}
 	}
@@ -417,7 +466,11 @@ func workerOwner(m Mission) string {
 func associateSession(m *Mission, r domain.SessionRecord) {
 	owner := r.Metadata.CLAOMissionID
 	if owner == workerOwner(*m) {
-		m.SessionID, m.Workspace, m.ResolvedModel = r.ID, r.Metadata.WorkspacePath, r.Metadata.Model
+		m.SessionID, m.ResolvedModel = r.ID, r.Metadata.Model
+		fixed := m.Source != nil && m.Checkpoint != nil && (m.Checkpoint.Stage == "integration_gate" || m.Checkpoint.Stage == "verify" || m.Checkpoint.Stage == "final")
+		if !fixed {
+			m.Workspace = r.Metadata.WorkspacePath
+		}
 	}
 	if owner == m.Request.ID+":verifier" {
 		m.VerifierSessionID = r.ID
@@ -677,7 +730,7 @@ func (s *Service) spawnWorker(id string, m Mission, plan string) (domain.Session
 	}
 	err := s.namedOperation(id, owner+":spawn", kind, owner, "", func() error {
 		var e error
-		worker, _, _, e = s.sessions.Spawn(ports.WithCLAOOwner(s.ctx, id), ports.SpawnConfig{ProjectID: m.Request.ProjectID, Branch: "clao/" + id + "/" + suffix, Kind: domain.KindWorker, Harness: choice.Agent, RequestedMode: domain.SessionModeChat, CLAOMissionID: owner, CLAOBaseSHA: m.Base, AgentConfig: ports.AgentConfig{Model: choice.Model, Permissions: domain.PermissionModeDefault}, Prompt: prompt, DisplayName: "闭环 · " + m.Request.Objective})
+		worker, _, _, e = s.sessions.Spawn(ports.WithCLAOOwner(s.ctx, id), ports.SpawnConfig{ProjectID: m.Request.ProjectID, Branch: "clao/" + id + "/" + suffix, Kind: domain.KindWorker, Harness: choice.Agent, RequestedMode: domain.SessionModeChat, CLAOMissionID: owner, CLAOBaseSHA: m.Base, CLAOSourcePath: m.sourceRepository(), AgentConfig: ports.AgentConfig{Model: choice.Model, Permissions: domain.PermissionModeDefault}, Prompt: prompt, DisplayName: "闭环 · " + m.Request.Objective})
 		return e
 	})
 	if err != nil {

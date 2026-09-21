@@ -41,10 +41,18 @@ def native_engine(tmp_path_factory):
 
 
 @pytest.fixture
-def native(tmp_path, native_engine):
+def native_core_python():
+    return sys.executable
+
+
+@pytest.fixture
+def native(tmp_path, native_engine, native_core_python):
     binary, engine = native_engine
     home = tmp_path / "isolated-home"
     home.mkdir()
+    # AccountFactory launches its protocol-only client with this as cwd. Keep
+    # the device profile empty and isolated; no real credentials are imported.
+    (home / ".codex").mkdir()
     source = tmp_path / "项目 source"
     source.mkdir()
     git(source, "init", "-b", "main")
@@ -66,7 +74,7 @@ def native(tmp_path, native_engine):
                 "AO_DATA_DIR": str(home / "native/data"), "AO_RUN_FILE": str(home / "native/running.json"),
                 "AO_PORT": str(port), "AO_ALLOWED_ORIGINS": f"http://127.0.0.1:{port}",
                 "AO_TELEMETRY_EVENTS": "off", "AO_TELEMETRY_REMOTE": "off", "AO_SENTRY_DSN": "",
-                "CLAO_CORE_PYTHON": sys.executable, "CLAO_CORE_ROOT": str(ROOT / "clao"),
+                "CLAO_CORE_PYTHON": str(native_core_python), "CLAO_CORE_ROOT": str(ROOT / "clao"),
                 "CLAO_FIXTURE_TRACE": str(tmp_path / "external.jsonl"),
                 "CLAO_FIXTURE_RELEASE_CONFIG": str(tmp_path / "release-config"),
                 "CLAO_FIXTURE_FAIL_START": str(tmp_path / "reject-start")})
@@ -102,6 +110,7 @@ def native(tmp_path, native_engine):
             time.sleep(.1)
         pytest.fail("restarted daemon unavailable")
     api.restart = restart
+    api.base_url = url
 
     try:
         for _ in range(100):
@@ -126,6 +135,7 @@ def native(tmp_path, native_engine):
                     "objective": objective, "agent": agent, "model": model, "allowedPaths": ["**"], "forbiddenPaths": ["private/**"],
                     "criteria": [{"id": "AC1", "description": "result.txt contains accepted"}], "gateCommands": ["python check.py"],
                     "maxRepairs": repairs, "maxReplans": replans, "roles": roles or {}, "gateTimeout": 10}
+            spec["sourceRevision"] = api(f"/api/v1/clao/projects/{project_id}/source")[1]["source"]["revision"]
             status, result = api("/api/v1/clao/missions", spec, {"X-CLAO-Nonce": nonce["nonce"]})
             assert status == 202, (result, log_path.read_text("utf-8", errors="replace")[-7000:])
             # Replay the exact receipt: it may observe progress but cannot spawn twice.
@@ -162,7 +172,11 @@ def test_native_opencode_pass_and_frozen_result(native):
     assert result["state"] == "DONE", json.dumps(result, ensure_ascii=False)
     assert [c["role"] for c in result["roleCalls"]] == ["verifier"]
     assert result.get("decisions", []) == []
-    assert result["base"] == base
+    assert result["base"] == result["source"]["base"]
+    # Source snapshots preserve confirmed working-disk bytes, including CRLF;
+    # the original Git index may normalize them according to core.autocrlf.
+    for name in ("source.txt", "check.py"):
+        assert subprocess.check_output(["git", "-C", result["source"]["projectPath"], "show", result["base"] + ":" + name]) == (source / name).read_bytes()
     assert result["sessionId"] != result["verifierSessionId"]
     assert (Path(result["workspace"]) / "result.txt").read_text() == "accepted\n"
     assert git(Path(result["workspace"]), "show", result["resultHead"] + ":result.txt") == "accepted"
@@ -290,9 +304,6 @@ def test_native_approval_is_once_and_native_retry_cannot_bypass_owner(native):
 def test_native_codex_uses_same_acceptance_service(native):
     submit, api, nonce, source, base, temp = native
     result = submit('Create accepted output using the Codex protocol', agent='codex')
-    if result['state'] in {'UNKNOWN', 'FAILED'} and 'Codex account setup did not complete' in result['reason']:
-        assert not result.get('resultHead') and not result['evidence']
-        pytest.xfail('AO v0.12.12 Windows account_storage_unsafe in isolated profile; native account checks remain enforced')
     assert result['state'] == 'DONE', result
 
 
@@ -323,9 +334,14 @@ def test_native_manual_accept_cannot_override_mission_scope(native, case):
 def test_native_empty_review_cannot_be_final_pass(native):
     submit, api, nonce, source, base, temp = native
     result = submit('EMPTY_REVIEW create accepted output')
-    assert result['state'] == 'FAILED', result
-    assert result.get('resultHead') and result.get('verifierSessionId')
-    assert 'Verifier' in result['reason']
+    assert result["state"] == "PAUSED" and not result["recovery"]["canContinue"], result
+    assert result.get("resultHead") and result.get("verifierSessionId")
+    assert result["roleCalls"][-1]["state"] == "FAILED"
+    assert "结构化回复" in result["roleCalls"][-1]["error"]
+    from tests.test_ao_native_recovery import trace
+    before = trace(temp)
+    assert api("/api/v1/clao/missions/" + result["request"]["id"] + "/continue", {}, {"X-CLAO-Nonce": nonce})[0] == 409
+    assert trace(temp) == before
 
 
 @pytest.mark.parametrize('context,allow', [({}, True), ({'environmentId': 'local'}, True),

@@ -4022,6 +4022,7 @@ func TestSpawn_DefaultBranchFetchFailureDoesNotBlockWorkerSpawn(t *testing.T) {
 func TestSpawn_DefaultsBranchUnderDevNamespaceForDevDataDir(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	m, st, _, _ := newManager()
 	m.dataDir = filepath.Join(home, ".ao", "dev", "data")
 
@@ -5789,6 +5790,11 @@ func TestSpawnAndRestore_PrependsResolvedBinaryAndNodeDirsToRuntimePATH(t *testi
 		}
 	}
 	want := strings.Join([]string{binDir, nodeDir, filepath.Dir(daemonExe), "/usr/bin"}, string(os.PathListSeparator))
+	if runtime.GOOS == "windows" {
+		// POSIX Node-manager discovery is deliberately disabled on Windows.
+		// The resolved launch directory must still be pinned on spawn/restore.
+		want = strings.Join([]string{binDir, filepath.Dir(daemonExe), "/usr/bin"}, string(os.PathListSeparator))
+	}
 
 	for _, operation := range []string{"spawn", "restore"} {
 		t.Run(operation, func(t *testing.T) {
@@ -5861,7 +5867,7 @@ func TestSpawn_DoesNotAddNodeRuntimeForNativeBinary(t *testing.T) {
 	if nodeLookups != 0 {
 		t.Fatalf("node LookPath calls = %d, want 0 for native binary", nodeLookups)
 	}
-	want := strings.Join([]string{binDir, "/ao/bin", "/usr/bin"}, string(os.PathListSeparator))
+	want := strings.Join([]string{binDir, filepath.FromSlash("/ao/bin"), "/usr/bin"}, string(os.PathListSeparator))
 	if got := rt.lastCfg.Env["PATH"]; got != want {
 		t.Fatalf("runtime env PATH = %q, want %q", got, want)
 	}
@@ -7339,6 +7345,36 @@ func TestRestoreAllCarriesConfiguredAndRecordedBaseToWorkspaceRestore(t *testing
 	}
 	if got := ws.restoreConfigs[0].BaseRef; got != "refs/remotes/origin/trunk" {
 		t.Fatalf("restore BaseRef = %q, want refs/remotes/origin/trunk", got)
+	}
+}
+
+func TestCLAOBackgroundRecoveryDoesNotTouchOwnedWorkspace(t *testing.T) {
+	m, st, rt, ws := newLifecycleManager()
+	rec := domain.SessionRecord{ID: "mer-1", ProjectID: "mer", Mode: domain.SessionModeChat, Kind: domain.KindWorker,
+		Metadata: domain.SessionMetadata{CLAOMissionID: "mission-1", WorkspacePath: "/managed/worktree", WorkspaceRepoPath: "/managed/source", Branch: "clao/mission-1/worker", DiffBaseRef: "frozen"}, Activity: domain.Activity{State: domain.ActivityExited}}
+	st.sessions[rec.ID] = rec
+	if err := m.reconcileLive(ctx, rec); err != nil {
+		t.Fatal(err)
+	}
+	m.reconcileLivePass(ctx, []domain.SessionRecord{rec})
+	rec.IsTerminated = true
+	st.sessions[rec.ID] = rec
+	st.worktrees[rec.ID] = []domain.SessionWorktreeRecord{{SessionID: rec.ID, RepoName: domain.RootWorkspaceRepoName, State: "removed"}}
+	if err := m.RestoreAll(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(ws.restoreConfigs) != 0 || ws.destroyed != 0 || rt.created != 0 {
+		t.Fatal("implicit owned restoration", ws.restoreConfigs, ws.calls, rt.created)
+	}
+	if _, err := m.restoreSessionWorkspace(ctx, st.projects["mer"], rec); err == nil {
+		t.Fatal("unowned explicit restore accepted")
+	}
+	_, err := m.restoreSessionWorkspace(ports.WithCLAOOwner(ctx, "mission-1"), st.projects["mer"], rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ws.restoreConfigs) != 1 || ws.restoreConfigs[0].RepoPath != "/managed/source" {
+		t.Fatal("saved private repo not used", ws.restoreConfigs)
 	}
 }
 

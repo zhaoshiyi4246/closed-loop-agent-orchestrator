@@ -17,6 +17,7 @@ import {
 	patchClaudeRetryDetails,
 	pruneNodeDistribution,
 	runtimeSourceFiles,
+	windowsNodeExtraction,
 } from "./build-acp-runtime-helpers.mjs";
 
 const NODE_VERSION = "22.23.2";
@@ -114,19 +115,13 @@ try {
 
 	const archivePath = join(workDir, archiveName);
 	writeFileSync(archivePath, archive);
+	const extracted = join(workDir, basename(archiveName, `.${extension}`));
 	if (process.platform === "win32") {
-		const escapedArchive = archivePath.replaceAll("'", "''");
-		const escapedDestination = workDir.replaceAll("'", "''");
-		run("powershell.exe", [
-			"-NoProfile",
-			"-NonInteractive",
-			"-Command",
-			`Expand-Archive -LiteralPath '${escapedArchive}' -DestinationPath '${escapedDestination}' -Force`,
-		]);
+		const extraction = windowsNodeExtraction(archivePath, extracted, basename(extracted));
+		run(extraction.command, extraction.args);
 	} else {
 		run("tar", ["-xzf", archivePath, "-C", workDir]);
 	}
-	const extracted = join(workDir, basename(archiveName, `.${extension}`));
 	const nodeOut = join(outDir, "node");
 	if (!existsSync(extracted)) throw new Error(`Node archive did not contain ${extracted}`);
 	renameSync(extracted, nodeOut);

@@ -19,6 +19,8 @@ type UpdateSettingsReader = ReturnType<
 type UpdaterEventHandler = (...args: any[]) => void;
 
 type ImportOptions = {
+  // Exercise retained upstream updater behavior without enabling the product feed.
+  updatesEnabled?: boolean;
   reconcileFeaturePin?: (
     settings: UpdateSettings,
   ) => Promise<{ settings: UpdateSettings; cleared: boolean }>;
@@ -81,6 +83,10 @@ async function importAutoUpdater(
   options: ImportOptions = {},
 ) {
   vi.resetModules();
+  vi.doMock("../shared/clao-identity", async () => ({
+    ...await vi.importActual<typeof import("../shared/clao-identity")>("../shared/clao-identity"),
+    CLAO_UPDATES_ENABLED: options.updatesEnabled ?? true,
+  }));
   const updaterEvents = new Map<string, UpdaterEventHandler>();
   const autoUpdater = createAutoUpdaterMock();
   autoUpdater.on.mockImplementation(
@@ -212,6 +218,26 @@ describe("startAutoUpdates", () => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
     vi.resetModules();
+  });
+
+  it("CLAO Native disables automatic, manual, download, return-home and install updates", async () => {
+    const identity = await vi.importActual<typeof import("../shared/clao-identity")>("../shared/clao-identity");
+    expect(identity.CLAO_UPDATES_ENABLED).toBe(false);
+    const { module, autoUpdater, readUpdateSettings, writeUpdateSettings } = await importAutoUpdater(undefined, { updatesEnabled: identity.CLAO_UPDATES_ENABLED });
+    await module.startAutoUpdates(stateDir);
+    expect(readUpdateSettings).not.toHaveBeenCalled();
+    await module.checkForUpdatesNow(stateDir);
+    expect(module.getUpdateStatus().state).toBe("unsupported");
+    await module.downloadUpdateNow();
+    expect(module.getUpdateStatus().state).toBe("unsupported");
+    await module.returnToHome(stateDir);
+    expect(module.getUpdateStatus().state).toBe("unsupported");
+    module.quitAndInstallUpdate();
+    expect(autoUpdater.checkForUpdates).not.toHaveBeenCalled();
+    expect(autoUpdater.downloadUpdate).not.toHaveBeenCalled();
+    expect(autoUpdater.quitAndInstall).not.toHaveBeenCalled();
+    expect(autoUpdater.setFeedURL).not.toHaveBeenCalled();
+    expect(writeUpdateSettings).not.toHaveBeenCalled();
   });
 
   it("runs the automatic updater check immediately on launch", async () => {

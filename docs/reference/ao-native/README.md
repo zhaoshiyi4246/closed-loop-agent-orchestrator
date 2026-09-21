@@ -1,6 +1,22 @@
 # AO 原生底座集成证据
 
-2026-09-09，Windows。本页记录当前迁移分支的直接验证，不代表真实模型、负责人完整体验或发布验收。
+2026-09-09 起，Windows。本页分节保留迁移各阶段的直接验证，不代表真实模型、负责人完整体验或发布验收。
+
+## 2026-09-21 收尾验证（进行中）
+
+本次起点 PR #49 `c30d694f4356dc9afc951b424e850967e85182c1`。真实调用与离线替身分别记录；全部仍在收尾，未签署最终通过。
+
+- 官方价格查验：2026-09-21，[GLM-5.3迁移](https://docs.bigmodel.cn/cn/guide/start/migrate-to-glm-new)要求thinking enabled，reasoning_effort支持low/high/max；[智谱定价](https://docs.bigmodel.cn/cn/guide/start/pricing)输入8/输出28元每百万token。[Kimi定价](https://platform.kimi.com/docs/pricing/chat)K3未缓存输入20、输出100、缓存写入5min=20/1h=40元每百万token。
+- 受控语义入口 `dev/native/verify-live-semantics.py`：只发送脚本内自造整数加法正例/明确减法缺陷，正式Verifier Prompt/Schema/ID/AC/coherence全部保留。只读项目配置的指定引用，通过Windows系统凭据读取；单次尝试，无服务切换，不保存Key/Prompt/原始响应。开发子智能体与该产品调用无关。
+- 预算方法：全局40次/20元，预先持久reserved账本，超时不扣回；文本输入按UTF-8请求字节数+2048作为保守token上界，输出8192。Kimi输入预留60元/M（未缓存输入+最高缓存写入），GLM8元/M；单请求≤3元且输入上界≤24000，实际usage仅作事实记录不冒充账单。文件锁防并发消耗。
+- 初轮离线Windows语义/GLM53参数/旧导入：`pytest tests/test_native_connections.py tests/test_p01_bigmodel.py tests/test_ao_legacy.py -q --tb=short` → **58 passed /14.15s**。真实请求尚未执行时已准备本记录，后续结果由脱敏ledger记入。
+- 首次原生连接回归遗漏CLAO_NATIVE_BINARY，**4 skipped**，不计通过；补齐本轮daemon后**4 passed /93.96s**，含GLM53混合角色及新建连接幂等/重启/不外发边界。
+- Kimi K3真实Verifier对照：正确加法PASS、明确减法缺陷FAIL；2次HTTP200，token合计输入4141/输出698，费用预留2.79916元，账单实扣未知。首例脚本最后锁文件清理因Windows占用失败，模型/校验/ledger已成功；修正关闭句柄后删除锁，未重发正例。完整脱敏ledger在本次交接时附入。
+- 随后同一正式传输与schema补Auditor/Planner各正反例：PASS/LOCAL_FIX、CANDIDATE_DONE/SEND_LOCAL_FIX均符合预期，Planner修复指向原synthetic-worker且消息涉及add实现。累计6次HTTP200、输入11018/输出1627 token、费用预留8.0988元。仅构造小型加法输入，不是实际安装包/真实Worker完整闭环，不据此宣称原生多模型全部支持。
+- 2026-09-21 独立审查发现连接写后读失败误409及随包Python遮蔽Gate本地模块导入。连接故障注入覆盖真实SQLite成功写入后失败/丢commit确认、同UUID重试不重复、异内容冲突保留；Go service/controllers定向通过。Python采用normal/core双入口，项目script/-c本地导入及恶意cwd/PYTHONPATH不替换core探测通过；仍待最终安装候选验证与复核。
+- 共享预算/Windows账户修复见 `bbb4539`，连接对账修复见 `f7bd03e`。原Codex native回归删除xfail后1 passed/27.34s（外部协议进程替身）；真实现有登录测试daemon被自动审批以blocked by policy拒绝，未代理重试。GUI最新证据见 [closeout-final](closeout-final/README.md)，不与打包验收混称。
+
+最终真实进展：Kimi官方CLI2.0.2经开发daemon完成Worker/Gate/Verifier/独立导出小任务；同题独立CLI达到4步上限，产物Gate通过但整体未完成。累计19次HTTP/5次Worker，保守确认费用上界4.36718元；原始预留记录不改。完整分类、失败与独立复核见[有限对照](closeout-final/live-kimi-comparison.md)。
 
 ## PR #46 启动失败局部返修
 
@@ -29,7 +45,7 @@ $env:CLAO_TEST_START_FAILURE = '1'
 & 'C:\Users\Lenovo\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe' ao/frontend/scripts/test-clao-desktop.cjs
 ```
 
-未接：Planner/Auditor 决策、独立角色配置、完整恢复、旧历史导入、独立导出、闭环运行图。M4 IN_PROGRESS、迁移 IN_REVIEW。NOT_RUN：全量、smoke、发行/安装器、真实账户/模型/套餐与负责人完整体验验收。
+PR #46 交付时未接：Planner/Auditor 决策、独立角色配置、完整恢复、旧历史导入、独立导出、闭环运行图。后续实现见当前开发说明；当时 M4 IN_PROGRESS、切片 IN_REVIEW。NOT_RUN：全量、smoke、发行/安装器、真实账户/模型/套餐与负责人完整体验验收。
 
 ## 构建与运行
 
@@ -72,7 +88,9 @@ node ao/frontend/scripts/test-clao-desktop.cjs
 
 截图来自实际开发 Electron；已由 Codex 查看并收敛重复的恢复提示和大段默认展开证据。不是生成图，不代表负责人已经完成视觉/体验验收。
 
-## 明确未通过/未运行
+## PR #46历史未通过/未运行
+
+以下只描述当时切片；本轮账户修复、真实Kimi、完整首轮和安装证据见[收尾记录](closeout-final/README.md)。
 
 - **Codex 代表路径未准入**：AO v0.12.12 在隔离 Windows 账户目录报 `account_storage_unsafe` / `Codex account setup did not complete`。保留该场景并记为 xfailed，不 materialize；此次按 owner 事实区分未启动 FAILED 与 UNKNOWN，没有绕过账户 ACL 或借用用户登录。这不影响已经验证的 OpenCode ACP 代表路径，但不能据此称全部执行器兼容。
 - 较早一次过宽的 `TestBuild` 名称筛选带入上游 `TestBuildSourceHandoffRequestUsesCurrentNativeSessionContext`，在 Windows 原路径与 JSON 转义路径比较失败。该测试与函数未修改，仍保留；不把本次定向通过表述为上游全量通过。
@@ -80,6 +98,38 @@ node ao/frontend/scripts/test-clao-desktop.cjs
 - **NOT_RUN**：真实账户/登录/API Key/模型/套餐计费；全部执行器与角色组合；完整 GUI 体验；全量回归；smoke；安装器/发行打包/发布。旧功能迁移边界见 [开发说明](../../../ao/CLAO.md)，不由旧 M0–M3 历史完成状态推定。
 
 
-## 运行恢复与指令回执（待审计）
+## 运行恢复与指令回执（PR #48 已审计合入）
 
 本切片实际 Electron 中关闭并重启独立 daemon，从原请求继续验收；同一 Mission/Session 没有重建 Worker。补充输入、原生 Chat、A/B 历史查看和延迟回执经过实际 UI。截图：[继续原任务](recovery/continue-original.png)、[继续后结果](recovery/continued-result.png)、[主目标与 Planner 镜像](recovery/directive-consumers.png)。已查看截图；不代替负责人体验验收。命令与恢复限制见 [开发入口](../../../ao/CLAO.md#运行恢复与用户指令回执)。测试曾修正重启后原生弹层的关闭步骤及 Lexical combobox 定位；没有用强制点击/假 Controller 制造通过。
+
+
+## 原生迁移收官大阶段（2026-09-11，IN_REVIEW）
+
+基线为 PR #48 rebase 合入后的 main，分支 `codex/ao-native-migration-closeout`。同一 AO 原生服务、Session、Chat、SQLite、Git 与工作区；仅外部执行器/服务及明确故障写入边界使用替身。详细能力、内部审查修正和逐项检查结果见 [当前台账](../../V03_BACKLOG.md#原生迁移收官大阶段2026-09-11-授权)。
+
+- 来源/并行/独立包：Windows `test_ao_native_closeout.py` 七条先通过，后补子任务通过但父 Verifier FAIL 的导出负例通过。普通/空/未提交 Git 来源未回写；真实两 Worker、重启继续/取消/共享预算；下载补丁在匹配基线副本应用后逐文件核对及 Gate，并使临时工作区不可用后下载已存包。
+- 连接：`test_ao_native_legacy_integration.py` 两条正式 HTTP 集成通过，旧历史/配置显式导入、内容版本、不同服务/凭据代际与外发确认，真实角色消费者到两个本地 HTTP 替身。`test_ao_legacy.py` 20 passed；源码/结果的 `test_ao_materials.py` 核心和原 U03 HTTP 兼容定向通过，详细分批证据在台账，不累计成全量。
+- 恢复：四个可确认检查点通过；最新未发送修复、原生 Chat/镜像、Worker ACK 丢失恢复三条 **3 passed / 96.64s**。窗口消失不等于已停止；只有真实退出事实才能整理或重开。同一 intent 丢失后不再次发送。
+- Go 受影响包与六个 SQLite 未发送修复故障子例、TypeScript、Python compileall、JS 语法和文档/差异检查通过。Go specgen 本次名称选集仅编译，未选中行为测试。前端最终相关选集 21 passed、29 passed，集合有重叠。
+- 实际 Electron/Forge/Vite：`NATIVE_CLOSEOUT_DESKTOP_PASS`。首次无连接/无项目界面打开普通目录，展开原生模型菜单、搜索并点击，来源确认→真实闭环→差异/AC/Gate/Verifier→浏览器保存 ZIP→解压→独立应用补丁与内容/Gate 核对；显式导入旧配置；两真实 Worker 运行高亮→私有集成→最终验收。原目录未生成 `.git` 或成果文件。
+- 最新源码另经稳定启动器完整 Go + Forge 开发构建并实际启动：`./ao/dev-clao.ps1 -IsolatedAccount -DataHome E:\Projects\clao-ao-native\.native-dev\closeout-manual-data -Port 7318`，未用 `-SkipBuild`；同一独立数据保留。
+- 首轮 Electron 子进程初始化返回 `0xc0000142`，改用上游非交互 `process.CommandContext` 后同旅程通过。未增加 Gate 自动重试。截图最后仅重新读取同一完成历史校正轮询投影时点，未重跑任务。
+
+实际截图（Coordinator 与 Implementer 均已查看，不等同负责人体验验收）：[确认来源](closeout/source-confirmation.png)、[原生模型菜单](closeout/native-model-selection.png)、[固定差异与验收](closeout/frozen-result-diff.png)、[已保存结果包](closeout/saved-independent-package.png)、[显式旧配置导入](closeout/explicit-legacy-import.png)、[两个真实 Worker 高亮](closeout/two-worker-process.png)、[集成后最终结论](closeout/integrated-acceptance.png)。
+
+普通使用与空账户查看命令见 [稳定开发入口](../../../ao/CLAO.md#启动)。本次桌面验证从工作树根运行（先打开该开发入口，使 Vite 就绪）：
+
+```powershell
+Set-Location 'E:\Projects\clao-ao-native'
+$env:PATH = 'C:\Users\Lenovo\go\pkg\mod\golang.org\toolchain@v0.0.1-go1.26.5.windows-amd64\bin;' + $env:PATH
+$env:GOTOOLCHAIN = 'local'
+$env:GOWORK = 'off'
+$env:CLAO_CORE_PYTHON = 'E:\Projects\closed-loop-agent-orchestrator\clao\.venv\Scripts\python.exe'
+$env:CLAO_NATIVE_BINARY = 'E:\Projects\clao-ao-native\.native-dev\ao-closeout-hidden.exe'
+$env:CLAO_TEST_CLOSEOUT = '1'
+$env:CLAO_DESKTOP_TEST_PORT = '7319'
+$env:CLAO_SCREENSHOTS = 'E:\Projects\clao-ao-native\docs\reference\ao-native\closeout'
+& 'C:\Users\Lenovo\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe' ao/frontend/scripts/test-clao-desktop.cjs
+```
+
+此替身命令不同于普通使用；不导入真实账号。闭环路径由外部协议替身验证，不称真实模型验收。本段为09-11阶段历史，当时保留账户祖先ACL限制；本轮精确修复与实测见页首，用户权限未改。该历史阶段NOT_RUN：真实账号/Key/登录/模型/套餐计费与质量评测；全部执行器组合；全量；smoke；发行/安装器；负责人完整体验。整体迁移/M4 IN_PROGRESS，已发布v0.2不变。

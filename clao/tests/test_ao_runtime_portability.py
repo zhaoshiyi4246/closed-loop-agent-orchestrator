@@ -196,7 +196,8 @@ def test_build_runtime_resolves_one_shared_ao_contract(monkeypatch, tmp_path):
         run_mission, "mission_preflight",
         lambda *_args, **_kwargs: {
             "ao_bin": resolve_bin(), "ao_run_file": resolve_run_file(),
-            "project_path": tmp_path})
+            "project_path": tmp_path,
+            "source": {"project_path": str(tmp_path), "base_commit": "a" * 40}})
     monkeypatch.setattr(run_mission, "MissionRuntime", DummyRuntime)
     monkeypatch.delenv("AO_DATA_DIR", raising=False)
 
@@ -256,19 +257,26 @@ def test_read_only_attach_skips_ao_but_normal_start_fails_fast(
     monkeypatch.setattr(
         "loopcore.verifier.run_codex_json", forbidden_external_call)
 
+    before = (runtime_dir / "state.db").read_bytes()
     attached = server.Handler._attach(
         object(), {"mission_id": mission_id})
     assert attached == {
         "ok": True, "mission_id": mission_id, "attached": True}
     assert panel.rt.mission.mission_id == mission_id
-    assert panel.rt.executor.ao_bin == "ao-unavailable-read-only"
-    assert panel.rt.store._conn.execute(
-        "SELECT COUNT(*) FROM missions").fetchone()[0] == 1
-    panel.rt.close()
+    assert not hasattr(panel.rt, "executor")
+    assert not hasattr(panel.rt, "adapter")
+    assert not hasattr(panel.rt, "store")
+    assert panel.rt.controller is None
+    assert (runtime_dir / "state.db").read_bytes() == before
+    readonly = StateStore(runtime_dir / "state.db", readonly=True)
+    try:
+        assert readonly._conn.execute("SELECT COUNT(*) FROM missions").fetchone()[0] == 1
+    finally:
+        readonly.close()
 
     normal_panel = server.PanelState()
     monkeypatch.setattr(server, "PANEL", normal_panel)
-    with pytest.raises(ValueError, match="no effective config snapshot"):
+    with pytest.raises(ValueError, match="terminal or missing Mission; inspect or create a new attempt"):
         normal_panel.start_mission(mission)
 
 

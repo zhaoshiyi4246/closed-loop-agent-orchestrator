@@ -3,6 +3,7 @@ import { AutoUnpackNativesPlugin } from "@electron-forge/plugin-auto-unpack-nati
 import { VitePlugin } from "@electron-forge/plugin-vite";
 import { rebuild } from "@electron/rebuild";
 import electronPackage from "electron/package.json";
+import electronChecksums from "electron/checksums.json";
 import MakerNSIS from "./makers/maker-nsis";
 import MakerDMG, { isSigningConfigured, sealDmg, verifyDmg, verifyMacArtifact } from "./makers/maker-dmg";
 import { machoHasX86_64Slice } from "./makers/macho-archs";
@@ -11,7 +12,7 @@ import { existsSync, readdirSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 
-// CLAO migration builds have no release/update target.
+// Candidate builds are local only; publishing and automatic updates stay off.
 // The packaged binary name (no extension). Single source of truth: the packager
 // names the exe/ELF from this, and the NSIS + deb makers must point their
 // shortcut/launcher at the SAME name. Drift here means a broken Start menu
@@ -30,6 +31,7 @@ const PACKAGED_EXTERNAL_DEPENDENCIES = [
 
 function ignoreFromVitePackage(file: string): boolean {
 	if (!file) return false;
+	if (file.endsWith(".map")) return true;
 	if (file.startsWith("/.vite")) return false;
 	if (file === "/node_modules") return false;
 	return !PACKAGED_EXTERNAL_DEPENDENCIES.some(
@@ -52,13 +54,23 @@ export async function prepareNativeDependencies(platform: NodeJS.Platform, arch:
 }
 
 export function extraResourcesForPlatform(platform: NodeJS.Platform): string[] {
+	if (process.env.CLAO_RELEASE_BUILD === "tracked-head-windows-x64") {
+		const resources: unknown = JSON.parse(process.env.CLAO_RELEASE_RESOURCES || "null");
+		if (!Array.isArray(resources) || !resources.length || resources.some((entry) => typeof entry !== "string" || !entry || entry.includes("\\") || entry.startsWith("/") || entry.includes(":") || entry.split("/").some((part: string) => !part || part === "." || part === ".."))) {
+			throw new Error("Missing or invalid manifest runtime resource declarations");
+		}
+		return resources;
+	}
 	return [
 		"daemon",
 		"agent-browser",
 		"resources/acp-runtime",
+		"resources/python",
+		"resources/clao-core",
+		"resources/third-party",
 		...(platform === "darwin" || platform === "linux" ? ["tmux"] : []),
-		"assets/icon.png",
-		"assets/icon.ico",
+		"assets/clao-icon.png",
+		"assets/clao-icon.ico",
 		"assets/trayIconTemplate.png",
 		"assets/trayIconTemplate@2x.png",
 	];
@@ -84,7 +96,7 @@ const ACP_RUNTIME_NODE_ENTITLEMENTS = [
 export function macSignOptionsForFile(filePath: string): { entitlements?: string[] } {
 	// Cheap gate first: optionsForFile is invoked for every Mach-O in the
 	// bundle, and only the nested Node path can need an override.
-	if (!filePath.endsWith(ACP_RUNTIME_NODE_PATH)) return {};
+	if (!filePath.replaceAll("\\", "/").endsWith(ACP_RUNTIME_NODE_PATH)) return {};
 	// Fail closed: an unreadable or unparseable binary throws out of
 	// optionsForFile and aborts the signing pass. Never fall back to
 	// process.arch or to "no entitlements" — silently signing the Intel Node
@@ -95,6 +107,9 @@ export function macSignOptionsForFile(filePath: string): { entitlements?: string
 const config: ForgeConfig = {
 	packagerConfig: {
 		asar: true,
+		// The lock-pinned Electron package supplies official artifact checksums.
+		// Validate cached archives without fetching SHASUMS again from GitHub.
+		download: { checksums: electronChecksums },
 		// The Vite plugin normally packages only .vite. better-sqlite3 must stay
 		// external so Electron can load its native binary, so include its minimal
 		// runtime dependency tree explicitly; AutoUnpackNativesPlugin then places
@@ -108,7 +123,7 @@ const config: ForgeConfig = {
 		// App icon. electron-packager appends the per-platform extension
 		// (.icns on macOS, .ico on Windows); Linux menu icons come from the
 		// deb/rpm makers below, and the runtime window icon from src/main.ts.
-		icon: "assets/icon",
+		icon: "assets/clao-icon",
 		extraResource: extraResourcesForPlatform(process.platform),
 		// Notarization. Two paths:
 		//  - CI: an App Store Connect API key. APPLE_API_KEY is a PATH to the .p8
@@ -136,9 +151,15 @@ const config: ForgeConfig = {
 				: undefined,
 	},
 	hooks: {
-        prePackage: async () => {
-            throw new Error("CLAO Native migration is development-only; release packaging is not configured");
-        },
+		prePackage: async () => {
+			if (process.env.CLAO_RELEASE_BUILD !== "tracked-head-windows-x64" || process.platform !== "win32" || process.arch !== "x64") {
+				throw new Error("Use packaging/build-release.ps1 for a clean-HEAD Windows x64 candidate");
+			}
+			for (const resource of ["resources/python/python.exe", "resources/python/python-core.exe", "resources/python/python-core._pth", "resources/clao-core/src/loopcore/ao_acceptance.py", "resources/third-party/AO-LICENSE.txt"]) {
+				if (!existsSync(resource)) throw new Error(`Missing release resource: ${resource}`);
+			}
+			await prepareNativeDependencies(process.platform, process.arch);
+		},
 		packageAfterPrune: async (_forgeConfig, buildPath) => {
 			const nativeModule = path.join(
 				buildPath,
@@ -221,11 +242,12 @@ const config: ForgeConfig = {
 		new MakerNSIS(
 			{
 				appId: "dev.clao.native.desktop",
-				productName: "Agent Orchestrator",
+				productName: "CLAO Native",
 				// Match the packaged binary name so the Start menu shortcut targets
 				// the real "agent-orchestrator.exe" (not "Agent Orchestrator.exe").
 				executableName: EXECUTABLE_NAME,
-				icon: "assets/icon.ico",
+				icon: "assets/clao-icon.ico",
+				nsis: { shortcutName: "CLAO Native", uninstallDisplayName: "CLAO Native", runAfterFinish: false },
 			},
 			["win32"],
 		),

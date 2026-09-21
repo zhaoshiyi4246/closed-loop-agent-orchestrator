@@ -221,10 +221,12 @@ def test_http_cancel_is_prompt_and_waits_for_real_stops(http_panel, monkeypatch,
             entered.set();time.sleep(.35);return original(*args,**kw)
         mc.executor._run=slow_kill
     else:
+        # Repository preparation is not the owned Gate process being tested.
+        # Complete it before signalling readiness to the cancellation caller.
+        repo = repository(tmp_path) if phase == 'gate' else None
         def slow_stage():
             entered.set()
             if phase=='gate':
-                repo=repository(tmp_path)
                 task.gate_commands=['python -c "import time; time.sleep(30)"']
                 mc.gate.run(task,str(repo))
             else:
@@ -357,10 +359,14 @@ def test_real_http_history_is_readonly_and_terminal_attempt_is_new(http_panel,mo
     assert request(http_panel,'POST','/api/resume',{'mission_id':mid})[0]!=200
     assert Path(store.path).read_bytes()==before and Path(store.path).stat().st_mtime_ns==mtime
     captured=[]
-    monkeypatch.setattr(http_panel.state,'start_mission',lambda spec:captured.append(spec))
+    captured_configs=[]
+    def capture(spec, *, config_snapshot):
+        captured.append(spec);captured_configs.append(config_snapshot)
+    monkeypatch.setattr(http_panel.state,'start_mission',capture)
     result=request(http_panel,'POST','/api/new-attempt',{'mission_id':mid,'project_id':server._saved_mission(mid)['project_id'],'execution_backend':'ao'})
     assert result[0]==200 and captured[0]['mission_id']!=mid
     assert captured[0]['previous_attempt']==mid
+    assert captured_configs[0]['values']==dict(http_panel.state.defaults())
     assert Path(store.path).read_bytes()==before and store.mission_config(mid)['state']=='HUMAN'
 
 
@@ -453,8 +459,8 @@ def test_real_edge_r02_status_receipts_and_new_attempt_pending(http_panel,monkey
       const find=()=>[...document.querySelectorAll('#detailExtraActions button')].find(b=>b.textContent==='重新执行');
       check(find()?.disabled,'unknown stop must block new attempt');find().click();
       check(!PENDING.has('mission'),'unknown stop initiated a write');
-      render({...LAST,mission:{...LAST.mission,state:'CANCELLED',cancellation:{status:'cancelled'},worker_stop:{status:'CONFIRMED'}}});
-      check(find(),'terminal missing new attempt');find().click();await wait(()=>!$('confirmRetry').disabled);$('confirmRetry').click();$('confirmRetry').click();await wait(()=>!PENDING.has('mission'));
+      acceptSnapshot({...LAST,stream:undefined,launch_blocked:'',actions:{...LAST.actions,new_attempt:true},mission:{...LAST.mission,state:'CANCELLED',cancellation:{status:'cancelled'},worker_stop:{status:'CONFIRMED'}}});
+      check(find()&&!find().disabled,'terminal missing enabled new attempt');find().click();await wait(()=>!$('confirmRetry').disabled);$('confirmRetry').click();$('confirmRetry').click();await wait(()=>!PENDING.has('mission'));
       for(const state of ['requested','cancelling','cancelled','unknown']){
         render({...LAST,mission:{...LAST.mission,cancellation:{status:state,reason:'真实取消阶段 中文'},stop_request:{source:'user'}}});
         check($('diagnostics').textContent.includes('取消状态：'+state),'cancellation status missing '+state);
@@ -472,7 +478,10 @@ def test_real_edge_r02_status_receipts_and_new_attempt_pending(http_panel,monkey
         capture_output=True,timeout=50,encoding='utf-8',errors='replace')
     outcome=re.search(r'data-r02-result="([^"]*)"',result.stdout)
     assert outcome and outcome.group(1)=='PASS',outcome.group(1) if outcome else result.stdout[-1200:]
-    assert calls==[{'mission_id':'M-F04', 'project_id':mission['project_id'], 'execution_backend':'ao'}]
+    assert len(calls)==1
+    assert {key:calls[0][key] for key in ('mission_id','project_id','execution_backend')}=={
+        'mission_id':'M-F04', 'project_id':mission['project_id'], 'execution_backend':'ao'}
+    assert calls[0]['config_snapshot']['values']==dict(http_panel.state.defaults())
 
 
 

@@ -139,6 +139,7 @@ func TestValidateProjectImportMissingPathReturnsBlockingError(t *testing.T) {
 func TestValidateProjectImportRejectsAOStatePath(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	statePath := filepath.Join(home, ".ao", "data")
 	if err := os.MkdirAll(statePath, 0o750); err != nil {
 		t.Fatal(err)
@@ -153,6 +154,49 @@ func TestValidateProjectImportRejectsAOStatePath(t *testing.T) {
 		t.Fatalf("result = %#v, want unsafe-path error", result)
 	}
 	wantActions(t, result.BlockingErrors, []string{"IMPORT_PATH_UNSAFE"})
+}
+
+func TestImportProtectsCLAOStateBeforeGitPreparation(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	customState := filepath.Join(t.TempDir(), "custom-state")
+	for _, statePath := range []string{filepath.Join(home, ".clao-ao"), filepath.Join(home, ".clao-ao", "data"), customState, filepath.Join(customState, "workspaces"), filepath.Dir(customState)} {
+		t.Run(filepath.Base(filepath.Dir(statePath))+"-"+filepath.Base(statePath), func(t *testing.T) {
+			if err := os.MkdirAll(statePath, 0o750); err != nil {
+				t.Fatal(err)
+			}
+			svc := New(Deps{Store: newFakeStore(), StateDir: customState})
+			result, err := svc.Validate(context.Background(), ImportValidationInput{ImportKind: ImportKindProject, Path: statePath})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.IsValid || result.NextStep != ImportNextStepError {
+				t.Fatalf("unsafe validation = %#v", result)
+			}
+			wantActions(t, result.BlockingErrors, []string{"IMPORT_PATH_UNSAFE"})
+			prepared, err := svc.PrepareGit(context.Background(), GitPreparationInput{
+				ImportKind: ImportKindProject, Path: statePath,
+				ApprovedActions: []string{GitPreparationActionInit, GitPreparationActionCommit, GitPreparationActionSetRemote},
+				RemoteURL:       "https://example.invalid/project.git",
+			})
+			if err != nil || prepared.Validation.IsValid || len(prepared.Events) != 0 {
+				t.Fatalf("unsafe preparation = %#v, %v", prepared, err)
+			}
+			if _, err := os.Stat(filepath.Join(statePath, ".git")); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("state directory was initialized: %v", err)
+			}
+		})
+	}
+	project := filepath.Join(home, ".clao-ao-project")
+	if err := os.MkdirAll(project, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	svc := New(Deps{Store: newFakeStore(), StateDir: customState})
+	result, err := svc.Validate(context.Background(), ImportValidationInput{ImportKind: ImportKindProject, Path: project})
+	if err != nil || !result.IsValid {
+		t.Fatalf("ordinary sibling project rejected: %#v, %v", result, err)
+	}
 }
 
 func TestValidateProjectImportUnbornRepositoryNeedsCommitAndRemote(t *testing.T) {

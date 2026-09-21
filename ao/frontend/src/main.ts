@@ -1,4 +1,5 @@
 import { CLAO_NATIVE_NAME, CLAO_NATIVE_APP_ID, CLAO_NATIVE_HOME, CLAO_UPDATES_ENABLED } from "./shared/clao-identity";
+import { withPackagedCoreEnvironment } from "./main/clao-runtime";
 import {
 	app,
 	BaseWindow,
@@ -412,14 +413,14 @@ function annotatePreloadPath(): string {
 // uses the .app bundle's .icns instead. Packaged: shipped via extraResource to
 // resources/icon.png; dev: the source asset under frontend/assets.
 function windowIconPath(): string | undefined {
-	const iconFile = process.platform === "win32" ? "icon.ico" : "icon.png";
+	const iconFile = process.platform === "win32" ? "clao-icon.ico" : "clao-icon.png";
 	const candidate = app.isPackaged
 		? path.join(process.resourcesPath, iconFile)
 		: path.join(__dirname, `../../assets/${iconFile}`);
 	if (existsSync(candidate)) return candidate;
 	const fallback = app.isPackaged
-		? path.join(process.resourcesPath, "icon.png")
-		: path.join(__dirname, "../../assets/icon.png");
+		? path.join(process.resourcesPath, "clao-icon.png")
+		: path.join(__dirname, "../../assets/clao-icon.png");
 	return existsSync(fallback) ? fallback : undefined;
 }
 
@@ -548,7 +549,7 @@ async function createWindowInternal(): Promise<void> {
 		height: 860,
 		minWidth: 960,
 		minHeight: 640,
-		title: "Agent Orchestrator",
+		title: CLAO_NATIVE_NAME,
 		icon: windowIconPath(),
 		backgroundColor: NATIVE_WINDOW_BACKGROUND_DARK,
 		// Windows goes frameless and the renderer paints the whole titlebar,
@@ -1058,7 +1059,8 @@ function daemonEnv(forceKeep = keepDaemonAlive(process.env)): NodeJS.ProcessEnv 
 	// Windows keeps its native environment semantics while overlaying values
 	// exported by the selected login-shell probe.
 	if (process.platform === "win32") {
-		return { ...process.env, ...(cachedShellEnv ?? {}), ...devExtras, ...telemetryOverrides(), ...ownerTag };
+		const env = { ...process.env, ...(cachedShellEnv ?? {}), ...devExtras, ...telemetryOverrides(), ...ownerTag };
+		return app.isPackaged ? withPackagedCoreEnvironment(env, process.resourcesPath) : env;
 	}
 	return buildDaemonEnv(process.env, cachedShellEnv, { ...devExtras, ...telemetryOverrides(), ...ownerTag });
 }
@@ -1849,8 +1851,8 @@ ipcMain.handle("menu:action", (_event, action: string) => {
 		case "help.about":
 			void dialog.showMessageBox(win, {
 				type: "info",
-				title: "About Agent Orchestrator",
-				message: "Agent Orchestrator",
+				title: `About ${CLAO_NATIVE_NAME}`,
+				message: CLAO_NATIVE_NAME,
 				detail: `Version ${app.getVersion()}`,
 				buttons: ["OK"],
 			});
@@ -1955,10 +1957,11 @@ ipcMain.handle("appState:setMigration", async (_event, migration: MigrationState
 
 ipcMain.handle("updateSettings:get", async (): Promise<UpdateSettings> => {
 	const runFile = runFilePath();
-	if (!runFile) return { enabled: false, channel: "latest", nightlyAck: false, feature: null };
+	if (!CLAO_UPDATES_ENABLED || !runFile) return { enabled: false, channel: "latest", nightlyAck: false, feature: null };
 	return readUpdateSettings(path.dirname(runFile));
 });
 ipcMain.handle("updateSettings:set", async (_event, settings: UpdateSettings) => {
+	if (!CLAO_UPDATES_ENABLED) return;
 	const runFile = runFilePath();
 	if (!runFile) return;
 	await setUpdateSettings(path.dirname(runFile), settings);
@@ -1992,8 +1995,8 @@ ipcMain.handle("keybindings:setRecording", (event, active: unknown): void => {
 	keybindingRecordingActive = active;
 });
 
-ipcMain.handle("featureBuilds:list", () => listFeatureBuilds());
-ipcMain.handle("featureBuilds:getActive", () => getActiveFeatureBuild());
+ipcMain.handle("featureBuilds:list", () => CLAO_UPDATES_ENABLED ? listFeatureBuilds() : []);
+ipcMain.handle("featureBuilds:getActive", () => CLAO_UPDATES_ENABLED ? getActiveFeatureBuild() : null);
 
 ipcMain.handle("updates:getStatus", (): UpdateStatus => getUpdateStatus());
 ipcMain.handle("updates:check", async (_event, options?: UpdateCheckOptions) => {

@@ -323,7 +323,9 @@ describe("Chat message timestamps", () => {
 		);
 
 		expect(screen.getByLabelText(/^Sent Yesterday · \d{2}:\d{2}$/)).toBeInTheDocument();
-		expect(screen.getByLabelText(/^Sent [A-Z][a-z]{2} \d{1,2}, \d{4}$/)).toBeInTheDocument();
+		const olderDate = new Date(messages[1].createdAt);
+		const expectedDate = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" }).format(olderDate);
+		expect(screen.getByLabelText(`Sent ${expectedDate}`)).toBeInTheDocument();
 	});
 });
 

@@ -2,7 +2,9 @@
 
 Closed-Loop Agent Orchestrator
 
-> 本目录保留旧产品及可复用核心。[AO 原生底座 + 单 Worker 验收闭环基础集成](../ao/CLAO.md) 已经 PR #46 返修外部代码审计 PASS 并合入（DONE）；整体迁移与 M4 仍 IN_PROGRESS，角色决策切片已通过 [PR #47](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/47) 再次代码审计并合入（DONE）；当前唯一切片为 原生迁移收官大阶段（IN_PROGRESS）；PR #48 恢复/指令回执 DONE，外部代码审计 PASS 并已合入。开发入口不启动本 Panel/Controller。以下旧产品功能与历史完成状态不等于已迁移；配置、凭据和 runtime 原样保留，新数据不写入旧数据库。正式默认入口未切换；空账户隔离启动命令与未迁移边界见上述说明，真实账户/模型及完整体验尚未验收。
+> 本目录保留旧产品与可复用核心，不与 [AO 原生开发入口](../ao/CLAO.md) 同时运行 Panel/Controller。PR #46/#47/#48 的基础、角色决策与恢复/回执切片已审计合入（DONE）；当前原生迁移收官大阶段 IN_REVIEW，整体迁移与 M4 仍 IN_PROGRESS，正式发行入口未切换。
+>
+> 原生阶段现已复用这里的来源快照、有限分解、Git/Gate/验收、固定补丁与标准 API 语义传输，并接入原生结果、显式旧历史/连接导入及只读运行视图。新来源支持普通/空目录和未提交修改；子任务共享父任务所有者、预算与最终验收，原项目不自动写回。旧数据库、default.yaml 和系统凭据不自动导入或覆盖；旧历史只读，兼容配置须明确选择，不能当作可恢复的新任务。普通启动、空账户隔离入口、文件类型与尚未验证的真实账号/模型/完整体验/发布边界见上述说明。以下用法专指保留的旧产品。
 
 CLAO 是本地闭环软件开发控制层。新本地任务通过 Codex App Server 执行，无需 AO。它把用户的
 Mission 交给受控的 Codex Worker，在确定性观察、Gate 和最终验证后生成可审计结果。
@@ -92,7 +94,7 @@ U01 的 PR #39 已通过本轮外部代码与产品整改审计并 rebase 合入
 正常启动只读取真实任务；没有记录时显示空态。旧 `preview` 参数不改变数据来源，
 正式服务不提供样例资源。主层使用少量中文状态，断连单独提示，Gate 读取失败在证据卡
 中保留；原始状态和完整诊断可展开查看。“重新执行”会创建关联的新执行记录，不重跑旧终态。
-U02 首切片已接入本地项目与真实 App Server 生产适配；[PR #40](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/40) 再次外部审计 PASS、已 rebase 合入（首切片 DONE）。“完整任务旅程与 GUI 数据接线”的 [PR #41](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/41) 代码与返修再次外部审计 PASS、已 rebase 合入；本切片及 U02 整卡 DONE；V03-U03 — 结果中心与独立导出的 [PR #42](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/42) 再次外部审计 PASS 并已 rebase 合入（DONE）。M0/M1/M2 保持 COMPLETE，M3 COMPLETE 表示阶段开发和代码审计完成；M4 IN_PROGRESS；P01 工程与离线验证切片的 [PR #43](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/43) 再次外部审计 PASS、已 rebase 合入（切片 DONE）；P02 工程接入与离线验证切片的 [PR #44](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/44) 工程审计 PASS、已 rebase 合入（DONE）；P01/P02 整卡及 M4 保持 IN_PROGRESS。两家联合真实服务/角色准入及质量、延迟、用量评测继续暂缓，仍需负责人另行确认权限、材料与预算；当前原生迁移下一指针见本文开头，不开始 P03。运行证据仍为协议替身/离线集成、Windows/浏览器定向验证及 Codex 截图自查；外部代码与返修审计不代表负责人已完成完整 GUI 体验验收。U02 的 200% 检查为等效布局/CSS zoom，非原生浏览器缩放验收。真实 Codex 模型任务、全量与安装/发布验证仍 NOT_RUN；任意进程重连、模型扩展与 Q01 安装/发布兼容性未完成；U03 结果中心/固定版本补丁包及历史下载已合入，文件类型支持不变；包不含完整基线/项目依赖，敏感检测仅为有限规则。M3 COMPLETE 不代表完整 GUI 体验或发布验收完成；闭环运行视图仍仅为未授权候选。
+U02 首切片已接入本地项目与真实 App Server 生产适配；[PR #40](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/40) 再次外部审计 PASS、已 rebase 合入（首切片 DONE）。“完整任务旅程与 GUI 数据接线”的 [PR #41](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/41) 代码与返修再次外部审计 PASS、已 rebase 合入；本切片及 U02 整卡 DONE；V03-U03 — 结果中心与独立导出的 [PR #42](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/42) 再次外部审计 PASS 并已 rebase 合入（DONE）。M0/M1/M2 保持 COMPLETE，M3 COMPLETE 表示阶段开发和代码审计完成；M4 IN_PROGRESS；P01 工程与离线验证切片的 [PR #43](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/43) 再次外部审计 PASS、已 rebase 合入（切片 DONE）；P02 工程接入与离线验证切片的 [PR #44](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/44) 工程审计 PASS、已 rebase 合入（DONE）；P01/P02 整卡及 M4 保持 IN_PROGRESS。两家联合真实服务/角色准入及质量、延迟、用量评测继续暂缓，仍需负责人另行确认权限、材料与预算；当前原生迁移下一指针见本文开头，不开始 P03。运行证据仍为协议替身/离线集成、Windows/浏览器定向验证及 Codex 截图自查；外部代码与返修审计不代表负责人已完成完整 GUI 体验验收。U02 的 200% 检查为等效布局/CSS zoom，非原生浏览器缩放验收。真实 Codex 模型任务、全量与安装/发布验证仍 NOT_RUN；任意进程重连、模型扩展与 Q01 安装/发布兼容性未完成；U03 结果中心/固定版本补丁包及历史下载已合入，文件类型支持不变；包不含完整基线/项目依赖，敏感检测仅为有限规则。M3 COMPLETE 不代表完整 GUI 体验或发布验收完成；闭环运行视图在该旧阶段仍为候选；当前原生收官阶段已获授权并实现只读视图，见本文开头。
 
 视觉参考：[Framework7 分组列表](https://framework7.io/docs/list-view)、
 [Konsta iOS 列表](https://konstaui.com/react/list)；没有引入这些框架。

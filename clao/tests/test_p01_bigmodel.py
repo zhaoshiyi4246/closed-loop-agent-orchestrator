@@ -208,7 +208,7 @@ def test_timeout_and_transient_recovery_are_bounded(glm_http):
 
 @pytest.mark.parametrize('change', [
     {'endpoint':'https://api.z.ai/api/paas/v4/chat/completions'}, {'endpoint':'http://127.0.0.1:9'},
-    {'model':'unadmitted-model'}, {'thinking':'high'}, {'api_key':FAKE_KEY}, {'reasoning_effort':'high'},
+    {'model':'invalid model ID'}, {'thinking':'high'}, {'api_key':FAKE_KEY}, {'reasoning_effort':'high'},
     {'temperature':.123}, {'max_attempts':4}, {'max_attempts':1.5}, {'timeout_seconds':0},
     {'retry_delay_seconds':float('nan')}, {'max_tokens':0}, {'credential_ref':'../escape'},
 ])

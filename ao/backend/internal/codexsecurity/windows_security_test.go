@@ -1,4 +1,4 @@
-package agent
+package codexsecurity
 
 import "testing"
 
@@ -34,6 +34,60 @@ func TestWindowsAncestorACLPolicyAllowsReadButRejectsMutation(t *testing.T) {
 	}
 	if codexWindowsAncestorACLIsSafe(true, []codexWindowsACE{{Allowed: true, PrincipalTrusted: false, Mask: codexWindowsDeleteChild}}) {
 		t.Fatal("mutable ancestor ACL accepted")
+	}
+}
+
+func TestWindowsVolumeRootPolicyOnlyAllowsDirectoryCreation(t *testing.T) {
+	create := codexWindowsACE{Allowed: true, Mask: codexWindowsAppendData, RootDirectoryCreateOnly: true}
+	if !codexWindowsAncestorACLPolicy(true, []codexWindowsACE{create}, true) {
+		t.Fatal("verified root sibling-directory creation rejected")
+	}
+	if codexWindowsAncestorACLPolicy(false, []codexWindowsACE{create}, true) ||
+		codexWindowsAncestorACLPolicy(true, []codexWindowsACE{create}, false) ||
+		codexWindowsVaultACLIsSafe(true, []codexWindowsACE{create}) {
+		t.Fatal("root exception admitted an untrusted owner, normal ancestor or vault")
+	}
+	for name, mask := range map[string]uint32{
+		"create file or set reparse": codexWindowsWriteData,
+		"write attributes":           codexWindowsWriteAttributes, "write EA": codexWindowsWriteEA,
+		"delete child": codexWindowsDeleteChild, "delete": codexWindowsDelete,
+		"write DAC": codexWindowsWriteDAC, "write owner": codexWindowsWriteOwner,
+		"generic all": codexWindowsGenericAll, "generic write": codexWindowsGenericWrite,
+	} {
+		t.Run(name, func(t *testing.T) {
+			ace := create
+			ace.Mask |= mask
+			if codexWindowsAncestorACLPolicy(true, []codexWindowsACE{ace}, true) {
+				t.Fatalf("root creation exempted dangerous rights %#x", ace.Mask)
+			}
+		})
+	}
+	for _, ace := range []codexWindowsACE{
+		{Allowed: true, Mask: codexWindowsAppendData}, // nonstandard or different principal
+		{Allowed: true, Mask: codexWindowsAppendData, RootDirectoryCreateOnly: true, Unsupported: true},
+		{Unsupported: true}, // Unknown/object/callback ACEs fail closed, even with zero mask.
+	} {
+		if codexWindowsAncestorACLPolicy(true, []codexWindowsACE{ace}, true) {
+			t.Fatal("unsupported root ACE accepted", ace)
+		}
+	}
+}
+
+func TestWindowsOwnerRightsFollowOnlyAnAlreadyTrustedOwner(t *testing.T) {
+	ownerACE := codexWindowsACE{Allowed: true, OwnerRights: true, Mask: codexWindowsGenericAll}
+	if !codexWindowsVaultACLIsSafe(true, []codexWindowsACE{ownerACE}) ||
+		!codexWindowsAncestorACLIsSafe(true, []codexWindowsACE{ownerACE}) {
+		t.Fatal("owner rights did not resolve to the already trusted owner")
+	}
+	if codexWindowsVaultACLIsSafe(false, []codexWindowsACE{ownerACE}) ||
+		codexWindowsAncestorACLIsSafe(false, []codexWindowsACE{ownerACE}) {
+		t.Fatal("owner rights made an untrusted owner safe")
+	}
+	// Other creator/unknown principals are never marked OwnerRights.
+	ownerACE.OwnerRights = false
+	if codexWindowsVaultACLIsSafe(true, []codexWindowsACE{ownerACE}) ||
+		codexWindowsAncestorACLIsSafe(true, []codexWindowsACE{ownerACE}) {
+		t.Fatal("unrelated principal inherited the owner's trust")
 	}
 }
 

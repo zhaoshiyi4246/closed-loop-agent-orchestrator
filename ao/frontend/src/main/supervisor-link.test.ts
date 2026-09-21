@@ -23,6 +23,7 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): 
 }
 
 function tmpSocketPath(): string {
+	if (process.platform === "win32") return `\\\\.\\pipe\\clao-svlink-test-${process.pid}-${Date.now()}`;
 	return path.join(os.tmpdir(), `ao-svlink-test-${process.pid}-${Date.now()}.sock`);
 }
 

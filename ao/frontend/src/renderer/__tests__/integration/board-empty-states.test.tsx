@@ -167,8 +167,8 @@ function renderBoard(ui: ReactNode) {
 	);
 }
 
-// The kanban columns render as <section> elements; the empty states render none.
-const columnCount = () => document.querySelectorAll("section").length;
+// Count board lanes specifically; the CLAO task overview is also a section.
+const columnCount = () => document.querySelectorAll('[data-testid="board-column"]').length;
 
 beforeEach(() => {
 	vi.clearAllMocks();

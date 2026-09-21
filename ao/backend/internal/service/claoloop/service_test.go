@@ -11,6 +11,7 @@ import (
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
+	chatsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/chat"
 	"github.com/aoagents/agent-orchestrator/backend/internal/storage/sqlite"
 	"github.com/aoagents/agent-orchestrator/backend/internal/storage/sqlite/sqlitetest"
 )
@@ -18,6 +19,35 @@ import (
 type absentController struct{ Chat }
 
 func (absentController) HasLiveChatController(domain.SessionID) bool { return false }
+
+type presentationChat struct {
+	Chat
+	activities []domain.ConversationActivity
+	err        error
+}
+
+func (c presentationChat) Snapshot(context.Context, domain.SessionID) (chatsvc.Snapshot, error) {
+	return chatsvc.Snapshot{Activities: c.activities}, c.err
+}
+func TestCLAOPresentationUsesNativePendingFacts(t *testing.T) {
+	for _, tc := range []struct {
+		kind domain.ActivityKind
+		want string
+	}{
+		{domain.ActivityKindApproval, "approval"}, {domain.ActivityKindUserInput, "user_input"},
+	} {
+		s := &Service{chat: presentationChat{activities: []domain.ConversationActivity{{Kind: tc.kind, Status: domain.ActivityStatusPending}}}}
+		m := Mission{State: "RUNNING", SessionID: "worker"}
+		view := s.Presentation(context.Background(), m)
+		if view.ActiveWait != tc.want || m.ActiveWait != "" {
+			t.Fatal(view.ActiveWait, tc.want)
+		}
+	}
+	s := &Service{chat: presentationChat{err: errors.New("read failed")}}
+	if got := s.Presentation(context.Background(), Mission{State: "RUNNING", SessionID: "worker"}).ActiveWait; got != "read_error" {
+		t.Fatal(got)
+	}
+}
 
 func contract() Request {
 	return Request{ID: "mission-test", ProjectID: "project-test", Objective: "change", AllowedPaths: []string{"**"}, Criteria: []Criterion{{ID: "AC1", Description: "accepted"}}, GateCommands: []string{"python check.py"}, GateTimeout: 10, Agent: domain.HarnessOpenCode}

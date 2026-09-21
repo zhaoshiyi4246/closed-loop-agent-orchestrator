@@ -1,19 +1,27 @@
-# CLAO release mapping: repository source at HEAD => product destination.
-# A trailing slash on both sides creates a prefix mapping.
-
-clao/README.md => README.md
-clao/requirements.txt => requirements.txt
-clao/bootstrap.ps1 => bootstrap.ps1
-clao/启动CLAO.bat => 启动CLAO.bat
-clao/run_mission.py => run_mission.py
-
-clao/config/ => config/
-clao/panel/ => panel/
-clao/prompts/ => prompts/
-clao/schemas/ => schemas/
-clao/src/loopcore/ => src/loopcore/
-clao/tests/ => tests/
-
-clao/tasks/e2e-smoke.json => tasks/e2e-smoke.json
-clao/tasks/mission-quick.json => tasks/mission-quick.json
-clao/docs/ARCHITECTURE.md => docs/ARCHITECTURE.md
+# HEAD source => isolated build-root destination. Build inputs are not shipped.
+# @resource declares every extra runtime resource copied by Forge. Bundled app
+# JS/native Node modules follow the packager's minimal application allowlist.
+@resource daemon
+@resource agent-browser
+@resource resources/acp-runtime
+@resource resources/python
+@resource resources/clao-core
+@resource resources/third-party
+@resource assets/clao-icon.png
+@resource assets/clao-icon.ico
+@resource assets/trayIconTemplate.png
+@resource assets/trayIconTemplate@2x.png
+ao/backend/ => ao/backend/
+ao/frontend/ => ao/frontend/
+ao/packages/product-ui/ => ao/packages/product-ui/
+ao/packages/cloud-client/ => ao/packages/cloud-client/
+ao/packages/shared/ => ao/packages/shared/
+ao/LICENSE => ao/LICENSE
+clao/src/loopcore/ => ao/frontend/resources/clao-core/src/loopcore/
+clao/prompts/ => ao/frontend/resources/clao-core/prompts/
+clao/schemas/ => ao/frontend/resources/clao-core/schemas/
+clao/config/default.yaml => ao/frontend/resources/clao-core/config/default.yaml
+packaging/native-release.ps1 => packaging/native-release.ps1
+packaging/python-runtime.lock => packaging/python-runtime.lock
+packaging/collect-licenses.mjs => packaging/collect-licenses.mjs
+packaging/WINDOWS-CANDIDATE.md => packaging/WINDOWS-CANDIDATE.md

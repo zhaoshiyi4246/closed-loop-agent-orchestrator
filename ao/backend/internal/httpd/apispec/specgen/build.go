@@ -146,6 +146,8 @@ func schemaName(_ reflect.Type, defaultName string) string {
 // the drift test fails until the spec is regenerated, which flags the gap.
 var schemaNames = map[string]string{ //nolint:gosec // Public OpenAPI type names include reset-credit contracts; no credential value is stored here.
 	"ClaoloopRequest": "CLAORequest", "ClaoloopMission": "CLAOMission", "ClaoloopCriterion": "CLAOCriterion",
+	"ClaoloopConnectionModel": "CLAOConnectionModel", "ClaoloopConnectionService": "CLAOConnectionService",
+	"ClaoloopConnectionCatalog": "CLAOConnectionCatalog", "ClaoloopConnectionRequest": "CLAOConnectionRequest", "ClaoloopConnectionResponse": "CLAOConnectionResponse",
 	"ClaoloopCheckpoint": "CLAOCheckpoint", "ClaoloopRecoveryStatus": "CLAORecoveryStatus", "ClaoloopDirective": "CLAODirective", "ClaoloopDirectiveRequest": "CLAODirectiveRequest", "ClaoloopConsumption": "CLAOConsumption", "ControllersCLAODirectiveResponse": "CLAODirectiveResponse",
 	"ClaoloopEvidence": "CLAOEvidence", "ClaoloopOperation": "CLAOOperation",
 	"ClaoloopRoleChoice": "CLAORoleChoice", "ClaoloopFrozenRole": "CLAOFrozenRole", "ClaoloopRoleCall": "CLAORoleCall", "ClaoloopDecision": "CLAODecision",
@@ -2434,6 +2436,17 @@ func prOperations() []operation {
 
 func claoOperations() []operation {
 	return []operation{
+		{method: http.MethodGet, path: "/api/v1/clao/connections/catalog", id: "getCLAOConnectionCatalog", tag: "clao", summary: "Read standard API model suggestions", resps: []respUnit{{200, claoloop.ConnectionCatalog{}}}},
+		{method: http.MethodPost, path: "/api/v1/clao/connections", id: "createCLAOConnection", tag: "clao", summary: "Save a standard API connection without credentials", reqBody: claoloop.ConnectionRequest{}, resps: []respUnit{{200, claoloop.ConnectionResponse{}}}},
+		{method: http.MethodPost, path: "/api/v1/clao/projects", id: "openCLAOProject", tag: "clao", summary: "Open or create a local directory without modifying Git", reqBody: claoloop.LocalProjectRequest{}, resps: []respUnit{{201, controllers.CLAOProjectResponse{}}}},
+		{method: http.MethodGet, path: "/api/v1/clao/projects/{projectId}/source", id: "previewCLAOSource", tag: "clao", summary: "Read current source contents before confirmation", pathParams: []any{controllers.CLAOProjectParam{}}, resps: []respUnit{{200, controllers.CLAOSourceResponse{}}}},
+		{method: http.MethodGet, path: "/api/v1/clao/imports", id: "listCLAOImports", tag: "clao", summary: "Read explicitly imported legacy facts", resps: []respUnit{{200, claoloop.LegacyCatalog{}}}},
+		{method: http.MethodPost, path: "/api/v1/clao/imports", id: "importCLAOLegacy", tag: "clao", summary: "Explicitly import supported legacy facts", reqBody: claoloop.LegacyImportRequest{}, resps: []respUnit{{200, claoloop.LegacyCatalog{}}}},
+		{method: http.MethodPost, path: "/api/v1/clao/imports/{id}/credential", id: "reconnectCLAOLegacy", tag: "clao", summary: "Explicitly connect a new OS credential generation", pathParams: []any{controllers.CLAOIDParam{}}, reqBody: controllers.CLAOCredentialRequest{}, resps: []respUnit{{200, claoloop.LegacyCredentialStatus{}}}},
+		{method: http.MethodGet, path: "/api/v1/clao/missions/{id}/result", id: "getCLAOResult", tag: "clao", summary: "Read frozen delivery and acceptance", pathParams: []any{controllers.CLAOIDParam{}}, resps: []respUnit{{200, controllers.CLAOResultResponse{}}}},
+		{method: http.MethodPost, path: "/api/v1/clao/missions/{id}/export", id: "exportCLAOResult", tag: "clao", summary: "Save a complete independent patch package", pathParams: []any{controllers.CLAOIDParam{}}, reqBody: struct{}{}, resps: []respUnit{{200, controllers.CLAOExportResponse{}}}},
+		{method: http.MethodPost, path: "/api/v1/clao/missions/{id}/open-result", id: "openCLAOResult", tag: "clao", summary: "Open this mission result directory", pathParams: []any{controllers.CLAOIDParam{}}, reqBody: struct{}{}, resps: []respUnit{{200, controllers.CLAOLocationResponse{}}}},
+		{method: http.MethodGet, path: "/api/v1/clao/missions/{id}/exports/{identity}", id: "downloadCLAOResult", tag: "clao", summary: "Download a saved immutable result package", pathParams: []any{controllers.CLAOPackageParam{}}, resps: []respUnit{{200, ""}}, contentTypes: map[int]string{200: "application/zip"}},
 		{method: http.MethodGet, path: "/api/v1/clao/session", id: "claoSession", tag: "clao", summary: "Read local acceptance session credential", resps: []respUnit{{200, controllers.CLAONonceResponse{}}}},
 		{method: http.MethodGet, path: "/api/v1/clao/missions", id: "listCLAOMissions", tag: "clao", summary: "Read acceptance facts", resps: []respUnit{{200, controllers.CLAOMissionListResponse{}}}},
 		{method: http.MethodPost, path: "/api/v1/clao/missions", id: "createCLAOMission", tag: "clao", summary: "Create acceptance-driven native session", reqBody: claoloop.Request{}, resps: []respUnit{{202, controllers.CLAOMissionResponse{}}}},

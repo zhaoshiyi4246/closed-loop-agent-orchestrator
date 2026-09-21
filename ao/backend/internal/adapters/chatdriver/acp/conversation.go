@@ -53,6 +53,7 @@ type interruptAttempt struct {
 type parkedPermission struct {
 	options map[string]json.RawMessage
 	result  chan string
+	binding *permissionBinding
 }
 
 type parkedInput struct {
@@ -61,16 +62,20 @@ type parkedInput struct {
 }
 
 type toolState struct {
-	id             string
-	title          string
-	kind           acpsdk.ToolKind
-	status         acpsdk.ToolCallStatus
-	locations      []acpsdk.ToolCallLocation
-	content        []acpsdk.ToolCallContent
-	rawInput       any
-	rawOutput      any
-	meta           map[string]any
-	terminalOutput string
+	id               string
+	turnID           string
+	approvalUsed     bool
+	approvalInvalid  bool
+	inputAccumulator PermissionInputAccumulator
+	title            string
+	kind             acpsdk.ToolKind
+	status           acpsdk.ToolCallStatus
+	locations        []acpsdk.ToolCallLocation
+	content          []acpsdk.ToolCallContent
+	rawInput         any
+	rawOutput        any
+	meta             map[string]any
+	terminalOutput   string
 }
 
 type nestedMessageState struct {
@@ -109,6 +114,7 @@ type conversation struct {
 	optionsFor        func(ports.ChatTurnSettings) []SessionOption
 	permissionMode    ports.PermissionMode
 	permissionFor     PermissionPolicy
+	inputDecoder      func(acpsdk.SessionUpdateToolCall) PermissionInputAccumulator
 	initialPermission ports.PermissionMode
 	validateSettings  TurnSettingsValidator
 	extensionFor      ClientExtensionHandler
@@ -589,6 +595,13 @@ func (c *conversation) ResolveRequest(
 	request, ok := c.pending[requestID]
 	if !ok {
 		c.mu.Unlock()
+		return ports.ErrChatRequestNotPending
+	}
+	if request.binding != nil && !c.permissionBindingCurrent(request.binding) {
+		delete(c.pending, requestID)
+		c.mu.Unlock()
+		request.result <- ""
+		c.emit(ports.ChatEvent{Kind: ports.ChatEventApprovalResolved, RequestID: requestID})
 		return ports.ErrChatRequestNotPending
 	}
 	offeredRaw, offered := request.options[decision.ID]

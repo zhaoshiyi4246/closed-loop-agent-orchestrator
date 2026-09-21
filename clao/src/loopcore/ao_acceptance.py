@@ -34,6 +34,9 @@ class EvidenceCapture:
 
 
 def evaluate(request):
+    if "materials" in request:
+        from .ao_materials import evaluate as materials_evaluate
+        return materials_evaluate(request)
     root = Path(request["workspace"]).resolve(strict=True)
     base = request["base"]
     if not root.is_dir() or not re.fullmatch(r"[0-9a-f]{40,64}", base):
@@ -110,12 +113,15 @@ def evaluate(request):
         except (ValueError, OSError, RuntimeError):
             outside.append(name)
     evidence = EvidenceCapture()
+    phase = request.get("phase", "final")
+    if phase not in {"task", "baseline", "final"}:
+        raise ValueError("unknown Gate phase")
     gate = IntegrationGate(evidence, timeout_seconds=request["timeout"],
-                           output_limit_chars=request["outputLimit"]).run(spec, str(root), phase="final")
+                           output_limit_chars=request["outputLimit"]).run(spec, str(root), phase=phase)
     for record in evidence.records:
         prior = record["assessment"]
         record["assessment"] = StateStore.gate_assessment(
-            phase="final", command=prior["command_status"],
+            phase=phase, command=prior["command_status"],
             integrity=prior["integrity"]["status"], integrity_reason=prior["integrity"]["reason"],
             scope="fail" if forbidden or outside else "pass",
             scope_reason=json.dumps({"forbidden": forbidden, "outside": outside}, ensure_ascii=False) if forbidden or outside else "")

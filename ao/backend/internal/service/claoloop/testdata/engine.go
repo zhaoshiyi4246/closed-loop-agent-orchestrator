@@ -49,7 +49,7 @@ func roleInput(text string) map[string]any {
 	for i := 0; i < len(text); i++ {
 		if text[i] == '{' {
 			var obj map[string]any
-			if json.NewDecoder(strings.NewReader(text[i:])).Decode(&obj) == nil && (obj["evidence_bundle"] != nil && obj["audit_id"] != nil || obj["audit_result"] != nil && obj["action_id"] != nil || obj["verifier_input"] != nil && obj["verify_id"] != nil) {
+			if json.NewDecoder(strings.NewReader(text[i:])).Decode(&obj) == nil && (obj["mission"] != nil && obj["plan_id"] != nil || obj["evidence_bundle"] != nil && obj["audit_id"] != nil || obj["audit_result"] != nil && obj["action_id"] != nil || obj["verifier_input"] != nil && obj["verify_id"] != nil) {
 				return obj
 			}
 		}
@@ -58,7 +58,27 @@ func roleInput(text string) map[string]any {
 }
 func roleResult(in map[string]any, text string) string {
 	var out map[string]any
-	if in["audit_id"] != nil {
+	if in["mission"] != nil {
+		mission := in["mission"].(map[string]any)
+		acs := mission["acceptance_criteria"].([]any)
+		gates := mission["gate_commands"].([]any)
+		subs := []any{}
+		for i, name := range []string{"left.txt", "right.txt"} {
+			deps := []string{}
+			if strings.Contains(text, "DEPENDENT_PLAN") && i == 1 {
+				deps = []string{"S1"}
+			}
+			objective := "PARALLEL_WRITE " + name
+			if strings.Contains(text, "PARALLEL_HOLD") {
+				objective += " HOLD_CONFIG"
+			}
+			if strings.Contains(text, "PARALLEL_REPAIR") {
+				objective += " REPAIR_ONCE"
+			}
+			subs = append(subs, map[string]any{"subtask_id": fmt.Sprintf("S%d", i+1), "objective": objective, "allowed_paths": []string{name}, "acceptance_criteria": []any{acs[i]}, "gate_commands": []any{gates[i]}, "dependencies": deps})
+		}
+		out = map[string]any{"mission_id": mission["mission_id"], "subtasks": subs, "strategy": "Independent output files, independent acceptance commands; two useful simultaneous implementations"}
+	} else if in["audit_id"] != nil {
 		decision := "LOCAL_FIX"
 		if strings.Contains(text, "PLAN_HUMAN") {
 			decision = "HUMAN"
@@ -75,6 +95,12 @@ func roleResult(in map[string]any, text string) string {
 		if action == "SEND_LOCAL_FIX" {
 			out["target_session_id"] = in["target_session_id"]
 			out["message"] = "Fix result.txt to accepted; retain original constraints."
+			if strings.Contains(text, "PARALLEL_WRITE left.txt") {
+				out["message"] = "Fix left.txt to accepted; retain original constraints."
+			}
+			if strings.Contains(text, "PARALLEL_WRITE right.txt") {
+				out["message"] = "Fix right.txt to accepted; retain original constraints."
+			}
 		}
 		if action == "REPLAN_SPAWN" {
 			out["replacement_task_spec"] = map[string]any{"objective": "replacement-pass: rebuild accepted result under original contract"}
@@ -103,14 +129,18 @@ func reviewResult(text string) string {
 			continue
 		}
 		checks := []any{}
+		verdict := "PASS"
+		if strings.Contains(text, "FINAL_REVIEW_FAIL") {
+			verdict = "FAIL"
+		}
 		v, _ := in["verifier_input"].(map[string]any)
 		spec, _ := v["task_spec"].(map[string]any)
 		acs, _ := spec["acceptance_criteria"].([]any)
 		for _, raw := range acs {
 			ac := raw.(map[string]any)
-			checks = append(checks, map[string]any{"ac_id": ac["id"], "verdict": "PASS", "note": "checked provided complete evidence"})
+			checks = append(checks, map[string]any{"ac_id": ac["id"], "verdict": verdict, "note": "checked provided complete evidence"})
 		}
-		b, _ := json.Marshal(map[string]any{"verify_id": id, "task_id": task, "verdict": "PASS", "ac_checks": checks, "anti_gaming": []any{}, "summary": "fixture independent review"})
+		b, _ := json.Marshal(map[string]any{"verify_id": id, "task_id": task, "verdict": verdict, "ac_checks": checks, "anti_gaming": []any{}, "summary": "fixture independent review"})
 		return string(b)
 	}
 	return "{}"
@@ -153,7 +183,7 @@ func complete(m message, codex bool) {
 		}
 	}
 	answer := "Worker turn complete; await program acceptance."
-	if in := roleInput(text); in != nil && (in["audit_id"] != nil || in["action_id"] != nil) {
+	if in := roleInput(text); in != nil && (in["mission"] != nil || in["audit_id"] != nil || in["action_id"] != nil) {
 		answer = roleResult(in, text)
 	} else if strings.Contains(text, "verify_id") && strings.Contains(text, "verifier_input") {
 		answer = reviewResult(text)
@@ -161,6 +191,19 @@ func complete(m message, codex bool) {
 			answer = ""
 		}
 	} else {
+		if release := os.Getenv("CLAO_FIXTURE_PARALLEL_RELEASE"); release != "" && strings.Contains(text, "PARALLEL_WRITE ") {
+			trace("parallel_wait", workspace)
+			deadline := time.Now().Add(60 * time.Second)
+			for {
+				if _, err := os.Stat(release); err == nil {
+					break
+				}
+				if time.Now().After(deadline) {
+					panic("parallel test release not received")
+				}
+				time.Sleep(20 * time.Millisecond)
+			}
+		}
 		value := "accepted\n"
 		if strings.Contains(text, "REPAIR_ONCE") || strings.Contains(text, "PLAN_") || strings.Contains(text, "BAD_ROLE_ID") || strings.Contains(text, "HOLD_") {
 			value = "broken\n"
@@ -175,7 +218,14 @@ func complete(m message, codex bool) {
 		if _, err := os.Stat(filepath.Join(workspace, ".fixture-failure")); err == nil {
 			value = "broken\n"
 		}
-		_ = os.WriteFile(filepath.Join(workspace, "result.txt"), []byte(value), 0600)
+		name := "result.txt"
+		if strings.Contains(text, "PARALLEL_WRITE left.txt") || strings.Contains(text, "Fix left.txt") {
+			name = "left.txt"
+		}
+		if strings.Contains(text, "PARALLEL_WRITE right.txt") || strings.Contains(text, "Fix right.txt") {
+			name = "right.txt"
+		}
+		_ = os.WriteFile(filepath.Join(workspace, name), []byte(value), 0600)
 	}
 	if codex {
 		tid := fmt.Sprintf("turn-%d", time.Now().UnixNano())

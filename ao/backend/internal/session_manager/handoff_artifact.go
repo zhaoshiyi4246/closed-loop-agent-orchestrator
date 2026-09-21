@@ -327,29 +327,11 @@ func (m *Manager) finalizedHandoffPath(sessionID domain.SessionID, switchID stri
 	return filepath.Join(dir, "handoff.json"), nil
 }
 
-func ensurePrivateHandoffDirectory(path string) error {
-	err := os.Mkdir(path, 0o700)
-	if err != nil && !errors.Is(err, os.ErrExist) {
-		return fmt.Errorf("agent switch: create handoff directory %s: %w", path, err)
-	}
-	info, err := os.Lstat(path)
-	if err != nil {
-		return fmt.Errorf("agent switch: inspect handoff directory %s: %w", path, err)
-	}
-	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("agent switch: handoff path %s is not a real directory", path)
-	}
-	if err := os.Chmod(path, 0o700); err != nil { //nolint:gosec // Owner traversal is required for this private directory.
-		return fmt.Errorf("agent switch: secure handoff directory %s: %w", path, err)
-	}
-	return nil
-}
-
 func validateHandoffDirectoryChain(dir string) error {
 	// dir has the fixed shape dataDir/handoffs/session/switch. Include the exact
 	// dataDir itself: checking only descendants would still follow an attacker-
 	// replaced dataDir symlink into another otherwise-real directory tree.
-	for _, directory := range []string{
+	for index, directory := range []string{
 		filepath.Dir(filepath.Dir(filepath.Dir(dir))),
 		filepath.Dir(filepath.Dir(dir)),
 		filepath.Dir(dir),
@@ -361,6 +343,13 @@ func validateHandoffDirectoryChain(dir string) error {
 		}
 		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 			return fmt.Errorf("agent switch: handoff path %s is not a real directory", directory)
+		}
+		// The app's existing data directory is not ours to repermission. Only
+		// the three handoff-owned descendants have the private ACL contract.
+		if index > 0 {
+			if err := validatePrivateHandoffDirectory(directory); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -480,6 +469,10 @@ func writeAtomicImmutableFile(ctx context.Context, path string, body []byte) err
 		_ = f.Close()
 		return fmt.Errorf("agent switch: secure temporary handoff: %w", err)
 	}
+	if err := validatePrivateHandoffFile(f); err != nil {
+		_ = f.Close()
+		return err
+	}
 	if _, err := f.Write(body); err != nil {
 		_ = f.Close()
 		return fmt.Errorf("agent switch: write temporary handoff: %w", err)
@@ -551,6 +544,9 @@ func readRegularFileWithoutSymlink(ctx context.Context, path string, limit int64
 	}
 	if !openedInfo.Mode().IsRegular() || !os.SameFile(pathInfo, openedInfo) {
 		return nil, false, errors.New("handoff path changed while it was opened")
+	}
+	if err := validatePrivateHandoffFile(f); err != nil {
+		return nil, false, err
 	}
 	if limit <= 0 {
 		return nil, false, errors.New("handoff read limit must be positive")

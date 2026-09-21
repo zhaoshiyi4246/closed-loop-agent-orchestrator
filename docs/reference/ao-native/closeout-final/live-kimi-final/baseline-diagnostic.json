@@ -1,0 +1,17 @@
+{
+  "source": "official CLI local wire events",
+  "request_turn_steps": [
+    "0.1",
+    "0.2",
+    "0.3",
+    "0.4"
+  ],
+  "errors": [
+    {
+      "code": "loop.max_steps_exceeded",
+      "name": "LoopError",
+      "maxSteps": 4,
+      "retryable": false
+    }
+  ]
+}

@@ -76,8 +76,7 @@ func (f *AccountFactory) Open(ctx context.Context, account ports.CodexAccountCon
 		return nil, errors.New("codex account home must be absolute")
 	}
 	if account.Managed {
-		info, err := os.Lstat(account.Home)
-		if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm() != 0o700 {
+		if err := validateManagedAccountHome(account.Home); err != nil {
 			return nil, errors.New("managed Codex account home is unavailable")
 		}
 	}

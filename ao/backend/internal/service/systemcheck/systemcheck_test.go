@@ -6,6 +6,7 @@ import (
 	"io"
 	"runtime"
 	"slices"
+	"strings"
 	"testing"
 
 	agentsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/agent"
@@ -190,15 +191,19 @@ func TestCheck_TmuxMissing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Check() error = %v", err)
 	}
-	if report.Ready {
-		t.Fatalf("Ready = true, want false")
+	wantReady := runtime.GOOS == "windows"
+	if report.Ready != wantReady {
+		t.Fatalf("Ready = %v, want %v", report.Ready, wantReady)
 	}
 	tmux := requirementByID(t, report, "tmux")
-	if tmux.Satisfied {
-		t.Fatalf("tmux.Satisfied = true, want false")
+	if tmux.Satisfied != wantReady {
+		t.Fatalf("tmux.Satisfied = %v, want %v", tmux.Satisfied, wantReady)
 	}
 	if tmux.Detail == "" {
 		t.Fatalf("tmux.Detail is empty, want a not-found message")
+	}
+	if runtime.GOOS == "windows" && !strings.Contains(tmux.Detail, "ConPTY") {
+		t.Fatalf("tmux.Detail = %q, want the Windows terminal runtime explanation", tmux.Detail)
 	}
 }
 

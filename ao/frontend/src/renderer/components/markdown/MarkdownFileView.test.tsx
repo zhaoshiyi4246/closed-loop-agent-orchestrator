@@ -46,8 +46,11 @@ describe("MarkdownFileView", () => {
 		expect(screen.getByRole("table")).toBeInTheDocument();
 		expect(screen.getByText("Read this.").closest(".markdown-alert")).toHaveClass("markdown-alert-note");
 		expect(container.querySelector("pre.markdown-code")).toHaveTextContent("const ready = true;");
+		// This assertion includes the real cold grammar import; the default 1s
+		// DOM wait is too short on Windows under concurrent build I/O.
 		await waitFor(() =>
 			expect(container.querySelector(".markdown-code .hljs-keyword")).toHaveTextContent("const"),
+			{ timeout: 10_000 },
 		);
 	});
 

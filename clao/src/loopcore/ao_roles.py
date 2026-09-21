@@ -8,6 +8,9 @@ from . import worktree as wt
 
 def evaluate(request, spec, root):
     role = request["role"]
+    if role == "decomposition":
+        from .ao_decomposition import evaluate as decompose
+        return decompose(request, spec)
     if role not in ("auditor", "planner"):
         raise ValueError("unsupported semantic role")
     context = request["roleContext"]

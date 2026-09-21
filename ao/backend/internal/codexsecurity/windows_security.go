@@ -1,4 +1,4 @@
-package agent
+package codexsecurity
 
 const (
 	codexWindowsAttributeDirectory    uint32 = 0x00000010
@@ -63,6 +63,11 @@ type codexWindowsACE struct {
 	Allowed          bool
 	PrincipalTrusted bool
 	Mask             uint32
+	OwnerRights      bool
+	// Set only for a standard Authenticated Users allow ACE granting exactly
+	// FILE_ADD_SUBDIRECTORY on a verified local volume-root ancestor.
+	RootDirectoryCreateOnly bool
+	Unsupported             bool
 }
 
 func codexWindowsVaultACLIsSafe(ownerTrusted bool, aces []codexWindowsACE) bool {
@@ -73,7 +78,7 @@ func codexWindowsVaultACLIsSafe(ownerTrusted bool, aces []codexWindowsACE) bool 
 		// Vault files and directories may grant access only to the current
 		// owner and the deliberately trusted system/administrator principals.
 		// Reject every effective untrusted allow ACE, including read-only ACEs.
-		if ace.Allowed && !ace.PrincipalTrusted && ace.Mask != 0 {
+		if ace.Allowed && !ace.PrincipalTrusted && !ace.OwnerRights && ace.Mask != 0 {
 			return false
 		}
 	}
@@ -81,11 +86,21 @@ func codexWindowsVaultACLIsSafe(ownerTrusted bool, aces []codexWindowsACE) bool 
 }
 
 func codexWindowsAncestorACLIsSafe(ownerTrusted bool, aces []codexWindowsACE) bool {
+	return codexWindowsAncestorACLPolicy(ownerTrusted, aces, false)
+}
+
+func codexWindowsAncestorACLPolicy(ownerTrusted bool, aces []codexWindowsACE, localRootWithVerifiedChild bool) bool {
 	if !ownerTrusted {
 		return false
 	}
 	for _, ace := range aces {
-		if ace.Allowed && !ace.PrincipalTrusted && ace.Mask&codexWindowsMutationMask != 0 {
+		if localRootWithVerifiedChild && ace.Unsupported {
+			return false
+		}
+		if ace.Allowed && !ace.PrincipalTrusted && !ace.OwnerRights && ace.Mask&codexWindowsMutationMask != 0 {
+			if localRootWithVerifiedChild && ace.RootDirectoryCreateOnly && ace.Mask == codexWindowsAppendData {
+				continue
+			}
 			return false
 		}
 	}

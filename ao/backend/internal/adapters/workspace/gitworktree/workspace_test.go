@@ -221,6 +221,11 @@ func TestCreateReusesRegisteredWorktreeAtExpectedPath(t *testing.T) {
 	if info.Path != path || info.Branch != "ao/proj-orchestrator" {
 		t.Fatalf("info = %#v, want path %q branch ao/proj-orchestrator", info, path)
 	}
+	cfg.RepoPath = repo
+	info, err = ws.Create(context.Background(), cfg)
+	if err != nil || info.RepoPath != repo {
+		t.Fatalf("reused private workspace lost repository identity: %#v %v", info, err)
+	}
 }
 
 // TestCreateRecreatesMissingRegisteredWorktreeWithForce covers Fix 3

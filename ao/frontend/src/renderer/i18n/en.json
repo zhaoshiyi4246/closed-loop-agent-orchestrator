@@ -1381,7 +1381,7 @@
 	"startup.detailTmuxMissing": "tmux was not found on PATH; it is required on macOS/Linux to start sessions.",
 	"startup.dismissGhSession": "Don't show this again this session",
 	"startup.installGh": "Install gh",
-	"startup.installGitInstructions": "Install git from git-scm.com, then restart Agent Orchestrator.",
+	"startup.installGitInstructions": "Install git from git-scm.com, then restart CLAO Native.",
 	"startup.installSelected": "Install selected",
 	"startup.installTmux": "Install tmux",
 	"startup.installingCommand": "Installing — {{command}}",

@@ -1,6 +1,16 @@
 # CLAO 当前项目事实
 
-更新：2026-09-10（F01–F05、R01/R02、U01/U02/U03 均 DONE；PR #43 / #44 工程审计 PASS 并已合入，P01/P02 工程切片 DONE、整卡 IN_PROGRESS；M0–M3 保持 COMPLETE，M4 IN_PROGRESS；原生底座基础集成 DONE，整体迁移 IN_PROGRESS；角色决策切片 DONE；当前唯一切片为 原生迁移收官大阶段（IN_PROGRESS）；PR #48 恢复/指令回执 DONE，外部代码审计 PASS 并已合入；联合真实评测暂缓）。本文件只记录已实现事实与已知限制；v0.3 的设计见 [V03_PLAN.md](V03_PLAN.md)。真实模型、完整 GUI 体验、全量、安装与发布验收尚未完成，已发布版本仍为 v0.2。
+更新：2026-09-22。当前执行 V03-NATIVE-CLOSEOUT，现有 PR #49 内收尾，M4/M5保持 IN_PROGRESS；已发布版本仍为v0.2。当前事实以本节为准，下方按任务保存历史验收；v0.3设计见 [V03_PLAN.md](V03_PLAN.md)。真实Kimi Worker与语义角色、实际安装旅程已有有限验证；真实Codex/GLM、两套干净Windows与负责人完整体验仍未通过，不宣称正式发布完成。
+
+## 2026-09-21 当前收尾事实
+
+现有 PR #49 仍 OPEN，开发分支起点 `c30d694f4356dc9afc951b424e850967e85182c1`，当前 **IN_PROGRESS**。共享预算耗尽改为确认所有Session停止后的HUMAN业务结论；Gate与语义Verifier分项投影，断连不显示实时活动。新标准API连接接通GLM-5.3真实参数（thinking enabled、reasoning_effort），支持受约束的自定义型号，不代表账户准入。Windows卷根与OWNER RIGHTS校验已精确修正，原生Codex协议替身完整旅程通过，旧xfail删除；未改用户ACL或官方AO。
+
+Kimi K3六次真实HTTP角色质量对照通过（Verifier/Auditor/Planner各正反例）；精确官方CLI2.0.2最终真实Worker→Gate→Verifier→DONE→独立导出应用Gate通过。同题baseline文件Gate通过，但达到预设4步上限未正常完成；此前失败保留。累计19/40次HTTP、5/6次Worker，完整usage按最高输入组合费率核算保守上界4.36718/20元，原预留记录不改，账单实扣未知，见[有限对照](reference/ao-native/closeout-final/live-kimi-comparison.md)。现有Codex登录daemon启动被客户端自动审批拒绝；GLM凭据引用及两套干净Windows未取得。Managed Codex的Windows 0700误判已改为共享实际DACL验证，真实工厂协议握手、验证、保存、再读与权限负例经独立复核通过。项目Git导入补齐CLAO及自定义StateDir、父目录和Windows junction保护，实际负例保持状态文件原样且不创建.git。
+
+发行已修复许可证枚举、shared映射、Python核心隔离与Gate本地导入、Electron官方缓存校验、Node深目录提取及开发工具包装器裁剪。最终clean1325591候选已实际NSIS安装，单/双任务GUI、Gate/Verifier、ZIP独立应用、六组主题/宽度/原生200%、断连状态及卸载保留163任务/证据文件通过，6462安装文件一致、官方AO不变。安装器自身退出码未采集，不补造exit0；实际安装完整性与运行通过。最终证据见[安装记录](reference/ao-native/closeout-final/installed-1325591/README.md)，旧1002f8d负例保留版本边界。
+
+Windows完整首轮及定向复核见[Windows回归](reference/ao-native/closeout-final/windows-regression.md)、[前端回归](reference/ao-native/closeout-final/frontend-regression.md)。原生64项的9个初始失败已直接复核通过，新增未确认停止重启负例；真实缺陷“失败角色可继续导致反复暂停”已修复。Windows交接文件改为私有DACL原子创建与现有文件只验证；Kimi独立home准备与精确2.0.2原始参数流审批绑定已完成，过期/冲突拒绝。真实OAuth/Coding Plan及跨版本未验证。完成门、额度及下一动作由 [PLANS](../PLANS.md) 与 [台账](V03_BACKLOG.md) 维护，下方旧限制为历史。
 
 ## 1. 版本与基线
 
@@ -9,12 +19,12 @@
 | 产品 | CLAO / Closed-Loop Agent Orchestrator |
 | 已发布版本 | v0.2，Windows本地比赛版 |
 | 已发布源码 | 4d3e8e6b5e70bab868b2eef0d28c7742dea044ba |
-| 开发目标 | v0.3：F01–F05、R01/R02、U01/U02/U03 已审计合入 main（DONE）；M0/M1/M2/M3 COMPLETE，M4 IN_PROGRESS；P01/P02 工程切片 DONE、整卡 IN_PROGRESS；原生底座基础集成 DONE，整体迁移 IN_PROGRESS；角色决策切片 DONE；当前唯一切片为 原生迁移收官大阶段（IN_PROGRESS）；PR #48 恢复/指令回执 DONE，外部代码审计 PASS 并已合入；联合真实评测暂缓 |
+| 开发目标 | v0.3：F01–F05、R01/R02、U01/U02/U03 已审计合入 main（DONE）；M0/M1/M2/M3 COMPLETE，M4 IN_PROGRESS；P01/P02 工程切片 DONE、整卡 IN_PROGRESS；原生底座基础集成 DONE，整体迁移 IN_PROGRESS；角色决策切片 DONE；当前唯一切片为 原生迁移收官大阶段（IN_REVIEW）；PR #48 恢复/指令回执 DONE，外部代码审计 PASS 并已合入；Kimi有限真实已验证，GLM/Codex及干净Windows前提未齐 |
 | 主仓库 | zhaoshiyi4246/closed-loop-agent-orchestrator |
 | 产品源码路径 | `ao/` 为当前迁移开发入口；`clao/` 保留旧产品与可复用核心，正式默认入口未切换 |
 | 发布工具 | `packaging/build-release.ps1` 与 `packaging/release-manifest.txt` |
 | 历史／reference | `legacy/` 保存原历史内容；`docs/reference/` 保存冻结审计 PDF |
-| 用户发布包 | clao/，由唯一映射manifest从clean Git tree构建 |
+| 候选发行 | CLAO Native独立Windows安装器/portable；唯一manifest从clean tracked blobs构建，Python核心随resources分发；旧Panel/Controller不进入原生入口 |
 
 v0.2完成过支持环境下的干净ZIP bootstrap、438项测试、指定CLI和人工GUI Mission验收。该历史证据只证明对应样例，不表示所有Bug已修完、安全已认证或多模型已实现。
 
@@ -34,13 +44,26 @@ F05 已通过再次外部审计 PASS，[PR #36](https://github.com/zhaoshiyi4246
 
 “AO 原生底座 + 单 Worker 验收闭环基础集成” **DONE**；[PR #46](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/46) 启动失败返修已通过外部代码审计，2026-09-10 rebase 合入 main。整体迁移仍 IN_PROGRESS。`ao/` 基于 v0.12.12，原样导入 `81d2ea9`；实际开发入口为 [dev-clao.ps1](../ao/dev-clao.ps1)。Electron 原生界面/模型菜单 → AO HTTP/Manager/Chat/driver/workspace/SQLite；可选 CLAO service 在同一 daemon 内保存 Mission/operation/验收并独占自动跟进。纯 Python 子进程复用 F02/F03/Gate/Verifier 校验，不运行旧 Controller 或 Panel。
 
-已接线：单 Worker、原生项目/模型新建入口、冻结干净单仓库 base、停止确认、Gate/范围/完整性、有界修复、固定结果及独立 Verifier。验收面板展示 AC/分项验收/文件与结果位置；项目页按 Mission 查询原请求，启动失败没有 Session 也可见。按不可变 owner 关联已发布 Session；未启动 FAILED 与真正 UNKNOWN 分开，后者仍阻止新闭环并可请求/重新确认停止。新尝试保留草稿但使用新请求身份与工作分支，不覆写旧记录或删除旧分支。开发身份/数据/发现与官方 AO 分离，旧配置/凭据/数据库不自动迁入。
+PR #46 基础切片接线：单 Worker、原生项目/模型新建入口、当时冻结干净单仓库 base、停止确认、Gate/范围/完整性、有界修复、固定结果及独立 Verifier。验收面板展示 AC/分项验收/文件与结果位置；项目页按 Mission 查询原请求，启动失败没有 Session 也可见。按不可变 owner 关联已发布 Session；未启动 FAILED 与真正 UNKNOWN 分开，后者仍阻止新闭环并可请求/重新确认停止。新尝试保留草稿但使用新请求身份与工作分支，不覆写旧记录或删除旧分支。开发身份/数据/发现与官方 AO 分离，旧配置/凭据/数据库不自动迁入。
 
 角色决策切片 **DONE**：[PR #47](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/47) 再次外部代码审计 PASS，2026-09-10 已 rebase 合入。单 Worker 范围内：创建时冻结 Worker/Planner/Auditor/Verifier 的执行器、模型与可确认的原生账号引用；同一执行器不同模型、Kimi Worker + OpenCode 语义角色已经过隔离协议集成。Gate 失败进入完整证据 Auditor/Planner，五类动作经程序校验；范围/完整性硬失败不能被模型覆盖。局部修复和替换共用 0–3 次预算，替换先停旧 Worker 并从冻结 base 开新工作区；无进展、合法 HUMAN 与协议错误保留可解释原因，不重复调用。冻结模型/权限贯通实际 Chat 启动与局部恢复；空型号保留执行器不覆盖语义，不再混入项目 Worker 的默认型号。原生界面显示角色、诊断、动作及 Session 链接。语义角色当前需具有显式原生只读能力（Codex/OpenCode）；其他通道保留普通 AO 能力，未宣称全角色准入。
 
 运行恢复/指令切片 **DONE**（PR #48 外部代码审计 PASS，2026-09-11 rebase 合入）：同一 AO SQLite Mission 保存阶段、输入摘要、调用结果、动作计数与指令身份。重启只对账；显式继续复用已确认的 Worker 回合、审核/规划结果、未发送动作和固定产物，保留 Session、来源、模型与预算。Gate/固定产物在途但结果未保存、原生副作用无法确认或证据已变化时阻止重跑；终态只能关联新尝试。原生 Chat 与闭环输入共用持久接收/实际消费边界，Planner 镜像单列。正式 HTTP + 真正 daemon 重启、Git/SQLite/协议替身和 Electron 验证见 [恢复与回执说明](../ao/CLAO.md#运行恢复与用户指令回执)。不宣称任意中断均可无损恢复。
 
-当前边界与本机完整启动命令见 [ao/CLAO.md](../ao/CLAO.md)，命令使用空账户隔离环境，不是用户现有登录环境。沿用 Windows/离线集成、开发构建、Electron 检查及 Codex 截图自查；本次外部代码审计不代表负责人完整体验验收。OpenCode ACP 离线路径已验证；Codex 隔离环境的 `account_storage_unsafe` 仍待解决，xfailed 不算执行通过。真实账户/模型、全执行器闭环准入及发布验收尚未完成。当前唯一切片为 **原生迁移收官大阶段，IN_PROGRESS**；PR #48 恢复/指令回执已审计 PASS 并合入（DONE）；另未迁移：多子任务分解/并行、任意在途执行恢复、旧历史/连接/凭据导入、普通目录/未提交来源支持、独立导出与结果中心、闭环运行图及正式发布入口。整体迁移 / M4 保持 IN_PROGRESS；PR #45 被替代并保留，历史阶段完成不代表新路径完成。PR #46 合并收尾仅做文档与差异检查；角色迁移已有 Windows/Go/契约/初始 Electron 证据；默认模型返修未重测浏览器，PR #47 合并收尾未重跑测试或构建。不宣称全部 Planner、全执行器或逐角色独立账号完成。
+### 原生迁移收官大阶段（IN_REVIEW）
+
+本分支已接生产路径，阶段集成验证与内部审查仍在进行；整体迁移/M4 不标 COMPLETE：
+
+- 本机目录可打开/创建；无远端 Git、普通目录、空目录与未提交/已暂存修改均采用用户确认的当前磁盘内容。复用旧过滤和限制，快照只落在独立 AO 数据下的 `clao/missions/<id>/source`；原目录、index、分支与 ignore 不变。来源确认与 snapshot receipt 固定，后续项目内容改变不替换当前来源。
+- 默认单 Worker；显式最多两个时通过原 Planner 分解与契约校验执行独立子任务。子进度嵌入父 Mission 的同一 SQLite 文档，由同一个闭环 owner 管理，共享有界预算；不支持依赖或实际文件范围重叠时拒绝自动集成。子任务 Task Gate 后汇入私有 integration，父 Mission 再做 Final Gate、范围/完整性及 Verifier。子任务仅可定位查看，不能独立恢复、取消或导出。
+- 原可确认恢复阶段扩展到父/子进度；不会因继续而重置来源、角色或计数。原生 Chat 和补充入口仍共用持久指令/消费者记录；真 UNKNOWN 不重发，停止未确认不整理结果。缺完整阶段的旧任务只读，不宣称任意进程重连。
+- 原生结果中心使用已记录 base/result commit，复用 `results.frozen_repository` 的 Git/敏感/文件类型规则与 AO 只读差异组件；后续目录变化不冒充验收结果。导出 ZIP 保存完整补丁、相对内容清单、验收摘要和说明，AO SQLite 保存包回执；失去工作区仍能下载。旧支持范围为 UTF-8 普通文本及 100644/100755，二进制、链接、子模块等明确拒绝整包；不含完整基线、项目依赖、凭据或 Prompt，有限敏感规则不宣称通用扫描。失败/取消固定成果标为未通过，无结果不生成假空补丁。
+- 旧历史/配置/连接只能由用户指定路径导入，不扫描负责人数据。旧版本、来源和验收摘要只读；兼容默认值可明确应用到新任务草稿，不覆盖项目或冻结 Mission。重复导入保留身份与配置版本，不覆盖已有连接；不兼容项有原因与重新连接方式。兼容的旧 GLM/Kimi 标准 API 配置经现有语义传输进入 Planner 两类调用、Auditor、Verifier，沿用 Schema/AC/证据校验；服务外发同意、认证代次和冻结连接在实际调用边界校验。重新连接写新的原生系统凭据引用，旧 Key 不迁移/覆盖，标准 API 与 Coding Plan 不互换，AO 原生目录不受旧型号白名单限制。
+- 轻量运行视图只读实际阶段、角色、子 Worker、决策、Gate 与复核记录；支持节点定位证据/耗时/Session，不虚构活动、内部思考或额外调度。原生模型菜单、Chat、审批与普通 Session 保留，旧 Panel/Controller 不并行运行。
+
+[开发入口与使用方法](../ao/CLAO.md) 分开普通手动与 `-IsolatedAccount` 空账户模式。Windows Codex账号问题已按实际DACL修复：仅接受真实卷根的已知TrustedInstaller/CreateDirectories例外及可信OWNER RIGHTS，普通目录仍严格验证；Managed Codex使用同一验证器而非误用POSIX模式。真实工厂的协议握手、验证、保存、再读与弱ACL/junction负例通过，旧xfail删除；未改用户ACL或官方AO。实际登录的真实Codex测试daemon启动仍被客户端自动审批拒绝，不能将协议测试当作真实Worker通过。
+
+各切片历史证据与本轮证据分开保存。本轮 Windows 三个技术栈完整首轮、适用失败修复、真实安装程序的单任务/导出/卸载和Electron视觉检查已有实际记录；残留平台与历史路径失败见[Windows回归](reference/ao-native/closeout-final/windows-regression.md)。最终候选需纳入全部运行修复再构建安装；真实Worker、两套独立干净Windows和负责人完整体验仍未通过。不宣称全部27执行器或套餐额度已验证，不宣称逐角色独立原生账号。PR #45分支、旧依赖/数据和主目录用户default.yaml保持。
 
 ### 保留的旧 clao 架构与历史实现
 
@@ -100,7 +123,7 @@ MissionController是控制编排权威，ClosedLoop负责子任务；StateStore�
 - 一个 ZIP 格式：完整 Git patch、两版文件哈希/模式及变更清单、白名单摘要、独立使用说明。原 StateStore 的 `result_exports` 表仅记录已完成包，不更新历史 Mission/验收事实。原子临时文件替换后登记；相同固定内容/证据复用同一个包，读包校验大小与 SHA-256。
 - 原工作树或 Git 对象失效时，已有包继续下载并提供匹配版本的差异；未知停止不触发 materialization。失败/取消的冻结成果明确为未通过最终验收；目录存在与已验收分开。非空基线需保留匹配内容副本，不要求 checkout 私有 commit，包不含未修改源码或项目依赖。
 - 当前支持 UTF-8 普通文件及 100644/100755 模式；新增/修改/删除/rename/copy、中文/空格路径。二进制、其他编码、LFS 指针变化、链接/子模块、不安全/Windows 不可表示路径明确拒绝完整代码包。复用 local_projects 的来源排除与 F03 artifact 规则；完整旧/新变化内容、补丁及必要摘要检查明确凭据/Prompt 标记，命中拒绝而不改写代码。具名凭据仅检查非空引号字面值（精确环境变量占位除外），不单凭变量名/表达式长度或 `--prompt` 参数拒绝正常源码；私钥、已知凭据形态、授权头与明确 Prompt 材料标记仍检查全部内容，调用/引用不豁免其中的真实凭据形态。有限规则不宣称通用秘密扫描；摘要去掉本机路径、限制长字段并标识，页面差异 24000 字节可见截断，下载不截断。
-- 定向证据与实际截图见 [U03 台账](V03_BACKLOG.md#v03-u03结果中心与独立导出)。未执行真实 AO/模型、全量、安装、smoke 或 CLAO 发行打包；本任务结果包的生成/下载/解压/应用及内容与 Gate 核对已纳入定向验证。负责人体验审计仍待完成，闭环运行视图仍未授权。
+- 定向证据与实际截图见 [U03 台账](V03_BACKLOG.md#v03-u03结果中心与独立导出)。未执行真实 AO/模型、全量、安装、smoke 或 CLAO 发行打包；本任务结果包的生成/下载/解压/应用及内容与 Gate 核对已纳入定向验证。负责人体验审计仍待完成；旧 U03 当时未授权的闭环运行视图现于原生收官阶段实现，范围见上文。
 
 ## 3. 当前工作流与限制
 
@@ -262,7 +285,7 @@ CSP 脚本 nonce 要求不变。12 个本地 Lucide 符号及完整 ISC/Feather 
 
 定向 Windows/Edge 证据及截图索引见 [U01 卡](V03_BACKLOG.md#v03-u01iphone风格界面骨架与状态夹具)。
 已有 Windows/浏览器验证与实际截图沿用，截图由 Codex 自查；本次外部代码与产品整改审计通过，不宣称外部逐张截图验收。合并收尾未重新运行测试或模型，仅做文档与差异检查。
-M0/M1/M2/M3 COMPLETE；U01/U02/U03 均 DONE，U02 两个切片保持 DONE；M4 IN_PROGRESS，P01/P02 工程切片 DONE、整卡 IN_PROGRESS；原生底座基础集成 DONE，整体迁移 IN_PROGRESS；角色决策切片 DONE；当前唯一切片为 原生迁移收官大阶段（IN_PROGRESS）；PR #48 恢复/指令回执 DONE，外部代码审计 PASS 并已合入；联合真实评测暂缓。
+M0/M1/M2/M3 COMPLETE；U01/U02/U03 均 DONE，U02 两个切片保持 DONE；M4 IN_PROGRESS，P01/P02 工程切片 DONE、整卡 IN_PROGRESS；原生底座基础集成 DONE，整体迁移 IN_PROGRESS；角色决策切片 DONE；当前唯一切片为 原生迁移收官大阶段（IN_REVIEW）；PR #48 恢复/指令回执 DONE，外部代码审计 PASS 并已合入；联合真实评测暂缓。
 
 ## 4. 已验证外部前提
 

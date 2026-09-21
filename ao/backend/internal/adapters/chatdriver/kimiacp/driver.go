@@ -24,9 +24,10 @@ func New(plugin nativeacp.Plugin, log *slog.Logger) ports.ChatDriver {
 			ports.ChatCapabilityHistory: true,
 			ports.ChatCapabilityPlans:   true,
 		},
-		Configure:            configure,
-		SessionOptions:       sessionOptions,
-		ValidateTurnSettings: validateTurnSettings,
+		Configure:              configure,
+		SessionOptions:         sessionOptions,
+		ValidateTurnSettings:   validateTurnSettings,
+		PermissionInputDecoder: kimiPermissionInputDecoder,
 	}, log)
 }
 
@@ -37,7 +38,11 @@ func configure(ctx context.Context, cfg acpdriver.LaunchConfig) ([]string, map[s
 	if err := kimi.PrepareACPInstructions(ctx, cfg.WorkspacePath, cfg.SystemPrompt); err != nil {
 		return nil, nil, err
 	}
-	return []string{"acp"}, nil, nil
+	env, err := kimi.PrepareACPHome(ctx, cfg.DataDir, cfg.Env)
+	if err != nil {
+		return nil, nil, err
+	}
+	return []string{"acp"}, env, nil
 }
 
 func validateTurnSettings(_ ports.PermissionMode, settings ports.ChatTurnSettings) error {

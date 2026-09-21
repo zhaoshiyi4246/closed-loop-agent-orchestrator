@@ -7,7 +7,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
-from .test_ao_native import native, native_engine, git
+from .test_ao_native import native, native_engine, native_core_python, git
 
 
 def wait(api, ident, states=("DONE", "FAILED", "HUMAN", "UNKNOWN", "PAUSED", "CANCELLED")):
@@ -33,7 +33,30 @@ def clear_fault(temp):
 
 
 def trace(temp):
-    return [json.loads(line) for line in (temp / "external.jsonl").read_text("utf-8").splitlines()]
+    rows = [json.loads(line) for line in (temp / "external.jsonl").read_text("utf-8").splitlines()]
+    # Account/model discovery starts protocol-only clients in their empty
+    # account home or the exact daemon data root, never a task worktree.
+    # Keep all actual Session launches, prompts, policy and approval events.
+    return [row for row in rows if not (row["kind"] == "policy" and row["text"] == ""
+            and Path(row["workspace"]) in {temp / "isolated-home" / ".codex",
+                                          temp / "isolated-home" / "native" / "data"})]
+
+
+def confirm_completed_controller_stopped(api, sid):
+    # A completed provider turn alone is not proof of a stopped process.
+    for _ in range(100):
+        status, snapshot = api("/api/v1/sessions/" + sid + "/conversation")
+        assert status == 200, snapshot
+        if snapshot.get("turns") and snapshot["turns"][-1]["state"] == "completed":
+            break
+        time.sleep(.1)
+    else:
+        pytest.fail("native turn did not complete before explicit stop")
+    if snapshot["controller"] != "stopped":
+        status, stopped = api("/api/v1/sessions/" + sid + "/exit-agent", {})
+        assert status == 200, stopped
+    status, snapshot = api("/api/v1/sessions/" + sid + "/conversation")
+    assert status == 200 and snapshot["controller"] == "stopped", snapshot
 
 
 @pytest.mark.parametrize("boundary,objective,predicate", [
@@ -67,7 +90,12 @@ def test_restart_continues_confirmed_original_checkpoint(native, boundary, objec
     assert restored["state"] == "PAUSED", restored
     assert restored["recovery"]["canContinue"], restored
     assert restored["sessionId"] == first["sessionId"]
-    assert restored["base"] == base and restored["roles"] == first["roles"]
+    assert restored["base"] == first["base"] == first["source"]["base"] and restored["roles"] == first["roles"]
+    assert git(source, 'rev-parse', 'HEAD') == base
+
+    original_workspace = Path(first['workspace'])
+    assert original_workspace.is_dir()
+    assert not original_workspace.with_name(original_workspace.name+'.stray').exists()
     assert len([e for e in trace(temp) if e["kind"] == "prompt"]) == len([e for e in before if e["kind"] == "prompt"])
     # Two windows cannot start two scheduling owners.
     with ThreadPoolExecutor(2) as pool:
@@ -76,7 +104,7 @@ def test_restart_continues_confirmed_original_checkpoint(native, boundary, objec
     final = wait(api, ident)
     assert final["state"] == "DONE", final
     assert final["request"] == first["request"] and final["roles"] == first["roles"]
-    assert final["sessionId"] == first["sessionId"] and final["base"] == base
+    assert final["sessionId"] == first["sessionId"] and final["base"] == first["base"]
     assert len([op for op in final["operations"] if op["kind"] == "spawn"]) == 1
     assert len({c["id"] for c in final["roleCalls"]}) == len(final["roleCalls"])
     for c in first.get("roleCalls", []):
@@ -87,6 +115,8 @@ def test_restart_continues_confirmed_original_checkpoint(native, boundary, objec
     if boundary == "frozen_result":
         assert final["resultHead"] == first["resultHead"]
     assert (Path(final["workspace"]) / "result.txt").read_text() == "accepted\n"
+    assert original_workspace.is_dir()
+    assert not original_workspace.with_name(original_workspace.name+'.stray').exists()
     revision = final["revision"]
     assert api("/api/v1/clao/missions/"+ident+"/continue", {}, {"X-CLAO-Nonce": nonce})[0] == 409
     assert api("/api/v1/clao/missions/"+ident)[1]["mission"]["revision"] == revision
@@ -98,7 +128,7 @@ def test_lost_spawn_ack_reconciles_completed_native_session_without_second_worke
     first = submit("Complete original Worker before lost local ACK")
     assert first["state"] == "UNKNOWN" and first.get("sessionId"), first
     clear_fault(temp)
-    time.sleep(.5)
+    confirm_completed_controller_stopped(api, first["sessionId"])
     nonce = api.restart()
     ident = first["request"]["id"]
     # Native background process reconciliation may settle the exited process.
@@ -120,7 +150,7 @@ def test_restart_after_executed_repair_ack_loss_does_not_recharge_or_resend(nati
     first = submit("REPAIR_ONCE keep executed action identity across restart")
     assert first["state"] == "UNKNOWN" and first["repairs"] == 1, first
     clear_fault(temp)
-    time.sleep(.5)
+    confirm_completed_controller_stopped(api, first["sessionId"])
     nonce = api.restart()
     ident = first["request"]["id"]
     status, data = api("/api/v1/clao/missions/"+ident+"/continue", {}, {"X-CLAO-Nonce": nonce})
@@ -272,14 +302,16 @@ def test_replacement_uses_remaining_budget_and_immutable_owner_on_restart(native
     assert first["state"] in ("PAUSED", "UNKNOWN"), first
     assert first["replans"] == 1
     clear_fault(temp)
-    time.sleep(.5)
+    if after_dispatch:
+        confirm_completed_controller_stopped(api, first["sessionId"])
     nonce = api.restart()
     ident = first["request"]["id"]
     status, data = api("/api/v1/clao/missions/"+ident+"/continue", {}, {"X-CLAO-Nonce":nonce})
     assert status == 202, data
     final = wait(api,ident)
     assert final["state"] == "DONE", final
-    assert final["replans"] == 1 and final["base"] == base
+    assert final["replans"] == 1 and final["base"] == first["base"] == first["source"]["base"]
+    assert git(source, "rev-parse", "HEAD") == base
     assert len([o for o in final["operations"] if o["kind"] == "spawn_replacement"]) == 1
     assert sum(e["kind"] == "prompt" and "replacement-pass" in e["text"] and "执行方案调整" in e["text"] for e in trace(temp)) == 1
 
@@ -298,3 +330,26 @@ def test_changed_decision_input_blocks_recovery_before_dispatch(native):
     assert not any(e["kind"] == "prompt" and "处理本次局部修复" in e["text"] for e in trace(temp))
     assert api("/api/v1/clao/missions/"+ident+"/cancel",{}, {"X-CLAO-Nonce":nonce})[0] == 202
     assert wait(api,ident,("CANCELLED",))["state"] == "CANCELLED"
+
+
+def test_completed_turn_without_confirmed_stop_stays_unknown_after_restart(native):
+    submit, api, nonce, source, base, temp = native
+    fault(temp, "json_extract(NEW.document,'$.operations[0].state')='CONFIRMED_SUCCESS' AND json_extract(OLD.document,'$.operations[0].state')='IN_FLIGHT'")
+    first = submit("Do not equate a completed turn with a confirmed stopped process")
+    assert first["state"] == "UNKNOWN" and first.get("sessionId"), first
+    clear_fault(temp)
+    # The protocol-only child finishes the turn but keeps its input loop alive.
+    for _ in range(100):
+        snapshot = api("/api/v1/sessions/" + first["sessionId"] + "/conversation")[1]
+        if snapshot.get("turns") and snapshot["turns"][-1]["state"] == "completed":
+            break
+        time.sleep(.1)
+    assert snapshot["turns"][-1]["state"] == "completed" and snapshot["controller"] != "stopped", snapshot
+    before = trace(temp)
+    nonce = api.restart()
+    ident = first["request"]["id"]
+    restored = api("/api/v1/clao/missions/" + ident)[1]["mission"]
+    assert restored["state"] == "UNKNOWN" and not restored["recovery"]["canContinue"], restored
+    assert not restored.get("resultHead")
+    assert api("/api/v1/clao/missions/" + ident + "/continue", {}, {"X-CLAO-Nonce": nonce})[0] == 409
+    assert trace(temp) == before

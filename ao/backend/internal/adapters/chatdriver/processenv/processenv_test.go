@@ -10,12 +10,21 @@ func TestMergeInheritsDaemonEnvironmentAndAppliesOverlay(t *testing.T) {
 	t.Setenv("AO_PROCESSENV_INHERITED", "parent")
 	t.Setenv("AO_PROCESSENV_REPLACED", "old")
 
-	got := Merge(map[string]string{
+	overlay := map[string]string{
 		"AO_PROCESSENV_REPLACED": "new",
 		"AO_PROCESSENV_SESSION":  "session",
-	})
-	if !slices.IsSorted(got) {
-		t.Fatalf("environment is not sorted: %v", got)
+	}
+	got := Merge(overlay)
+	keys := make([]string, 0, len(got))
+	for _, entry := range got {
+		key, _, _ := strings.Cut(entry, "=")
+		keys = append(keys, key)
+	}
+	if !slices.IsSorted(keys) {
+		t.Fatal("environment keys are not sorted")
+	}
+	if !slices.Equal(got, Merge(overlay)) {
+		t.Fatal("repeated merge changed the launch environment")
 	}
 	want := map[string]string{
 		"AO_PROCESSENV_INHERITED": "parent",

@@ -130,12 +130,15 @@ type Deps struct {
 	Store Store
 	// Root overrides the legacy AO root to read. Empty -> the default.
 	Root string
+	// StateDir is the active daemon state root, including an explicit data override.
+	StateDir string
 }
 
 // Manager implements Service over the daemon's store.
 type Manager struct {
-	store Store
-	root  string
+	store    Store
+	root     string
+	stateDir string
 }
 
 var _ Service = (*Manager)(nil)
@@ -146,7 +149,7 @@ func New(deps Deps) *Manager {
 	if root == "" {
 		root = legacyimport.DefaultLegacyRootDir()
 	}
-	return &Manager{store: deps.Store, root: root}
+	return &Manager{store: deps.Store, root: root, stateDir: deps.StateDir}
 }
 
 // Status reports availability only: legacy data present at the root. It never
@@ -172,7 +175,7 @@ func (m *Manager) Validate(ctx context.Context, in ImportValidationInput) (Impor
 	if normalizeErr != nil {
 		return invalidImportResult(importKind, strings.TrimSpace(in.Path), "INVALID_PATH"), nil //nolint:nilerr // validation failures are reported in-band so the UI can show blocking errors
 	}
-	if unsafeImportPath(path) {
+	if m.unsafeImportPath(path) {
 		return invalidImportResult(importKind, path, "IMPORT_PATH_UNSAFE"), nil
 	}
 	result := ImportValidationResult{
@@ -262,7 +265,7 @@ func (m *Manager) PrepareGit(ctx context.Context, in GitPreparationInput) (GitPr
 	}
 	events := []GitPreparationEvent{}
 	for _, target := range targets {
-		if unsafeImportPath(target.Status.RepoPath) {
+		if m.unsafeImportPath(target.Status.RepoPath) {
 			return GitPreparationResult{}, apierr.Invalid("IMPORT_PATH_UNSAFE", "Selected folder is too broad for automatic Git setup.", map[string]any{"path": target.Status.RepoPath})
 		}
 		required := actionSet(target.Status.RequiredActions)
@@ -471,10 +474,19 @@ func normalizeImportPath(raw string) (string, error) {
 // unsafeImportPath protects broad user and AO-owned directories from the Git
 // preparation actions below. Import preparation is deliberately separate from
 // project setup, so it cannot rely on the latter's path-safety guard.
-func unsafeImportPath(path string) bool {
+func (m *Manager) unsafeImportPath(path string) bool {
+	if unsafeImportReparsePath(path) {
+		return true
+	}
 	clean := comparableImportPath(path)
 	if filepath.Dir(clean) == clean {
 		return true
+	}
+	if m.stateDir != "" {
+		state := comparableImportPath(m.stateDir)
+		if sameImportPath(clean, state) || isImportDescendant(clean, state) || isImportDescendant(state, clean) {
+			return true
+		}
 	}
 
 	home, err := os.UserHomeDir()
@@ -490,8 +502,13 @@ func unsafeImportPath(path string) bool {
 			return true
 		}
 	}
-	aoState := comparableImportPath(filepath.Join(home, ".ao"))
-	return sameImportPath(clean, aoState) || isImportDescendant(clean, aoState)
+	for _, name := range []string{".ao", ".clao-ao"} {
+		state := comparableImportPath(filepath.Join(home, name))
+		if sameImportPath(clean, state) || isImportDescendant(clean, state) || isImportDescendant(state, clean) {
+			return true
+		}
+	}
+	return false
 }
 
 func isImportDescendant(path, parent string) bool {
@@ -554,7 +571,7 @@ func normalizeImportGitPath(base, reported string) string {
 
 func comparableImportPath(path string) string {
 	clean := filepath.Clean(path)
-	if resolved, err := filepath.EvalSymlinks(clean); err == nil {
+	if resolved, err := resolveImportFilesystemPath(clean); err == nil {
 		clean = resolved
 	}
 	return filepath.Clean(clean)

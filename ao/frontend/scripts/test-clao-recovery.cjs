@@ -48,7 +48,7 @@ module.exports=async({getPage,base,home,env,evidence,start,open,git,sourceHead,s
  await page.waitForTimeout(1000);
  if(await page.getByLabel('补充要求').inputValue()!=='后续草稿，旧响应不得清空'||posts!==1)throw Error('late response cleared new draft or repeated send');
  await page.unroute('**/clao/missions/'+active.request.id+'/directives');
- await page.getByRole('button',{name:'打开原生 Session',exact:true}).click();
+ await page.getByRole('button',{name:'打开执行会话',exact:true}).click();
  const editor=page.getByRole('combobox',{name:'Message the agent',exact:true});
  await editor.fill('REPAIR_ONCE 原生 Chat 补充 <中文>');await editor.press('Enter');
  for(let i=0;i<60;i++){

@@ -93,6 +93,18 @@ describe("native runtime resources", () => {
 	it("does not bundle tmux on Windows", () => {
 		expect(extraResourcesForPlatform("win32")).not.toContain("tmux");
 	});
+	it("bundles the CLAO interpreter, core and licensing rather than requiring a checkout", () => {
+		expect(extraResourcesForPlatform("win32")).toEqual(expect.arrayContaining([
+			"resources/python", "resources/clao-core", "resources/third-party", "assets/clao-icon.ico",
+		]));
+		expect(config.publishers).toEqual([]);
+		expect(config.packagerConfig?.appBundleId).toBe("dev.clao.native.desktop");
+		expect(config.packagerConfig?.executableName).toBe("clao-native");
+	});
+	it("rejects direct packaging that bypasses the clean HEAD entry point", async () => {
+		vi.stubEnv("CLAO_RELEASE_BUILD", "");
+		await expect(config.hooks?.prePackage?.({} as never)).rejects.toThrow("build-release.ps1");
+	});
 });
 
 type MacSignOptions = {
@@ -265,11 +277,11 @@ describe("postMake artifact verification", () => {
 });
 
 describe("packaged authentication callback registration", () => {
-	it("declares ao-app in the macOS bundle and Linux package metadata", () => {
+	it("declares only the independent CLAO callback", () => {
 		expect(config.packagerConfig?.protocols).toEqual([
 			{
-				name: "Agent Orchestrator authentication callback",
-				schemes: ["ao-app"],
+				name: "CLAO Native callback",
+				schemes: ["clao-native"],
 			},
 		]);
 
@@ -283,7 +295,7 @@ describe("packaged authentication callback registration", () => {
 		]) {
 			const maker = makers.find((candidate) => candidate.name === name);
 			expect(maker?.config?.options?.mimeType).toEqual([
-				"x-scheme-handler/ao-app",
+				"x-scheme-handler/clao-native",
 			]);
 		}
 	});

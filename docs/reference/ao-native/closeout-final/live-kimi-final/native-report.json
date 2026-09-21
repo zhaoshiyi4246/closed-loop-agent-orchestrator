@@ -1,0 +1,31 @@
+{
+  "case": "kimi-native-final-protocol",
+  "cli_version": "2.0.2",
+  "service": "moonshot_cn",
+  "model": "kimi-k3",
+  "environment": "development daemon with official CLI and test-only budget transport",
+  "source_sha256": "68f296ab02736c88716ce53e874c972495d3eefd96226be5c6676d9c89a9f436",
+  "human_interventions": 0,
+  "worker_completed": true,
+  "gate_pass": true,
+  "automated_scope_approvals": 1,
+  "state": "DONE",
+  "mission_pass": true,
+  "scope_pass": true,
+  "verifier": "PASS",
+  "export_gate_pass": true,
+  "source_unchanged": true,
+  "processes_stopped": true,
+  "elapsed_seconds": 66.781,
+  "key_persisted_or_logged": false,
+  "budget_evidence_valid": true,
+  "attempts": [
+    12,
+    13,
+    14,
+    15
+  ],
+  "reserved_cny": 5.69558,
+  "accounted_upper_cny": 1.11876,
+  "total_accounted_upper_cny": 3.28942
+}

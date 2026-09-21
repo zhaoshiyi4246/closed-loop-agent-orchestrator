@@ -196,7 +196,8 @@ describe("GlobalSettingsForm", () => {
 		expect(await screen.findByLabelText("Settings")).toBeInTheDocument();
 		expect(screen.getByText("Appearance")).toBeInTheDocument();
 		expect(screen.getByText("Language")).toBeInTheDocument();
-		expect(await screen.findByText("Updates")).toBeInTheDocument();
+		// The all-sections view cold-loads several real settings modules.
+		expect(await screen.findByText("Updates", {}, { timeout: 10_000 })).toBeInTheDocument();
 		expect(screen.getByText("Advanced")).toBeInTheDocument();
 		expect(screen.getByText("Report a problem")).toBeInTheDocument();
 		// Report form is inline — no dialog, fields directly present.
@@ -211,7 +212,7 @@ describe("GlobalSettingsForm", () => {
 
 		await user.click(toggle);
 		expect(window.localStorage.getItem("ao.developerMode")).toBe("true");
-		await user.click(screen.getByLabelText("Channel"));
+		await user.click(await screen.findByLabelText("Channel", {}, { timeout: 10_000 }));
 		expect(await screen.findByRole("menuitem", { name: "Feature builds" })).toBeInTheDocument();
 	});
 
@@ -221,7 +222,7 @@ describe("GlobalSettingsForm", () => {
 		useUiStore.getState().setDeveloperMode(true);
 		renderForm();
 
-		await user.click(await screen.findByLabelText("Channel"));
+		await user.click(await screen.findByLabelText("Channel", {}, { timeout: 10_000 }));
 		await user.click(await screen.findByRole("menuitem", { name: "Feature builds" }));
 		expect(await screen.findByText("No live feature releases.")).toBeInTheDocument();
 		expect(featListBuilds).toHaveBeenCalled();
@@ -301,7 +302,7 @@ describe("GlobalSettingsForm", () => {
 
 		await user.click(toggle);
 
-		expect(await screen.findByRole("alert")).toHaveTextContent("Could not save the sound notifications preference.");
+		expect(await screen.findByText("Could not save the sound notifications preference.")).toHaveAttribute("role", "alert");
 		expect(useSoundNotificationsStore.getState().enabled).toBe(true);
 		expect(toggle).toBeChecked();
 	});
@@ -315,7 +316,7 @@ describe("GlobalSettingsForm", () => {
 		await user.click(screen.getByLabelText("Language"));
 		await user.click(await screen.findByRole("menuitem", { name: "Simplified Chinese" }));
 
-		expect(await screen.findByRole("alert")).toHaveTextContent("Could not save the language preference.");
+		expect(await screen.findByText("Could not save the language preference.")).toHaveAttribute("role", "alert");
 		expect(useLocaleStore.getState().locale).toBe("en");
 		expect(screen.getByText("Appearance")).toBeInTheDocument();
 	});

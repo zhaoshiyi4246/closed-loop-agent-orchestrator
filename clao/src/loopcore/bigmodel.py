@@ -43,6 +43,8 @@ class BigModelTransport:
         # JSON mode is a transport capability, not a substitute for our schemas.
         parameters = (dict(thinking={'type': p['thinking']}, temperature=p['temperature'], max_tokens=p['max_tokens'])
                       if self.service == SERVICE else dict(reasoning_effort=p['reasoning_effort'], max_completion_tokens=p['max_completion_tokens']))
+        if self.service == SERVICE and 'reasoning_effort' in p:
+            parameters['reasoning_effort'] = p['reasoning_effort']
         body = json.dumps(dict(model=p['model'], stream=False,
             messages=[{'role': 'system', 'content': 'Return only a JSON object matching this schema:\n' + json.dumps(schema)},
                       {'role': 'user', 'content': prompt}],
