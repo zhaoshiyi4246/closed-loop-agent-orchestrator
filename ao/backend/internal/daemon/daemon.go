@@ -764,7 +764,7 @@ func Run() error {
 		Presence:           presenceTracker,
 		DeviceRoster:       deviceRoster,
 		DeviceLive:         presenceTracker,
-		Import:             importsvc.New(importsvc.Deps{Store: store, Root: filepath.Join(cfg.StateDir, "explicit-import")}),
+		Import:             importsvc.New(importsvc.Deps{Store: store, Root: filepath.Join(cfg.StateDir, "explicit-import"), StateDir: cfg.StateDir}),
 		ShellTerminals:     shellTermSvc,
 		AgentAuth:          agentAuthSvc,
 		Conversations:      chatSvc,
