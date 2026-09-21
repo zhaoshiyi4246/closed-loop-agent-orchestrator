@@ -3,9 +3,9 @@ import path from "node:path";
 
 /** Packaged acceptance always uses the audited, bundled interpreter and core. */
 export function packagedCoreEnvironment(resources: string): Record<string, string> {
-	const python = path.join(resources, "python", "python.exe");
+	const python = path.join(resources, "python", "python-core.exe");
 	const core = path.join(resources, "clao-core");
-	for (const file of [python, path.join(core, "src", "loopcore", "ao_acceptance.py"), path.join(core, "src", "loopcore", "ao_legacy.py")]) {
+	for (const file of [python, path.join(resources, "python", "python-core._pth"), path.join(resources, "python", "python.exe"), path.join(core, "src", "loopcore", "ao_acceptance.py"), path.join(core, "src", "loopcore", "ao_legacy.py")]) {
 		if (!existsSync(file)) throw new Error("CLAO installation is incomplete: bundled acceptance runtime is missing. Reinstall the candidate.");
 	}
 	return { CLAO_CORE_PYTHON: python, CLAO_CORE_ROOT: core, PYTHONDONTWRITEBYTECODE: "1" };

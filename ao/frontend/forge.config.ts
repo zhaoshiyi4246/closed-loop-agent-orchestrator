@@ -151,7 +151,7 @@ const config: ForgeConfig = {
 			if (process.env.CLAO_RELEASE_BUILD !== "tracked-head-windows-x64" || process.platform !== "win32" || process.arch !== "x64") {
 				throw new Error("Use packaging/build-release.ps1 for a clean-HEAD Windows x64 candidate");
 			}
-			for (const resource of ["resources/python/python.exe", "resources/clao-core/src/loopcore/ao_acceptance.py", "resources/third-party/AO-LICENSE.txt"]) {
+			for (const resource of ["resources/python/python.exe", "resources/python/python-core.exe", "resources/python/python-core._pth", "resources/clao-core/src/loopcore/ao_acceptance.py", "resources/third-party/AO-LICENSE.txt"]) {
 				if (!existsSync(resource)) throw new Error(`Missing release resource: ${resource}`);
 			}
 			await prepareNativeDependencies(process.platform, process.arch);

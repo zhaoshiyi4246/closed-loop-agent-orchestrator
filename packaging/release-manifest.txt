@@ -15,6 +15,7 @@ ao/backend/ => ao/backend/
 ao/frontend/ => ao/frontend/
 ao/packages/product-ui/ => ao/packages/product-ui/
 ao/packages/cloud-client/ => ao/packages/cloud-client/
+ao/packages/shared/ => ao/packages/shared/
 ao/LICENSE => ao/LICENSE
 clao/src/loopcore/ => ao/frontend/resources/clao-core/src/loopcore/
 clao/prompts/ => ao/frontend/resources/clao-core/prompts/

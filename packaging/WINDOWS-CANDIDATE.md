@@ -25,7 +25,10 @@ The bundle includes Electron, the derived AO daemon, CPython 3.12.10, the locked
 Python runtime dependencies, the native browser helper and the ACP Node runtime.
 Original AO Apache-2.0 licensing and bundled dependency notices are retained under
 `resources/third-party`; Python and wheel licenses stay beside those components.
-The Python runtime uses a fixed relative search path within the installation.
+The private `python-core.exe` uses a fixed relative search path within the
+installation and ignores working-directory/environment imports. The bundled
+`python.exe` is on the task PATH and retains normal local module imports for Gate
+scripts. Extra project-specific Python dependencies still need their own environment.
 
 Build with `packaging/build-release.ps1 -OutputDirectory <new outside directory>`
 from a clean committed checkout. Build-only `-Node`, `-Go`, and `-Python` parameters
