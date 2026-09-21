@@ -17,7 +17,7 @@ function Make-Candidate {
         $code = $LASTEXITCODE
         if ($code -eq 0) { return }
         $failure = Get-Content -LiteralPath $log -Raw
-        $networkFailure = $failure -match '\b(ETIMEDOUT|ECONNRESET|ECONNREFUSED|EAI_AGAIN|ENOTFOUND)\b|Response code (502|503|504)\b'
+        $networkFailure = $failure -match '\b(ETIMEDOUT|ECONNRESET|ECONNREFUSED|EAI_AGAIN|ENOTFOUND)\b|Response code (502|503|504)\b|Timeout awaiting ''request'' for [0-9]+ms'
         $integrityFailure = $failure -match '(?i)checksum|hash mismatch|integrity|EACCES|EPERM|unauthori[sz]ed|forbidden'
         if (!$networkFailure -or $integrityFailure -or $attempt -eq 3) {
             throw "Forge make failed (exit $code); evidence: $log"
