@@ -92,7 +92,7 @@ func (a PythonAcceptance) run(ctx context.Context, request map[string]any) (Evid
 	if err != nil {
 		return Evidence{}, err
 	}
-	cmd := process.CommandContext(ctx, a.Python, "-m", "loopcore.ao_acceptance")
+	cmd := process.CommandContext(ctx, a.Python, "-B", "-m", "loopcore.ao_acceptance")
 	cmd.Env = append(gateEnv(), "PYTHONPATH="+filepath.Join(a.CoreRoot, "src"))
 	cmd.Dir = a.CoreRoot
 	cmd.Stdin = bytes.NewReader(data)

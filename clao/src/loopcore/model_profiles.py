@@ -5,7 +5,7 @@ import re
 
 ENDPOINT = 'https://open.bigmodel.cn/api/paas/v4/chat/completions'
 SERVICE = 'bigmodel_general'
-MODELS = ('glm-4.7',)
+MODELS = ('glm-5.3', 'glm-4.7')
 KIMI_SERVICE = 'moonshot_cn'
 KIMI_ENDPOINT = 'https://api.moonshot.cn/v1/chat/completions'
 KIMI_MODEL = 'kimi-k3'
@@ -16,6 +16,29 @@ REFERENCE = re.compile(r'[a-z][a-z0-9_-]{0,47}')
 KEYS = {'id', 'service', 'endpoint', 'model', 'credential_ref', 'timeout_seconds',
         'max_attempts', 'retry_delay_seconds', 'thinking', 'max_tokens', 'temperature'}
 KIMI_KEYS = (KEYS - {'thinking', 'max_tokens', 'temperature'}) | {'reasoning_effort', 'max_completion_tokens'}
+MODEL_ID = re.compile(r'[A-Za-z0-9][A-Za-z0-9._/-]{0,127}')
+
+
+def connection_catalog():
+    """Suggestions, not account entitlement or live admission."""
+    return {'services': [dict(id=service, name=LABELS[service], billing='standard_api',
+        supportsCustomModel=True, models=[dict(id=model, label=model) for model in models])
+        for service, models in ((SERVICE, MODELS), (KIMI_SERVICE, (KIMI_MODEL,)))]}
+
+
+def native_profile(identity, service, model):
+    if service not in ENDPOINTS:
+        raise ValueError('unsupported model service')
+    profile = dict(id=identity, service=service, endpoint=ENDPOINTS[service], model=model,
+                   credential_ref=identity, timeout_seconds=180, max_attempts=1, retry_delay_seconds=0)
+    if service == KIMI_SERVICE:
+        profile.update(reasoning_effort='low', max_completion_tokens=8192)
+    else:
+        profile.update(thinking='enabled', max_tokens=8192, temperature=1.0)
+        if model == 'glm-5.3':
+            profile['reasoning_effort'] = 'low'
+    validate_profiles([profile])
+    return profile
 
 
 def validate_profiles(profiles):
@@ -26,18 +49,27 @@ def validate_profiles(profiles):
         if not isinstance(p, dict) or not isinstance(p.get('service'), str) or p['service'] not in ENDPOINTS:
             raise ValueError('unsupported model service; only BigModel general and Kimi domestic general are supported')
         kimi = p['service'] == KIMI_SERVICE
-        if set(p) != (KIMI_KEYS if kimi else KEYS):
+        required = KIMI_KEYS if kimi else KEYS
+        if not required <= set(p) or set(p) - required - (set() if kimi else {'reasoning_effort'}):
             raise ValueError('profile fields missing or unsupported for selected service; do not mix provider parameters')
         if not isinstance(p['id'], str) or not REFERENCE.fullmatch(p['id']) or p['id'] == 'codex' or p['id'] in ids:
             raise ValueError('profile id invalid or duplicated')
         ids.add(p['id'])
         if p['endpoint'] != ENDPOINTS[p['service']]:
             raise ValueError('service endpoint mismatch; international, proxy and Coding endpoints are not interchangeable')
+        if not isinstance(p['model'], str) or not MODEL_ID.fullmatch(p['model']):
+            raise ValueError('model must be a valid service model ID; account access is checked by the service')
         if kimi:
-            if p['model'] != KIMI_MODEL or p['reasoning_effort'] not in ('low', 'high', 'max'):
-                raise ValueError('Kimi model/reasoning_effort unsupported; targets kimi-k3, live admission pending')
-        elif p['model'] not in MODELS or p['thinking'] not in ('enabled', 'disabled'):
-            raise ValueError('BigModel model/thinking unsupported; targets glm-4.7, live admission pending')
+            if p['model'].startswith('kimi-k2'):
+                raise ValueError('Kimi K2 parameters differ from this K3 reasoning transport')
+            if p['reasoning_effort'] not in ('low', 'high', 'max'):
+                raise ValueError('Kimi reasoning_effort must be low, high or max')
+        elif p['thinking'] not in ('enabled', 'disabled'):
+            raise ValueError('BigModel thinking must be enabled or disabled')
+        elif p['model'] == 'glm-5.3' and p['thinking'] != 'enabled':
+            raise ValueError('GLM-5.3 requires thinking enabled')
+        elif 'reasoning_effort' in p and (p['thinking'] != 'enabled' or p['reasoning_effort'] not in ('low', 'high', 'max')):
+            raise ValueError('reasoning_effort requires enabled thinking and low, high or max')
         if not isinstance(p['credential_ref'], str) or not REFERENCE.fullmatch(p['credential_ref']):
             raise ValueError('credential_ref must be a local credential name')
         for key,low,high in [('timeout_seconds',0,600), ('retry_delay_seconds',0,30)] + ([] if kimi else [('temperature',0,1)]):

@@ -55,6 +55,8 @@ func (c *CLAOController) Register(r chi.Router) {
 		r.Get("/projects/{projectId}/source", c.previewSource)
 		r.Get("/imports", c.imports)
 		r.Post("/imports", c.importLegacy)
+		r.Get("/connections/catalog", c.connectionCatalog)
+		r.Post("/connections", c.createConnection)
 		r.Post("/imports/{id}/credential", c.reconnectLegacy)
 		r.Get("/missions/{id}/result", c.result)
 		r.Post("/missions/{id}/export", c.exportResult)

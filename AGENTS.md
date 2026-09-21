@@ -2,6 +2,14 @@
 
 适用整个仓库。长期规则在本文件；当前任务在 PLANS.md；目标设计在 docs/V03_PLAN.md。更深层 AGENTS 只能补充局部规则，不得放松项目安全边界。`legacy/**` 中的 nested AGENTS 仅属于历史 snapshot，不是当前 `clao/` 或 `packaging/` 的实施规则。
 
+## 2026-09-21 收尾授权（本轮优先）
+
+- 在现有 PR #49 / `codex/ao-native-migration-closeout` 继续完整 v0.3 收尾；Coordinator + 多 Implementer + 独立 Reviewer 集成复核，不按内部子任务提前结束。
+- 本轮授权真实账户/服务测试、完整回归、独立 Windows 安装包构建与安装验收，替代旧切片禁止 live/打包的限制。仅小型专用测试材料；合计新增费用 ≤人民币20元、实际 HTTP 尝试 ≤40、真实 Worker 完整任务 ≤6（双 Worker 计2）；先核实官方服务/价格和请求上界，未知费用或身份停止该服务新增请求。
+- 主目录原有 `clao/config/default.yaml` 原样保留；不混用官方 `.ao`，不关闭账户安全检查，不递归更改磁盘/用户目录权限。安装测试仅操作测试安装。
+- 唯一发布 builder/manifest 承载原生候选入口和随包运行依赖；不得依赖源码、开发工具或 Codex 缓存。两套干净 Windows 验收不足须单列，未通过不标 M4/M5 COMPLETE。
+- 允许本分支清晰提交并更新一个总 PR；不合并、不写 main、不 force-push、不建正式 tag、不公开发布。最终审计及负责人体验仍保留。
+
 ## 开始任务
 
 1. 阅读 docs/PROJECT.md（当前事实）、PLANS.md（唯一任务指针）、V03_BACKLOG 中对应卡以及 V03_PLAN 的相关节；无需每次读全部历史。

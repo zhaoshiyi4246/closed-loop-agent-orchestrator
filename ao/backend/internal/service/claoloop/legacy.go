@@ -53,16 +53,17 @@ type LegacyCredentialStatus struct {
 	Status       string `json:"status"`
 }
 type LegacyResponse struct {
-	OK              bool            `json:"ok"`
-	Error           string          `json:"error,omitempty"`
-	Category        string          `json:"category,omitempty"`
-	Rows            []LegacyItem    `json:"rows,omitempty"`
-	Issues          []string        `json:"issues,omitempty"`
-	Text            string          `json:"text,omitempty"`
-	Configured      bool            `json:"configured,omitempty"`
-	ConfirmedModel  string          `json:"confirmedModel,omitempty"`
-	ModelFactSource string          `json:"modelFactSource,omitempty"`
-	Usage           json.RawMessage `json:"usage,omitempty"`
+	Catalog         ConnectionCatalog `json:"catalog,omitempty"`
+	OK              bool              `json:"ok"`
+	Error           string            `json:"error,omitempty"`
+	Category        string            `json:"category,omitempty"`
+	Rows            []LegacyItem      `json:"rows,omitempty"`
+	Issues          []string          `json:"issues,omitempty"`
+	Text            string            `json:"text,omitempty"`
+	Configured      bool              `json:"configured,omitempty"`
+	ConfirmedModel  string            `json:"confirmedModel,omitempty"`
+	ModelFactSource string            `json:"modelFactSource,omitempty"`
+	Usage           json.RawMessage   `json:"usage,omitempty"`
 }
 type legacyStore interface {
 	ImportCLAORecords(context.Context, []domain.CLAOImportRecord) error
@@ -103,7 +104,7 @@ func (a PythonAcceptance) Legacy(ctx context.Context, request map[string]any) (L
 	if err != nil {
 		return LegacyResponse{}, err
 	}
-	cmd := process.CommandContext(ctx, a.Python, "-m", "loopcore.ao_legacy")
+	cmd := process.CommandContext(ctx, a.Python, "-B", "-m", "loopcore.ao_legacy")
 	cmd.Env = append(gateEnv(), "PYTHONPATH="+filepath.Join(a.CoreRoot, "src"))
 	cmd.Dir = a.CoreRoot
 	cmd.Stdin = bytes.NewReader(raw)

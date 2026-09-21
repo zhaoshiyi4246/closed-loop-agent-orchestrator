@@ -289,7 +289,12 @@ func TestProjectsAPI_AddValidationAndConflicts(t *testing.T) {
 func TestProjectsAPI_Clone(t *testing.T) {
 	srv := newTestServer(t)
 	source := gitRepo(t, "clone-source")
-	remoteURL := (&url.URL{Scheme: "file", Path: source}).String()
+	// file URLs require slash paths and a leading slash before a Windows drive.
+	urlPath := filepath.ToSlash(source)
+	if filepath.VolumeName(source) != "" {
+		urlPath = "/" + urlPath
+	}
+	remoteURL := (&url.URL{Scheme: "file", Path: urlPath}).String()
 	destinationParent := t.TempDir()
 
 	body, status, _ := doRequest(t, srv, "POST", "/api/v1/projects/clone", `{"remoteUrl":`+quote(remoteURL)+`,"destinationParent":`+quote(destinationParent)+`}`)

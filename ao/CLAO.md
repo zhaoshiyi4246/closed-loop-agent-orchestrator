@@ -6,6 +6,10 @@
 
 “AO 原生底座 + 单 Worker 验收闭环基础集成” **DONE**：[PR #46](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/46) 启动失败返修通过外部代码审计，2026-09-10 已 rebase 合入 main。整体迁移与 M4 仍 IN_PROGRESS；角色决策切片 **DONE**（[PR #47](https://github.com/zhaoshiyi4246/closed-loop-agent-orchestrator/pull/47) 再次外部代码审计 PASS，2026-09-10 已 rebase 合入）；当前唯一切片为 **原生迁移收官大阶段，IN_REVIEW**；PR #48 恢复/指令回执已审计 PASS 并合入（DONE）。迁移工作树、依赖及独立开发数据保留。
 
+## 本轮收尾状态（2026-09-21）
+
+现有PR #49继续返修与安装交付，IN_PROGRESS；本轮已授权预算内真实模型/账户测试、完整回归及独立Windows候选安装包。下方切片的未授权/NOT_RUN为历史记录，不作为本轮禁止条件。当前仍以开发入口运行，正式安装产物和实测结果完成后在本页更新；不把可打开页面、隔离替身或旧截图当作真实准入。
+
 ## 启动
 
 需要 Windows、Git、Node（此次构建 24.19.0）、Go（此次构建 1.26.5）、Python 3.12 与原 `clao` 的依赖。Frontend 依赖/锁文件及 Vite/Forge 构建结构沿用上游；未自动安装编码工具、登录或调用模型。

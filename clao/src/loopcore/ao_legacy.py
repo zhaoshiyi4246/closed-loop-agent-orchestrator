@@ -328,6 +328,23 @@ def semantic(request, *, transport_factory=None):
 
 def evaluate(request):
     action = request.get("action")
+    if action == "catalog":
+        from .model_profiles import connection_catalog
+        return dict(ok=True, catalog=connection_catalog())
+    if action == "connection":
+        from .model_profiles import native_profile
+        identity = request.get("id")
+        name = request.get("name")
+        if not isinstance(identity, str) or not re.fullmatch(r'native-[a-f0-9]{32}', identity):
+            raise ImportError("连接身份无效")
+        if not isinstance(name, str) or not name.strip() or len(name) > 100 or _text(name, 100) != name:
+            raise ImportError("连接名称无效")
+        profile = native_profile(identity, request.get("service"), request.get("model"))
+        value = dict(id=identity, name=name.strip(), service=profile['service'], model=profile['model'],
+            endpoint=profile['endpoint'], billing='standard_api', compatible=True,
+            roles=['planner', 'auditor', 'verifier'], profile=profile,
+            reason='已保存标准 API 连接；需要配置凭据，实际型号权限由服务确认')
+        return dict(ok=True, rows=[dict(id=identity, kind='connection', document=value)])
     if action == "import":
         return import_files(request)
     if action == "validate":

@@ -464,6 +464,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/clao/connections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Save a standard API connection without credentials */
+        post: operations["createCLAOConnection"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/clao/connections/catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read standard API model suggestions */
+        get: operations["getCLAOConnectionCatalog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/clao/imports": {
         parameters: {
             query?: never;
@@ -2801,6 +2835,29 @@ export interface components {
             localState?: string;
             proof: number;
             stage: string;
+        };
+        CLAOConnectionCatalog: {
+            services: components["schemas"]["CLAOConnectionService"][];
+        };
+        CLAOConnectionModel: {
+            id: string;
+            label: string;
+        };
+        CLAOConnectionRequest: {
+            id: string;
+            model: string;
+            name: string;
+            service: string;
+        };
+        CLAOConnectionResponse: {
+            connection: components["schemas"]["ClaoloopLegacyConnection"];
+        };
+        CLAOConnectionService: {
+            billing: string;
+            id: string;
+            models: components["schemas"]["CLAOConnectionModel"][];
+            name: string;
+            supportsCustomModel: boolean;
         };
         CLAOConsumption: {
             callId: string;
@@ -6278,6 +6335,50 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["APIError"];
+                };
+            };
+        };
+    };
+    createCLAOConnection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CLAOConnectionRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CLAOConnectionResponse"];
+                };
+            };
+        };
+    };
+    getCLAOConnectionCatalog: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CLAOConnectionCatalog"];
                 };
             };
         };

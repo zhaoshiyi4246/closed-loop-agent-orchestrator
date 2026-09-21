@@ -1078,6 +1078,38 @@ paths:
       summary: Check whether the desktop browser runtime is connected for a session
       tags:
       - browser
+  /api/v1/clao/connections:
+    post:
+      operationId: createCLAOConnection
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CLAOConnectionRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CLAOConnectionResponse'
+          description: OK
+      summary: Save a standard API connection without credentials
+      tags:
+      - clao
+  /api/v1/clao/connections/catalog:
+    get:
+      operationId: getCLAOConnectionCatalog
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CLAOConnectionCatalog'
+          description: OK
+      summary: Read standard API model suggestions
+      tags:
+      - clao
   /api/v1/clao/imports:
     get:
       operationId: listCLAOImports
@@ -7532,6 +7564,69 @@ components:
       required:
       - stage
       - proof
+      type: object
+    CLAOConnectionCatalog:
+      properties:
+        services:
+          items:
+            $ref: '#/components/schemas/CLAOConnectionService'
+          type: array
+      required:
+      - services
+      type: object
+    CLAOConnectionModel:
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+      required:
+      - id
+      - label
+      type: object
+    CLAOConnectionRequest:
+      properties:
+        id:
+          type: string
+        model:
+          type: string
+        name:
+          type: string
+        service:
+          type: string
+      required:
+      - id
+      - name
+      - service
+      - model
+      type: object
+    CLAOConnectionResponse:
+      properties:
+        connection:
+          $ref: '#/components/schemas/ClaoloopLegacyConnection'
+      required:
+      - connection
+      type: object
+    CLAOConnectionService:
+      properties:
+        billing:
+          type: string
+        id:
+          type: string
+        models:
+          items:
+            $ref: '#/components/schemas/CLAOConnectionModel'
+          type: array
+        name:
+          type: string
+        supportsCustomModel:
+          type: boolean
+      required:
+      - id
+      - name
+      - billing
+      - models
+      - supportsCustomModel
       type: object
     CLAOConsumption:
       properties:

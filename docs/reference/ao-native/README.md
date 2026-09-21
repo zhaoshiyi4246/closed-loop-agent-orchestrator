@@ -2,6 +2,17 @@
 
 2026-09-09 起，Windows。本页分节保留迁移各阶段的直接验证，不代表真实模型、负责人完整体验或发布验收。
 
+## 2026-09-21 收尾验证（进行中）
+
+本次起点 PR #49 `c30d694f4356dc9afc951b424e850967e85182c1`。真实调用与离线替身分别记录；全部仍在收尾，未签署最终通过。
+
+- 官方价格查验：2026-09-21，[GLM-5.3迁移](https://docs.bigmodel.cn/cn/guide/start/migrate-to-glm-new)要求thinking enabled，reasoning_effort支持low/high/max；[智谱定价](https://docs.bigmodel.cn/cn/guide/start/pricing)输入8/输出28元每百万token。[Kimi定价](https://platform.kimi.com/docs/pricing/chat)K3未缓存输入20、输出100、缓存写入5min=20/1h=40元每百万token。
+- 受控语义入口 `dev/native/verify-live-semantics.py`：只发送脚本内自造整数加法正例/明确减法缺陷，正式Verifier Prompt/Schema/ID/AC/coherence全部保留。只读项目配置的指定引用，通过Windows系统凭据读取；单次尝试，无服务切换，不保存Key/Prompt/原始响应。开发子智能体与该产品调用无关。
+- 预算方法：全局40次/20元，预先持久reserved账本，超时不扣回；文本输入按UTF-8请求字节数+2048作为保守token上界，输出8192。Kimi输入预留60元/M（未缓存输入+最高缓存写入），GLM8元/M；单请求≤3元且输入上界≤24000，实际usage仅作事实记录不冒充账单。文件锁防并发消耗。
+- 初轮离线Windows语义/GLM53参数/旧导入：`pytest tests/test_native_connections.py tests/test_p01_bigmodel.py tests/test_ao_legacy.py -q --tb=short` → **58 passed /14.15s**。真实请求尚未执行时已准备本记录，后续结果由脱敏ledger记入。
+- 首次原生连接回归遗漏CLAO_NATIVE_BINARY，**4 skipped**，不计通过；补齐本轮daemon后**4 passed /93.96s**，含GLM53混合角色及新建连接幂等/重启/不外发边界。
+- Kimi K3真实Verifier对照：正确加法PASS、明确减法缺陷FAIL；2次HTTP200，token合计输入4141/输出698，费用预留2.79916元，账单实扣未知。首例脚本最后锁文件清理因Windows占用失败，模型/校验/ledger已成功；修正关闭句柄后删除锁，未重发正例。完整脱敏ledger在本次交接时附入。
+
 ## PR #46 启动失败局部返修
 
 最终 Windows 定向：`test_ao_native.py -k 'failed_start or spawn_receipt_loss or opencode_pass or cancel or manual_accept or codex_uses_same'` **7 passed / 1 xfailed / 9 deselected，46.02s**；Codex xfailed 仍是账户安全阻塞，不算执行通过。原生 `NewTaskDialog` / `GlobalNewTaskDialog` **16 passed**；Go `./internal/service/claoloop` 通过。开发 daemon 构建、Electron/Forge/Vite 实际启动、`tsc --noEmit`、Python compileall、JS 语法、diff-check 与本地文档链接目标检查通过。

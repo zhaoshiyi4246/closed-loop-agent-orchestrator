@@ -109,7 +109,7 @@ def native_core_python(tmp_path, native_provider_servers):
 import("os";"os/exec")
 func main(){
  args:=os.Args[1:]
- if len(args)==2 && args[0]=="-m" && args[1]=="loopcore.ao_legacy" { args=[]string{"-c",BOOTSTRAP} }
+ if len(args)==3 && args[0]=="-B" && args[1]=="-m" && args[2]=="loopcore.ao_legacy" { args=[]string{"-B","-c",BOOTSTRAP} }
  cmd:=exec.Command(PYTHON,args...);cmd.Stdin=os.Stdin;cmd.Stdout=os.Stdout;cmd.Stderr=os.Stderr;cmd.Env=os.Environ()
  if err:=cmd.Run();err!=nil { os.Exit(1) }
 }
@@ -190,7 +190,8 @@ def test_formal_import_versions_defaults_without_replacing_connections(native, n
 
 
 @pytest.mark.skipif(os.name != "nt", reason="real Windows Credential Manager test with isolated references")
-def test_formal_native_import_mixed_semantics_and_consent(native, native_provider_servers):
+@pytest.mark.parametrize("glm_model", ["glm-4.7", "glm-5.3"])
+def test_formal_native_import_mixed_semantics_and_consent(native, native_provider_servers, glm_model):
     _, api, nonce, source, base, temp = native
     _, seen = native_provider_servers
     ref = "migration-test-" + uuid.uuid4().hex
@@ -199,6 +200,9 @@ def test_formal_native_import_mixed_semantics_and_consent(native, native_provide
     managed_refs = set()
     profiles = [dict(profile(SERVICE), id="glm-original", credential_ref=ref, timeout_seconds=5),
                 dict(profile(KIMI_SERVICE), id="kimi-original", credential_ref=ref, timeout_seconds=5)]
+    profiles[0]["model"] = glm_model
+    if glm_model == "glm-5.3":
+        profiles[0].update(thinking="enabled", reasoning_effort="low")
     cfg = temp / "old-default.yaml"
     old_cfg = dict(model_profiles=profiles, roles={"auditor": {"profile": "glm-original"}, "planner": {"profile": "kimi-original"}, "verifier": {"profile": "glm-original"}},
                    budgets={"max_subtasks": 1, "subtask_budgets": {"max_local_fixes": 1, "max_replans": 0}}, gate={"timeout_seconds": 10})
@@ -267,11 +271,12 @@ def test_formal_native_import_mixed_semantics_and_consent(native, native_provide
         for call in seen:
             assert call["authorization"] == "Bearer " + keys[call["service"]]
             assert call["task_id"] == request["id"]
-            assert call["model"] == ("glm-4.7" if call["service"] == SERVICE else "kimi-k3")
+            assert call["model"] == (glm_model if call["service"] == SERVICE else "kimi-k3")
             assert ("thinking" in call["body"]) == (call["service"] == SERVICE)
-            assert ("reasoning_effort" in call["body"]) == (call["service"] == KIMI_SERVICE)
+            assert ("reasoning_effort" in call["body"]) == (call["service"] == KIMI_SERVICE or glm_model == "glm-5.3")
             if call["service"] == SERVICE:
                 assert call["body"]["temperature"] == .2
+                assert call["body"]["thinking"]["type"] == ("enabled" if glm_model == "glm-5.3" else "disabled")
         for role in ("auditor", "planner", "verifier"):
             frozen = mission["roles"][role]["connection"]
             assert (frozen["service"], frozen["profile"]["credential_ref"]) in managed_refs
@@ -295,3 +300,26 @@ def test_formal_native_import_mixed_semantics_and_consent(native, native_provide
             credentials(service).delete(managed_ref)
         for service in keys:
             credentials(service).delete(ref)
+
+
+def test_formal_create_connection_is_idempotent_private_and_persistent(native, native_provider_servers):
+    _, api, nonce, _, _, _ = native
+    _, seen = native_provider_servers
+    headers = {'X-CLAO-Nonce': nonce}
+    status, catalog = api('/api/v1/clao/connections/catalog')
+    assert status == 200
+    assert catalog['services'][0]['models'][0]['id'] == 'glm-5.3'
+    request = dict(id=str(uuid.uuid4()), name='GLM 标准 API', service=SERVICE, model='glm-5.3')
+    assert api('/api/v1/clao/connections', request)[0] == 403
+    status, created = api('/api/v1/clao/connections', request, headers)
+    assert status == 200, created
+    connection = created['connection']
+    assert connection['model'] == 'glm-5.3' and connection['billing'] == 'standard_api'
+    assert 'profile' not in connection and 'credential_ref' not in json.dumps(connection)
+    assert api('/api/v1/clao/connections', request, headers) == (200, created)
+    assert api('/api/v1/clao/connections', dict(request, model='glm-4.7'), headers)[0] == 409
+    assert len(api('/api/v1/clao/imports')[1]['connections']) == 1
+    new_nonce = api.restart()
+    assert api('/api/v1/clao/connections', request, {'X-CLAO-Nonce': new_nonce}) == (200, created)
+    assert api('/api/v1/clao/imports')[1]['connections'] == [connection]
+    assert seen == [] and api('/api/v1/clao/missions')[1]['missions'] == []

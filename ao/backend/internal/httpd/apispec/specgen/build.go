@@ -146,6 +146,8 @@ func schemaName(_ reflect.Type, defaultName string) string {
 // the drift test fails until the spec is regenerated, which flags the gap.
 var schemaNames = map[string]string{ //nolint:gosec // Public OpenAPI type names include reset-credit contracts; no credential value is stored here.
 	"ClaoloopRequest": "CLAORequest", "ClaoloopMission": "CLAOMission", "ClaoloopCriterion": "CLAOCriterion",
+	"ClaoloopConnectionModel": "CLAOConnectionModel", "ClaoloopConnectionService": "CLAOConnectionService",
+	"ClaoloopConnectionCatalog": "CLAOConnectionCatalog", "ClaoloopConnectionRequest": "CLAOConnectionRequest", "ClaoloopConnectionResponse": "CLAOConnectionResponse",
 	"ClaoloopCheckpoint": "CLAOCheckpoint", "ClaoloopRecoveryStatus": "CLAORecoveryStatus", "ClaoloopDirective": "CLAODirective", "ClaoloopDirectiveRequest": "CLAODirectiveRequest", "ClaoloopConsumption": "CLAOConsumption", "ControllersCLAODirectiveResponse": "CLAODirectiveResponse",
 	"ClaoloopEvidence": "CLAOEvidence", "ClaoloopOperation": "CLAOOperation",
 	"ClaoloopRoleChoice": "CLAORoleChoice", "ClaoloopFrozenRole": "CLAOFrozenRole", "ClaoloopRoleCall": "CLAORoleCall", "ClaoloopDecision": "CLAODecision",
@@ -2434,6 +2436,8 @@ func prOperations() []operation {
 
 func claoOperations() []operation {
 	return []operation{
+		{method: http.MethodGet, path: "/api/v1/clao/connections/catalog", id: "getCLAOConnectionCatalog", tag: "clao", summary: "Read standard API model suggestions", resps: []respUnit{{200, claoloop.ConnectionCatalog{}}}},
+		{method: http.MethodPost, path: "/api/v1/clao/connections", id: "createCLAOConnection", tag: "clao", summary: "Save a standard API connection without credentials", reqBody: claoloop.ConnectionRequest{}, resps: []respUnit{{200, claoloop.ConnectionResponse{}}}},
 		{method: http.MethodPost, path: "/api/v1/clao/projects", id: "openCLAOProject", tag: "clao", summary: "Open or create a local directory without modifying Git", reqBody: claoloop.LocalProjectRequest{}, resps: []respUnit{{201, controllers.CLAOProjectResponse{}}}},
 		{method: http.MethodGet, path: "/api/v1/clao/projects/{projectId}/source", id: "previewCLAOSource", tag: "clao", summary: "Read current source contents before confirmation", pathParams: []any{controllers.CLAOProjectParam{}}, resps: []respUnit{{200, controllers.CLAOSourceResponse{}}}},
 		{method: http.MethodGet, path: "/api/v1/clao/imports", id: "listCLAOImports", tag: "clao", summary: "Read explicitly imported legacy facts", resps: []respUnit{{200, claoloop.LegacyCatalog{}}}},

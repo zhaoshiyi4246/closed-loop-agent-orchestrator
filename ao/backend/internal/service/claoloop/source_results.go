@@ -100,7 +100,7 @@ func (a PythonAcceptance) materials(ctx context.Context, request map[string]any)
 	if err != nil {
 		return materialOutput{}, err
 	}
-	cmd := process.CommandContext(ctx, a.Python, "-m", "loopcore.ao_acceptance")
+	cmd := process.CommandContext(ctx, a.Python, "-B", "-m", "loopcore.ao_acceptance")
 	cmd.Dir = a.CoreRoot
 	cmd.Env = append(gateEnv(), "PYTHONPATH="+filepath.Join(a.CoreRoot, "src"))
 	cmd.Stdin = bytes.NewReader(data)
